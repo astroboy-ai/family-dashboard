@@ -130,7 +130,7 @@ There is **no nginx / no reverse proxy**. But browsers cannot resolve `backend:8
   - Backend never needs a host port in production.
   - Auth cookies are same-origin and can be `httpOnly; SameSite=Lax`.
 - Each frontend is a Next.js app with `output: 'standalone'` and a rewrite rule in `next.config.ts`.
-- **Only the frontend ports are published to the host.** Backend port 8000 is published only in the `dev` compose profile.
+- The frontend ports and MinIO's S3 API port are published to the host; the MinIO console remains private. The backend port 8000 is published only in the `dev` compose profile. `S3_ENDPOINT` is the internal Docker URL used by services, while `S3_PUBLIC_ENDPOINT` is the browser-reachable URL embedded in presigned uploads. Configure MinIO CORS for the frontend origins; never make the bucket anonymous.
 
 ```ts
 // frontend-main/next.config.ts
@@ -1435,7 +1435,9 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_API_CORS_ALLOW_ORIGIN: ${MINIO_API_CORS_ALLOW_ORIGIN:-http://localhost:3000,http://localhost:3001,http://localhost:3002}
     volumes: [miniodata:/data]
+    ports: ["${MINIO_API_PORT:-9000}:9000"]
     networks: [familyos]
 
   minio-init:
@@ -1525,6 +1527,9 @@ Adds: published `8000:8000` on backend, bind-mounts for hot reload, `pgadmin`/`r
 POSTGRES_PASSWORD=change-me-strong
 MINIO_ROOT_USER=familyos
 MINIO_ROOT_PASSWORD=change-me-strong
+MINIO_API_PORT=9000
+MINIO_API_CORS_ALLOW_ORIGIN=http://localhost:3000,http://localhost:3001,http://localhost:3002
+S3_PUBLIC_ENDPOINT=http://localhost:9000
 SERVICE_TOKEN=generate-with-openssl-rand-hex-32
 MASTER_KEY=base64-32-bytes-openssl-rand-base64-32
 JWT_SECRET=generate-with-openssl-rand-hex-32
@@ -1702,6 +1707,7 @@ Do these **in order**. Do not start step *n+1* before step *n* has tests passing
 | D12 | Hermes memory **is** the Note system | User-visible, editable, deletable | No |
 | D13 | Vault writes are UI-only until Phase 4 | Highest-risk surface | Yes |
 | D14 | One Google Cloud OAuth client supports multiple independently authorized Google accounts and calendars; start with one central account, then bind calendars per dashboard/member | Supports staged adoption without coupling dashboard access to one Google identity | Yes |
+| D15 | Publish MinIO's S3 API on a configurable host port for browser presigned uploads; keep its console and backend private, and use separate internal/public endpoints | Allows direct browser-to-storage uploads without exposing the backend or proxying media bytes through it | Yes |
 
 ### Open questions (resolve before the phase that needs them)
 1. **Google Calendar rollout:** resolved. Start with one central Google account for the family dashboards; retain account-specific connections and dashboard/member calendar bindings so calendars from different Google accounts can be isolated later. Use one Google Cloud project/OAuth client for the integration. (Phase 1, step 12)

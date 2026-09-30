@@ -1,0 +1,45 @@
+[project]
+name = "familyos-backend"
+version = "0.1.0"
+description = "FamilyOS backend test environment"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "alembic>=1.14",
+    "asyncpg>=0.30",
+    "fastapi>=0.115",
+    "httpx>=0.28",
+    "minio>=7.2",
+    "pyjwt[crypto]>=2.10",
+    "pydantic-settings>=2.7",
+    "pwdlib[argon2]>=0.2",
+    "redis>=5.2",
+    "sqlalchemy[asyncio]>=2.0",
+    "structlog>=25.1",
+    "uvicorn[standard]>=0.34",
+]
+
+[dependency-groups]
+test = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "pytest-playwright>=0.6",
+    "testcontainers[postgres]>=4.9",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra --strict-config --strict-markers"
+asyncio_mode = "auto"
+markers = [
+    "integration: requires external services such as PostgreSQL",
+    "e2e: browser-driven end-to-end tests",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["app"]
+
+[tool.uv]
+package = false

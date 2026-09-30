@@ -22,8 +22,8 @@ class Settings(BaseSettings):
         "postgresql+asyncpg://familyos:change-me-strong@postgres:5432/familyos"
     )
     redis_url: str = "redis://redis:6379/0"
-    s3_endpoint: str = "http://minio:9000"
-    s3_public_endpoint: str = "http://localhost:9000"
+    s3_endpoint: str = "http://object-storage:8333"
+    s3_public_endpoint: str = "http://localhost:8333"
     s3_access_key: str = "familyos"
     s3_secret_key: str = "change-me-strong"
     s3_bucket: str = "familyos-media"

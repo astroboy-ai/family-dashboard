@@ -377,7 +377,7 @@ FamilyOS is a self-hosted family knowledge & operations system. It exists to mak
 
 ```
 ┌──────────────────────── Docker network: familyos ────────────────────────┐
-│  postgres+pgvector   redis   minio   embeddings(optional)                │
+│  postgres+pgvector   redis   SeaweedFS S3   embeddings(optional)         │
 │         ▲              ▲       ▲            ▲                           │
 │         └──────────────┼───────┼────────────┘                           │
 │                        │       │                                        │
@@ -401,7 +401,7 @@ FamilyOS is a self-hosted family knowledge & operations system. It exists to mak
 
 **Request paths:** `/api/*` (JWT or device token) · `/internal/agent/*` (service token, network-only) · `/internal/enrich/*` · `/healthz /readyz` · `/metrics`.
 
-**Failure isolation:** redis down → outbox queues jobs, FTS still works. minio down → text capture works, media returns 503. hermes down → chat degrades, nothing else. embeddings down → `embedding_status='pending'`, backfilled later. **Graph projection worker down → Archify shows last cached layout, marked stale.**
+**Failure isolation:** redis down → outbox queues jobs, FTS still works. object storage down → text capture works, media returns 503. hermes down → chat degrades, nothing else. embeddings down → `embedding_status='pending'`, backfilled later. **Graph projection worker down → Archify shows last cached layout, marked stale.**
 
 ---
 
@@ -410,7 +410,7 @@ FamilyOS is a self-hosted family knowledge & operations system. It exists to mak
 Backend: Python 3.12, FastAPI, SQLAlchemy 2 async + asyncpg, Alembic, Pydantic v2, `uv`.
 Queue: **ARQ** ⟦DECIDED⟧ (async-native, Redis-only, built-in cron).
 DB: Postgres 16 + pgvector + pg_trgm + unaccent + btree_gin.
-Storage: **MinIO** in compose, local-disk capable behind `StorageBackend` protocol ⟦DECIDED⟧.
+Storage: **SeaweedFS S3** in compose, local-disk capable behind `StorageBackend` protocol ⟦DECIDED⟧.
 Embeddings: `bge-m3` @ 1024 dims via Ollama (default), OpenAI optional ⟦DECIDED⟧.
 OCR: tesseract (default) or paddleocr. ASR: faster-whisper. Vision/LLM: ollama (llava/qwen2.5) or OpenAI.
 Frontends: Next.js 15 App Router + React 19 + TS + Tailwind + shadcn/ui.
@@ -473,7 +473,7 @@ Types: `freeform, account, coupon, meeting, map, timeline, vault, chore, meal, r
 
 Block types: `text, image, video, voice, file, link, account, coupon, meeting, map, timeline, vault, structured, checklist`. Each has a defined `data` shape and an enrichment path (see v1.0 §6.3 table).
 
-**Quick Capture flow:** client → `POST /api/media/presign` → PUT to MinIO → `POST /api/notes` with `media_asset_ids` → note created `status='inbox'` → outbox row in same tx → ARQ enqueue post-commit → enrichment pipeline → searchable.
+**Quick Capture flow:** client → `POST /api/media/presign` → PUT to S3-compatible storage → `POST /api/notes` with `media_asset_ids` → note created `status='inbox'` → outbox row in same tx → ARQ enqueue post-commit → enrichment pipeline → searchable.
 
 **Critical:** enqueue happens *after* commit via an outbox table (or `LISTEN/NOTIFY`). No lost jobs.
 
@@ -686,11 +686,11 @@ Full endpoint list in v1.0 §20. **⟦v1.1⟧ additions:**
 
 ### Block 22 — `text` — §21 Docker Compose & Environment
 
-Compose services: `postgres (pgvector/pgvector:pg16)`, `redis (7-alpine, appendonly)`, `minio`, `minio-init`, `backend`, `worker (arq)`, `hermes`, `frontend-main`, `frontend-wall`, `frontend-kid`, optional `ollama` (profile `ai`).
+Compose services: `postgres (pgvector/pgvector:pg16)`, `redis (7-alpine, appendonly)`, `object-storage (SeaweedFS S3)`, `backend`, `worker (arq)`, `hermes`, `frontend-main`, `frontend-wall`, `frontend-kid`, optional `ollama` (profile `ai`).
 
 **`x-backend-env` shared anchor** for DATABASE_URL, REDIS_URL, S3_*, SERVICE_TOKEN, MASTER_KEY, TZ. Backend not published in prod; dev profile publishes 8000. Healthchecks on postgres and redis gate backend startup. Backend command: `alembic upgrade head && uvicorn ...`.
 
-**`.env.example`** covers: core secrets (POSTGRES_PASSWORD, MINIO_ROOT_USER/PASSWORD, SERVICE_TOKEN, MASTER_KEY, JWT_SECRET), household (name, TZ, locale), AI (`AI_ENRICHMENT_ENABLED, LLM_PROVIDER, OLLAMA_URL, LLM_MODEL, VISION_MODEL, EMBEDDING_PROVIDER, EMBEDDING_MODEL=bge-m3, EMBEDDING_DIM=1024, OCR_PROVIDER, ASR_PROVIDER/ASR_MODEL, OPENAI_API_KEY`), integrations (`GOOGLE_CALENDAR_*, HOME_ASSISTANT_*`).
+**`.env.example`** covers: core secrets (POSTGRES_PASSWORD, S3_ACCESS_KEY/SECRET_KEY, SERVICE_TOKEN, MASTER_KEY, JWT_SECRET), household (name, TZ, locale), AI (`AI_ENRICHMENT_ENABLED, LLM_PROVIDER, OLLAMA_URL, LLM_MODEL, VISION_MODEL, EMBEDDING_PROVIDER, EMBEDDING_MODEL=bge-m3, EMBEDDING_DIM=1024, OCR_PROVIDER, ASR_PROVIDER/ASR_MODEL, OPENAI_API_KEY`), integrations (`GOOGLE_CALENDAR_*, HOME_ASSISTANT_*`).
 
 **⟦v1.1⟧ graph worker has no new env;** projection uses the existing embedding provider.
 
@@ -702,7 +702,7 @@ Compose services: `postgres (pgvector/pgvector:pg16)`, `redis (7-alpine, appendo
 
 **Testing:** unit (services, tools, chunking, crypto, permissions); integration (testcontainers Postgres, visibility tests); tool-contract tests (schema valid, permission enforced, idempotency honored, audit row written); Playwright E2E (capture→enrich→search, chore→approve→points, expiry dashboard, vault share, **⟦v1.1⟧ graph render + filter + save view + share**); migration round-trip. **Permission matrix test:** every tool × every role → assert allow/deny. **Prompt-injection suite:** notes containing "ignore previous instructions…" must not trigger tool calls.
 
-**Backups:** nightly `pg_dump` + `mc mirror`; retention 7d/4w/12m; documented and rehearsed restore drill quarterly.
+**Backups:** nightly `pg_dump` + `aws s3 sync` (or an equivalent S3 client); retention 7d/4w/12m; documented and rehearsed restore drill quarterly.
 
 **Security checklist:** secrets from env only; backend off host; cookies `httpOnly/Secure/SameSite=Lax`; rate limits on `/auth/login` and `/internal/*`; vault reads audited and audit table append-only; CI asserts `hermes/` has no `psycopg`/`asyncpg` import; upload MIME sniffing + size cap + image re-encode; dependency scanning.
 
@@ -787,7 +787,7 @@ Compose services: `postgres (pgvector/pgvector:pg16)`, `redis (7-alpine, appendo
 
 ### Block 27 — `text` — §25 Decision Log
 
-D1 no nginx (Next rewrites) · D2 ARQ over Celery · D3 MinIO default, local-disk capable · D4 `bge-m3` @ 1024 · D5 hybrid RRF default · D6 vault = Notes + overlay · D7 agent zero DB creds · D8 mutating tools require confirmation · D9 `points_ledger` append-only authoritative · D10 device pairing short code → long-lived scoped token · D11 recurring chores computed on the fly · D12 Hermes memory *is* the Note system · D13 vault writes UI-only until Phase 4 · **⟦v1.1⟧ D14 Archify is a projection, never a store** · **⟦v1.1⟧ D15 graph layouts are computed server-side and cached by `view_hash`** · **⟦v1.1⟧ D16 semantic graph layer is opt-in and off by default until Phase 3**.
+D1 no nginx (Next rewrites) · D2 ARQ over Celery · D3 SeaweedFS S3 default (supersedes MinIO), local-disk capable · D4 `bge-m3` @ 1024 · D5 hybrid RRF default · D6 vault = Notes + overlay · D7 agent zero DB creds · D8 mutating tools require confirmation · D9 `points_ledger` append-only authoritative · D10 device pairing short code → long-lived scoped token · D11 recurring chores computed on the fly · D12 Hermes memory *is* the Note system · D13 vault writes UI-only until Phase 4 · **⟦v1.1⟧ D14 Archify is a projection, never a store** · **⟦v1.1⟧ D15 graph layouts are computed server-side and cached by `view_hash`** · **⟦v1.1⟧ D16 semantic graph layer is opt-in and off by default until Phase 3**.
 
 **Open questions:** Google Calendar scope (shared vs per-member, Phase 1 step 12) · share-link PIN required for vault? (Phase 2) · notification TLS termination (Phase 2 §17) · ASR `base` vs `small` (Phase 2) · guest accounts vs scoped share links (Phase 2) · will `household_id` ever hold >1 row (affects indexes) · **⟦v1.1⟧** default semantic threshold (0.72 proposed; tune on real data) · **⟦v1.1⟧** max node count before mandatory downsampling (50k proposed).
 
@@ -795,7 +795,7 @@ D1 no nginx (Next rewrites) · D2 ARQ over Celery · D3 MinIO default, local-dis
 
 ### Block 28 — `text` — §26 One-Paragraph Summary
 
-Build a FastAPI + Postgres/pgvector + Redis + MinIO backend where **Notes and typed Blocks are the universal data model**, exposed through REST to three separate Next.js frontends (main, wall, kid) that reach the backend via server-side `/api/*` rewrites — no nginx. Enrich every capture asynchronously (OCR, ASR, vision, summary, auto-tag, embedding) via ARQ workers. Expose every capability to the agent through a **typed Tool Registry** with permission checks, idempotency, confirmation-on-write, and full audit — Hermes never touches the database. Build chores, expiry, meals, and vault as **thin overlays** on Notes, and build the **Archify Gallery** as a **projection** of Notes/Blocks/Tags/Members/Media — never a parallel store. Make new tools, games, menus, and widgets **purely additive** through backend decorators and frontend manifests. Start with Phase 1 step 1 (§24) and do not proceed until each step's tests pass.
+Build a FastAPI + Postgres/pgvector + Redis + SeaweedFS S3 backend where **Notes and typed Blocks are the universal data model**, exposed through REST to three separate Next.js frontends (main, wall, kid) that reach the backend via server-side `/api/*` rewrites — no nginx. Enrich every capture asynchronously (OCR, ASR, vision, summary, auto-tag, embedding) via ARQ workers. Expose every capability to the agent through a **typed Tool Registry** with permission checks, idempotency, confirmation-on-write, and full audit — Hermes never touches the database. Build chores, expiry, meals, and vault as **thin overlays** on Notes, and build the **Archify Gallery** as a **projection** of Notes/Blocks/Tags/Members/Media — never a parallel store. Make new tools, games, menus, and widgets **purely additive** through backend decorators and frontend manifests. Start with Phase 1 step 1 (§24) and do not proceed until each step's tests pass.
 
 ---
 

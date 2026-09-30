@@ -9,6 +9,7 @@ from redis.asyncio import Redis
 
 from app.api.auth import router as auth_router
 from app.api.media import router as media_router
+from app.api.notes import blocks_router, notes_router, tags_router
 from app.core.config import Settings, get_settings
 from app.core.db import check_database, dispose_database
 from app.core.errors import AppError, app_error_handler
@@ -58,6 +59,9 @@ def create_app(
     app.add_exception_handler(AppError, app_error_handler)
     app.include_router(auth_router, prefix="/api")
     app.include_router(media_router, prefix="/api")
+    app.include_router(notes_router, prefix="/api")
+    app.include_router(blocks_router, prefix="/api")
+    app.include_router(tags_router, prefix="/api")
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:

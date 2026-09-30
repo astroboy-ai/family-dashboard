@@ -2,7 +2,6 @@ import asyncio
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
 
-import httpx
 import structlog
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
@@ -14,6 +13,7 @@ from app.core.config import Settings, get_settings
 from app.core.db import check_database, dispose_database
 from app.core.errors import AppError, app_error_handler
 from app.core.logging import configure_logging
+from app.core.storage import get_storage
 
 
 ReadinessProbe = Callable[[], Awaitable[None]]
@@ -47,11 +47,7 @@ def create_app(
             await client.aclose()
 
     async def check_storage() -> None:
-        async with httpx.AsyncClient(timeout=2) as client:
-            response = await client.get(
-                f"{app_settings.s3_endpoint.rstrip('/')}/minio/health/ready"
-            )
-            response.raise_for_status()
+        await get_storage(app_settings).check()
 
     probes = readiness_probes or {
         "database": check_database,

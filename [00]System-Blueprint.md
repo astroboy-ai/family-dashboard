@@ -91,7 +91,7 @@ FamilyOS is a self-hosted family knowledge & operations system. It exists to mak
 │                     Docker Network: familyos  (bridge)                   │
 │                                                                          │
 │   ┌────────────┐   ┌─────────┐   ┌──────────────────┐   ┌────────────┐   │
-│   │ postgres   │   │ redis   │   │ minio            │   │ embeddings │   │
+│   │ postgres   │   │ redis   │   │ SeaweedFS S3     │   │ embeddings │   │
 │   │ +pgvector  │   │ (queue  │   │ (S3-compatible   │   │ service    │   │
 │   │            │   │ +cache) │   │  object store)   │   │ (optional) │   │
 │   └─────▲──────┘   └────▲────┘   └────────▲─────────┘   └─────▲──────┘   │
@@ -130,7 +130,7 @@ There is **no nginx / no reverse proxy**. But browsers cannot resolve `backend:8
   - Backend never needs a host port in production.
   - Auth cookies are same-origin and can be `httpOnly; SameSite=Lax`.
 - Each frontend is a Next.js app with `output: 'standalone'` and a rewrite rule in `next.config.ts`.
-- The frontend ports and MinIO's S3 API port are published to the host; the MinIO console remains private. The backend port 8000 is published only in the `dev` compose profile. `S3_ENDPOINT` is the internal Docker URL used by services, while `S3_PUBLIC_ENDPOINT` is the browser-reachable URL embedded in presigned uploads. Configure MinIO CORS for the frontend origins; never make the bucket anonymous.
+- The frontend ports and SeaweedFS S3 API port are published to the host; its admin interfaces remain private. The backend port 8000 is published only in the `dev` compose profile. `S3_ENDPOINT` is the internal Docker URL used by services, while `S3_PUBLIC_ENDPOINT` is the browser-reachable URL embedded in presigned uploads. Configure S3 CORS for the frontend origins and require signed requests.
 
 ```ts
 // frontend-main/next.config.ts
@@ -153,7 +153,7 @@ const nextConfig = {
 
 ### 3.3 Failure isolation
 - If **redis** is down: capture still works (jobs queued in an outbox table, replayed later). Search still works for FTS; semantic search degrades.
-- If **minio** is down: text capture works; media upload returns 503 with retry guidance.
+- If **object storage** is down: text capture works; media upload returns 503 with retry guidance.
 - If **hermes** is down: everything else works. Chat is the only degraded surface.
 - If **embeddings service** is down: notes are stored with `embedding_status='pending'` and backfilled.
 
@@ -171,7 +171,7 @@ const nextConfig = {
 | DB | PostgreSQL 16 + `pgvector` | `pg_trgm`, `unaccent`, `btree_gin` extensions enabled |
 | Queue | **ARQ** ⟦DECIDED⟧ | simpler than Celery; Redis-backed; async-native; job results + cron built in |
 | Cache / locks | Redis 7 | also used for rate limits and idempotency keys |
-| Object storage | **MinIO** in compose, local-disk backend behind the same interface ⟦DECIDED⟧ | `StorageBackend` protocol: `put/get/delete/presign/url_for` |
+| Object storage | **SeaweedFS S3** in compose, local-disk backend behind the same interface ⟦DECIDED⟧ | Apache-2.0 S3-compatible service; `StorageBackend` protocol: `put/get/delete/presign/url_for` |
 | Embeddings | Pluggable provider: `ollama` (nomic-embed-text / bge-m3) default, `openai` optional | dimension stored per-row; see §10.3 |
 | OCR | Pluggable: `tesseract` (default, offline) or `paddleocr` | worker task |
 | ASR | Pluggable: `faster-whisper` (default, offline) | worker task |
@@ -187,8 +187,8 @@ const nextConfig = {
 ### 4.1 Why ARQ over Celery
 Async-native (matches FastAPI), Redis-only (already present), built-in cron for recurring jobs (expiry scans, digests, calendar sync), far less configuration. If throughput ever demands it, the `JobQueue` interface allows a Celery swap without touching domain code.
 
-### 4.2 Why MinIO even though it's "local"
-The `StorageBackend` protocol means you can run pure local disk (a Docker volume) with zero code changes. MinIO is the default in compose because it gives presigned URLs, which lets the browser upload large media **directly** to storage, bypassing the backend entirely for the bytes.
+### 4.2 Why SeaweedFS for local S3
+The `StorageBackend` protocol means you can run pure local disk with zero code changes. SeaweedFS `mini` is the default in compose because its Apache-2.0 S3 gateway supports presigned URLs, letting browsers upload large media **directly** to storage without proxying the bytes through the backend.
 
 ---
 
@@ -222,7 +222,7 @@ familyos/
 │   │   │   ├── crypto.py           # envelope encryption (§11.4)
 │   │   │   ├── db.py               # async engine, session factory
 │   │   │   ├── redis.py
-│   │   │   ├── storage.py          # StorageBackend protocol + MinIO/local impls
+│   │   │   ├── storage.py          # StorageBackend protocol + S3-compatible/local impls
 │   │   │   ├── queue.py            # ARQ pool + enqueue helpers
 │   │   │   ├── logging.py          # structlog config
 │   │   │   ├── errors.py           # exception types + handlers
@@ -400,7 +400,7 @@ A Note is a container of ordered Blocks plus metadata. It has:
 User taps capture (PWA share target, keyboard shortcut, or + button)
         │
         ├─ text typed → POST /api/notes  (type=freeform, one text block)
-        ├─ photos     → POST /api/media/presign → browser PUTs to MinIO
+        ├─ photos     → POST /api/media/presign → browser PUTs to S3-compatible storage
         │               → POST /api/notes with media_asset_ids
         ├─ voice      → MediaRecorder → same presign path
         └─ file/PDF   → same presign path
@@ -731,7 +731,7 @@ create index on jobs_outbox (status, available_at);
 1. Client → `POST /api/media/presign` `{filename, mime, size, sha256}`.
 2. Backend checks quota + dedupe (`sha256` already exists → return existing asset, skip upload).
 3. Backend returns `{asset_id, upload_url, fields}`.
-4. Client PUTs directly to MinIO/local endpoint.
+4. Client PUTs directly to the S3-compatible/local storage endpoint.
 5. Client → `POST /api/media/{asset_id}/complete`.
 6. Backend verifies object exists + size, sets `enrichment_status='pending'`, enqueues enrichment.
 
@@ -746,7 +746,7 @@ create index on jobs_outbox (status, available_at);
 
 ### 8.4 Encryption at rest
 - Vault media is encrypted **before** upload using a per-asset DEK (§11.4). The `storage_key` for vault media is unguessable (`uuid4` path) and access always goes through a permission-checked signed URL with a 5-minute TTL.
-- Non-vault media uses storage-level encryption if available (MinIO SSE-S3).
+- Non-vault media can use storage-level encryption when supported by the configured S3 provider.
 
 ---
 
@@ -1393,16 +1393,16 @@ networks:
 volumes:
   pgdata: {}
   redisdata: {}
-  miniodata: {}
+  s3data: {}
   mediadata: {}
 
 x-backend-env: &backend-env
   DATABASE_URL: postgresql+asyncpg://familyos:${POSTGRES_PASSWORD}@postgres:5432/familyos
   REDIS_URL: redis://redis:6379/0
-  S3_ENDPOINT: http://minio:9000
-  S3_ACCESS_KEY: ${MINIO_ROOT_USER}
-  S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
-  S3_BUCKET: familyos-media
+  S3_ENDPOINT: http://object-storage:8333
+  S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+  S3_SECRET_KEY: ${S3_SECRET_KEY}
+  S3_BUCKET: ${S3_BUCKET:-familyos-media}
   SERVICE_TOKEN: ${SERVICE_TOKEN}
   MASTER_KEY: ${MASTER_KEY}
   TZ: ${HOUSEHOLD_TZ:-UTC}
@@ -1429,29 +1429,19 @@ services:
       test: ["CMD", "redis-cli", "ping"]
     networks: [familyos]
 
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
+  object-storage:
+    image: chrislusf/seaweedfs:4.48
+    command:
+      - mini
+      - -dir=/data
+      - -s3.port=8333
+      - -s3.allowedOrigins=${S3_CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:3001,http://localhost:3002}
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-      MINIO_API_CORS_ALLOW_ORIGIN: ${MINIO_API_CORS_ALLOW_ORIGIN:-http://localhost:3000,http://localhost:3001,http://localhost:3002}
-    volumes: [miniodata:/data]
-    ports: ["${MINIO_API_PORT:-9000}:9000"]
-    networks: [familyos]
-
-  minio-init:
-    image: minio/mc:latest
-    depends_on: [minio]
-    entrypoint: >
-      /bin/sh -c "
-      until mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD; do sleep 1; done;
-      mc mb -p local/familyos-media || true;
-      mc anonymous set none local/familyos-media || true;
-      "
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY}
+      S3_BUCKET: ${S3_BUCKET:-familyos-media}
+    volumes: [s3data:/data]
+    ports: ["${S3_API_PORT:-8333}:8333"]
     networks: [familyos]
 
   backend:
@@ -1459,7 +1449,8 @@ services:
     environment: *backend-env
     depends_on:
       postgres: { condition: service_healthy }
-      redis:    { condition: service_healthy }
+      redis: { condition: service_healthy }
+      object-storage: { condition: service_started }
     command: >
       sh -c "alembic upgrade head &&
              uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2"
@@ -1525,11 +1516,12 @@ Adds: published `8000:8000` on backend, bind-mounts for hot reload, `pgadmin`/`r
 ```dotenv
 # ── Core secrets (CHANGE ALL OF THESE) ──
 POSTGRES_PASSWORD=change-me-strong
-MINIO_ROOT_USER=familyos
-MINIO_ROOT_PASSWORD=change-me-strong
-MINIO_API_PORT=9000
-MINIO_API_CORS_ALLOW_ORIGIN=http://localhost:3000,http://localhost:3001,http://localhost:3002
-S3_PUBLIC_ENDPOINT=http://localhost:9000
+S3_ACCESS_KEY=familyos
+S3_SECRET_KEY=change-me-strong
+S3_BUCKET=familyos-media
+S3_API_PORT=8333
+S3_CORS_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001,http://localhost:3002
+S3_PUBLIC_ENDPOINT=http://localhost:8333
 SERVICE_TOKEN=generate-with-openssl-rand-hex-32
 MASTER_KEY=base64-32-bytes-openssl-rand-base64-32
 JWT_SECRET=generate-with-openssl-rand-hex-32
@@ -1583,7 +1575,7 @@ HOME_ASSISTANT_TOKEN=
 **Special test:** a "permission matrix" test that iterates every tool × every role and asserts the expected allow/deny. This is the guardrail against a future contributor accidentally exposing vault data to a child token.
 
 ### 22.3 Backups
-- Nightly `pg_dump` + `mc mirror` of the media bucket to a configurable target (SMB, another disk, S3).
+- Nightly `pg_dump` + `aws s3 sync` (or an equivalent S3 client) of the media bucket to a configurable target (SMB, another disk, S3).
 - Retention: 7 daily, 4 weekly, 12 monthly.
 - **Restore drill documented and tested quarterly** — an untested backup is not a backup.
 - Vault payloads are already encrypted; backups inherit that.
@@ -1607,7 +1599,7 @@ HOME_ASSISTANT_TOKEN=
 **Goal:** a usable capture-and-find system with a real calendar and a working agent read-path.
 
 Deliverables:
-1. Docker Compose skeleton (§21) + `.env.example` + `Makefile`.
+1. Docker Compose skeleton (§21) with SeaweedFS S3 + `.env.example` + `Makefile`.
 2. FastAPI app factory, config, logging, errors, health endpoints.
 3. SQLAlchemy models + **Alembic migration 0001** covering: `households`, `users`, `family_members`, `device_tokens`, `notes`, `note_blocks`, `tags`, `note_tags`, `note_relations`, `media_assets`, `jobs_outbox`, `agent_tool_calls`, `audit_log`, `notifications`, `tools`.
 4. Auth: login, refresh, device pairing, `/auth/me`, role/scope dependency.
@@ -1671,7 +1663,7 @@ Do these **in order**. Do not start step *n+1* before step *n* has tests passing
 
 | # | Step | Definition of done |
 |---|---|---|
-| 1 | `docker-compose.yml`, `.env.example`, `Makefile` | `docker compose up` brings up postgres/redis/minio; `make health` returns OK |
+| 1 | `docker-compose.yml`, `.env.example`, `Makefile` | `docker compose up` brings up postgres/redis/SeaweedFS S3; `make health` returns OK |
 | 2 | Backend skeleton: `main.py`, `core/config.py`, `core/db.py`, `core/logging.py`, `core/errors.py` | `/healthz` and `/readyz` respond; logs are JSON |
 | 3 | Models: `base.py`, `household.py`, `user.py`, `member.py`, `note.py`, `block.py`, `tag.py`, `relation.py`, `media.py`, `audit.py` | `alembic revision --autogenerate` produces a clean 0001 |
 | 4 | Alembic 0001 + `alembic upgrade head` in compose command | Fresh DB migrates; `downgrade -1` works |
@@ -1695,7 +1687,7 @@ Do these **in order**. Do not start step *n+1* before step *n* has tests passing
 |---|---|---|---|
 | D1 | No nginx; Next.js rewrites proxy `/api/*` | Meets "no nginx" constraint; avoids CORS; keeps backend internal | Yes, add Caddy later |
 | D2 | ARQ over Celery | Async-native, Redis-only, built-in cron | Yes, behind `JobQueue` interface |
-| D3 | MinIO default, local-disk capable | Presigned uploads; swappable | Yes |
+| D3 | MinIO default, local-disk capable (superseded by D16) | Presigned uploads; swappable | Yes |
 | D4 | Embedding default `bge-m3` @ 1024 | Multilingual families; offline | Yes, requires backfill |
 | D5 | Hybrid RRF search is the default | No score normalization; robust | Yes |
 | D6 | Vault = Notes + overlay table | One spine; no parallel system | No |
@@ -1707,7 +1699,9 @@ Do these **in order**. Do not start step *n+1* before step *n* has tests passing
 | D12 | Hermes memory **is** the Note system | User-visible, editable, deletable | No |
 | D13 | Vault writes are UI-only until Phase 4 | Highest-risk surface | Yes |
 | D14 | One Google Cloud OAuth client supports multiple independently authorized Google accounts and calendars; start with one central account, then bind calendars per dashboard/member | Supports staged adoption without coupling dashboard access to one Google identity | Yes |
-| D15 | Publish MinIO's S3 API on a configurable host port for browser presigned uploads; keep its console and backend private, and use separate internal/public endpoints | Allows direct browser-to-storage uploads without exposing the backend or proxying media bytes through it | Yes |
+| D15 | Publish the S3 API on a configurable host port for browser presigned uploads; keep storage admin interfaces and backend private, and use separate internal/public endpoints | Allows direct browser-to-storage uploads without exposing the backend or proxying media bytes through it | Yes |
+| D16 | Replace the MinIO server runtime with SeaweedFS 4.48 (Apache-2.0) and use boto3 for provider-neutral S3 operations | Avoids the licensed AIStor distribution while preserving SigV4 presigned uploads and a local S3-compatible service | Yes |
+| D17 | Do not mount an existing MinIO data volume into SeaweedFS; migrate existing objects through the S3 API before switching providers | The storage engines use different on-disk formats | Yes |
 
 ### Open questions (resolve before the phase that needs them)
 1. **Google Calendar rollout:** resolved. Start with one central Google account for the family dashboards; retain account-specific connections and dashboard/member calendar bindings so calendars from different Google accounts can be isolated later. Use one Google Cloud project/OAuth client for the integration. (Phase 1, step 12)
@@ -1721,6 +1715,6 @@ Do these **in order**. Do not start step *n+1* before step *n* has tests passing
 
 ## 26. One-Paragraph Summary for the Coding Agent
 
-Build a FastAPI + Postgres/pgvector + Redis + MinIO backend where **Notes and typed Blocks are the universal data model**, exposed through a REST API to three separate Next.js frontends (main, wall, kid) that reach the backend via server-side `/api/*` rewrites — no nginx. Enrich every capture asynchronously (OCR, ASR, vision, summary, auto-tag, embedding) via ARQ workers. Expose every capability to the agent through a **typed Tool Registry** with permission checks, idempotency, confirmation-on-write, and full audit — Hermes never touches the database. Build chores, expiry, meals, and vault as **thin overlays** on Notes, never as parallel systems. Make new tools, games, menus, and widgets **purely additive** through backend decorators and frontend manifests. Start with Phase 1 step 1 (§24) and do not proceed until each step's tests pass.
+Build a FastAPI + Postgres/pgvector + Redis + SeaweedFS S3 backend where **Notes and typed Blocks are the universal data model**, exposed through a REST API to three separate Next.js frontends (main, wall, kid) that reach the backend via server-side `/api/*` rewrites — no nginx. Enrich every capture asynchronously (OCR, ASR, vision, summary, auto-tag, embedding) via ARQ workers. Expose every capability to the agent through a **typed Tool Registry** with permission checks, idempotency, confirmation-on-write, and full audit — Hermes never touches the database. Build chores, expiry, meals, and vault as **thin overlays** on Notes, never as parallel systems. Make new tools, games, menus, and widgets **purely additive** through backend decorators and frontend manifests. Start with Phase 1 step 1 (§24) and do not proceed until each step's tests pass.
 
 **You are ready to build.**

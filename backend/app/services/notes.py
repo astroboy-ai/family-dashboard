@@ -89,6 +89,37 @@ def _normalize_tag_name(value: str) -> tuple[str, str]:
     return name, slug
 
 
+def suggest_ai_tags(
+    title: str | None,
+    text: str | None,
+    *,
+    existing: list[str] | None = None,
+) -> list[str]:
+    existing_slug_map = {
+        _normalize_tag_name(tag)[1]
+        for tag in (existing or [])
+        if tag and tag.strip()
+    }
+    haystack = " ".join(part for part in (title, text) if part and part.strip()).lower()
+    rules: list[tuple[str, list[str]]] = [
+        ("travel", ["travel", "trip", "flight", "airport", "train", "bus", "mtr", "holiday", "vacation", "japan", "kyoto", "tokyo", "beach", "camping"]),
+        ("school", ["school", "class", "lesson", "assignment", "homework", "teacher", "camp", "study", "exam", "project"]),
+        ("family", ["family", "dad", "mum", "mom", "parent", "parents", "grandma", "grandpa", "emma", "household"]),
+        ("garden", ["garden", "plant", "plants", "seed", "soil", "greenhouse", "flower", "vegetable", "raised bed"]),
+        ("meals", ["meal", "breakfast", "lunch", "dinner", "recipe", "cook", "shopping", "grocery", "snack"]),
+        ("shopping", ["shopping", "market", "grocery", "receipt", "budget", "cost", "store"]),
+    ]
+
+    suggestions: list[str] = []
+    for tag, keywords in rules:
+        slug = _normalize_tag_name(tag)[1]
+        if slug in existing_slug_map:
+            continue
+        if any(keyword in haystack for keyword in keywords):
+            suggestions.append(tag)
+    return suggestions
+
+
 async def _get_note(
     *, session: AsyncSession, actor: Actor, note_id: uuid.UUID, write: bool = False
 ) -> Note:

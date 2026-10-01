@@ -14,7 +14,13 @@ from app.core.errors import AppError
 from app.models import AuditLog, JobOutbox, Note
 from app.main import create_app
 from app.schemas.notes import NoteBlockInput, NoteCreateRequest
-from app.services.notes import create_note, get_note, note_access_clause, reorder_blocks
+from app.services.notes import (
+    create_note,
+    get_note,
+    note_access_clause,
+    reorder_blocks,
+    suggest_ai_tags,
+)
 
 
 class FakeScalars:
@@ -116,6 +122,47 @@ async def test_create_note_persists_block_and_normalized_tag() -> None:
     assert session.commit_count == 1
     assert sum(isinstance(item, JobOutbox) for item in session.added) == 1
     assert sum(isinstance(item, AuditLog) for item in session.added) == 1
+
+
+async def test_create_note_accepts_drawing_block_with_thumbnail() -> None:
+    actor = make_actor("parent", {"notes.write"})
+    session = FakeSession([FakeResult(), FakeResult()])
+    thumb_id = uuid.uuid4()
+    payload = NoteCreateRequest(
+        title="Garden plan",
+        blocks=[
+            NoteBlockInput(
+                type="drawing",
+                text_content="Chalkboard plan for raised beds",
+                thumb_media_id=thumb_id,
+                data={
+                    "theme": "chalkboard_green",
+                    "strokes": [{"id": "s1", "points": [[10, 20, 0.5], [15, 25, 0.6]]}],
+                },
+            )
+        ],
+    )
+
+    response = await create_note(session=session, actor=actor, payload=payload)
+
+    assert response.blocks[0].type == "drawing"
+    assert response.blocks[0].thumb_media_id == thumb_id
+    assert response.blocks[0].text_content == "Chalkboard plan for raised beds"
+    assert response.blocks[0].data["theme"] == "chalkboard_green"
+    assert session.commit_count == 1
+
+
+def test_suggest_ai_tags_uses_note_context() -> None:
+    suggestions = suggest_ai_tags(
+        "School field trip to Japan",
+        "Packing list for flights, snacks, and tourist spots in Kyoto.",
+        existing=["family"],
+    )
+
+    assert "travel" in suggestions
+    assert "school" in suggestions
+    assert "family" not in suggestions
+    assert suggestions[0] == "travel"
 
 
 async def test_reorder_requires_every_block_exactly_once() -> None:

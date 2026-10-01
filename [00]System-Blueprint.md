@@ -1625,7 +1625,9 @@ Deliverables:
 - [ ] Deploy with `docker compose up -d` on a fresh machine and complete onboarding in under 10 minutes.
 
 ### Phase 2 — Enrichment, Pillars, Wall
-- Enrichment pipeline live: OCR, ASR, vision description, summary, auto-tag, embeddings.
+- Enrichment pipeline live: OCR, ASR, vision description, summary, governed auto-tagging, embeddings.
+- **AI-assisted Tag Governance v1 (Add-on 05):** tag provenance/evidence, confidence bands, AI proposal queue, note-scope exclusions, and per-note AI-tag budget. Human tags remain immutable to AI.
+- **Freehand Whiteboard v1 (Add-on 04):** `drawing` block and thumbnail support, bounded vector canvas, slide-out panel attached to the open note, autosave, core drawing tools, and the initial chalkboard/whiteboard/kids themes.
 - Hybrid semantic search in UI.
 - School Notice type + `extract.structured` for notices.
 - **Expiry Dashboard** across all structured types + nightly scan + notifications.
@@ -1639,6 +1641,8 @@ Deliverables:
 
 ### Phase 3 — Conversation, Integration, Kid
 - **Hermes chat interface** in `frontend-main` (SSE streaming, tool-call cards, confirmation UI).
+- **Tag Hygiene (Add-on 05):** duplicate detection/merge with redirects, approved hierarchy, style profile, broader exclusion scopes, and hygiene/review refinements.
+- **Whiteboard advanced tools (Add-on 04):** layers, bookmarks, grid/ruler, shape recognition, presentation mode, export/import, and read-only drawing agent tools.
 - Multi-hop reasoning over notes + calendar + chores.
 - Home Assistant read integration + Wall home widget.
 - **Kid Portal** full build + maths game generated from learning notes.
@@ -1648,6 +1652,7 @@ Deliverables:
 
 ### Phase 4+
 - Full AI conversation as a first-class surface (not just a panel).
+- Whiteboard real-time collaboration and confirmed agent annotations (Add-on 04); tag trust-decay and cross-household taxonomy sharing (Add-on 05).
 - WhatsApp / eClass / email ingestion.
 - Multi-household sharing and delegated access.
 - Advanced gamification, allowance, savings goals.
@@ -1678,6 +1683,13 @@ Do these **in order**. Do not start step *n+1* before step *n* has tests passing
 | 13 | Family Overview + widget registry + 4 widgets | Page renders on mobile and desktop |
 | 14 | Admin skeleton + audit log viewer | Parent can see members, devices, storage, audit |
 | 15 | Phase 1 acceptance test script (Playwright) | All §23 Phase-1 checkboxes automated |
+| 16 | Phase 2 enrichment pipeline | OCR/ASR/vision/summary/embedding jobs pass their service tests; capture remains fail-soft |
+| 17 | Tag Governance v1 schema and services (Add-on 05) | Human/AI provenance, evidence, proposals, budgets, and note-scope exclusions are migration- and unit-tested |
+| 18 | Tag classifier and review queue (Add-on 05) | Confidence bands, exclusion filtering, review actions, and audit evidence pass API tests |
+| 19 | Drawing block and persistence (Add-on 04) | Bounded drawing schema, thumbnail reference, large-object spillover, and note block CRUD are tested |
+| 20 | Whiteboard panel and note renderer (Add-on 04) | Canvas opens without route change, autosaves to the current note, and basic themes/tools pass browser tests |
+| 21 | Add-on acceptance and Phase 2.5 Archify baseline | Whiteboard/tagging acceptance passes before relation/hierarchy/tag graph work begins |
+**⟦v1.1⟧ Phase 2.5 (after step 21):** graph schema migration → `graph_service` (relation/hierarchy/tag layers) → `GET /api/graph` → `/graph` page with sigma.js → NodeInspector → save/share views → `graph_overview` + `graph_path` tools → semantic layer in Phase 3.
 
 ---
 

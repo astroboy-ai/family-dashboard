@@ -50,7 +50,6 @@ body[data-density="compact"] .note-row {
   padding-top: 9px;
   padding-bottom: 9px;
 }
-
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -1799,19 +1798,16 @@ h2 {
 .pin-box {
   margin-top: 4px;
 }
-
 .login-copy,
 .login-footnote {
   margin: -7px 0 3px;
   color: var(--muted);
   font-size: 12px;
 }
-
 .inline-link {
   justify-self: start;
   margin-top: 2px;
 }
-
 .form-field {
   display: grid;
   gap: 6px;
@@ -1971,7 +1967,6 @@ h2 {
   color: var(--foreground);
   box-shadow: 0 1px 1px rgb(0 0 0 / 8%);
 }
-
 .spin {
   animation: spin 1s linear infinite;
 }

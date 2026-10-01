@@ -841,6 +841,8 @@ Vault items additionally require `vault.read` scope and are excluded unless the 
 
 Device pairing: parent generates a short code in Admin → child/wall device enters it → device receives a long-lived token bound to a `device_tokens` row with restricted scopes.
 
+**Add-on 06 login contract:** `/api/auth/members` may be unauthenticated only when it returns active member display names, avatars, and `has_pin` (never email or role), with rate limiting. Login supports email/password and member ID + PIN; PINs use Argon2 hashes, 5 failed attempts trigger a 60-second lockout, and access/refresh cookies remain `httpOnly`. `/setup` is available only while the household has no members and provisions the first parent before normal login is enabled. Refresh, logout, device pairing, and `/auth/me` must be available before the login UI is considered complete.
+
 ### 11.2 Roles & scopes
 | Role | Default scopes |
 |---|---|
@@ -1278,6 +1280,30 @@ Widgets are registered the same way tools are — see §19.3.
 - No access to Notes, Vault, or Admin.
 
 ---
+
+### 18.8 Application UI & Navigation (Add-on 06)
+
+Add-on 06 defines the implementation contract for the frontends in this section. It is a staged UI plan, not a reason to build pages before their API prerequisites exist.
+
+- **Shared main shell:** registry-driven desktop sidebar, mobile five-item bottom tab bar, top bar, persistent panel host, role-aware navigation, and theme/density preferences.
+- **Global actions:** `Cmd/Ctrl+K` command palette searches notes and exposes navigation/tools; `c`, `w`, and `h` open capture, whiteboard, and Hermes panels. Panels live at shell level, do not change the URL, and must not unmount the page underneath.
+- **One API client:** typed `lib/api.ts`, credentials included, transparent refresh once on 401, TanStack Query for server state, and no direct component `fetch` calls.
+- **Auth/first run:** family member picker + PIN and email login, device pairing, first-run `/setup`, and lockout behavior as specified in §11.1. These UI tasks are blocked on their corresponding backend endpoints and account-provisioning flow.
+- **Page catalog:** `/`, `/notes`, `/notes/[id]`, `/search`, `/calendar`, `/chores`, `/rewards`, `/meals`, `/learning`, `/vault`, `/graph`, `/tools`, `/tags/review`, `/tags/hygiene`, `/hermes`, `/notifications`, `/settings`, `/admin`, plus scoped share routes.
+- **Surface separation:** main app is interactive; wall is read-only and unattended; kid portal is child-scoped and touch-first; share routes expose only the token's scope.
+- **State quality:** every page/widget has loading, empty, error, and partial states; keyboard focus returns after closing panels; responsive mobile UI and reduced-motion support are acceptance requirements.
+
+**Build-order mapping:** backend prerequisites in §24 steps 5–9 precede the main app shell. Step 10 supplies the shell/API client/auth UI; step 11 supplies capture and note detail/editor; steps 8 and 13 supply full search and Home widgets. Operational pages follow their APIs in Phase 2. Whiteboard and tag-review UI follow Add-ons 04/05 backend milestones; Hermes, wall, and kid surfaces follow in Phase 3. Offline capture and share-target behavior are delivered only after the online capture flow is stable.
+
+### Add-on 06 UI staging gates
+
+| Stage | Existing build-order dependency | Add-on 06 work | Gate |
+|---|---|---|---|
+| UI foundation | Steps 5, 9, 10 | Auth/setup routes, typed API client, app shell, desktop/mobile navigation, panel host, command palette | Auth and `/api/*` proxy contract pass before protected UI is built |
+| Capture and notes | Step 11 | Capture sheet, note list/detail, block editor/renderer, note preview panel | End-to-end text capture/edit works before adding more page breadth |
+| Core navigation | Steps 8, 12–15 | Search URL state, calendar/tasks, Home widgets, settings/admin, keyboard map | Each page consumes an implemented API and has all four states |
+| Phase 2 surfaces | Phase 2 backends + Add-ons 04/05 | Operational pages, tag review/hygiene, whiteboard panel, Archify baseline, transit | Feature UI waits for its API/schema and scoped permission tests |
+| Phase 3 surfaces | Phase 3 backends | Hermes panel/page, wall dashboard, kid portal, share views, PWA install/offline capture | Read-only/child/share scopes and E2E flows pass |
 
 ## 19. Extensibility: Tools, Games, Menus, Widgets
 

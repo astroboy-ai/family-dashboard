@@ -8,6 +8,45 @@ export type Actor = {
   scopes: string[];
 };
 
+export type DemoMember = {
+  id: string;
+  display_name: string;
+  role: "parent" | "child" | "guest";
+  pin: string;
+  avatar: string;
+  timezone: string;
+  locale: string;
+};
+
+export const demoMembers: DemoMember[] = [
+  { id: "dad", display_name: "Dad", role: "parent", pin: "1234", avatar: "👨", timezone: "Asia/Hong_Kong", locale: "en" },
+  { id: "mum", display_name: "Mum", role: "parent", pin: "4321", avatar: "👩", timezone: "Asia/Hong_Kong", locale: "en" },
+  { id: "emma", display_name: "Emma", role: "child", pin: "2468", avatar: "🧒", timezone: "Asia/Hong_Kong", locale: "en" },
+  { id: "guest", display_name: "Guest", role: "guest", pin: "0000", avatar: "👶", timezone: "Asia/Hong_Kong", locale: "en" },
+];
+
+const DEMO_SESSION_KEY = "familyos-demo-session";
+
+function readDemoSession(): Actor | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(DEMO_SESSION_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as Actor;
+  } catch {
+    return null;
+  }
+}
+
+function writeDemoSession(actor: Actor | null) {
+  if (typeof window === "undefined") return;
+  if (!actor) {
+    window.localStorage.removeItem(DEMO_SESSION_KEY);
+    return;
+  }
+  window.localStorage.setItem(DEMO_SESSION_KEY, JSON.stringify(actor));
+}
+
 export type Tag = {
   id: string;
   name: string;
@@ -23,6 +62,7 @@ export type NoteBlock = {
   type: string;
   text_content: string | null;
   media_asset_id: string | null;
+  thumb_media_id: string | null;
   data: Record<string, unknown>;
   caption: string | null;
   ai_description: string | null;
@@ -108,7 +148,28 @@ export async function apiRequest<T>(
 }
 
 export function getActor(): Promise<Actor> {
+  const demoActor = readDemoSession();
+  if (demoActor) return Promise.resolve(demoActor);
   return apiRequest<Actor>("/auth/me");
+}
+
+export function demoSignIn(memberId: string, pin: string): Promise<Actor> {
+  const member = demoMembers.find((person) => person.id === memberId);
+  if (!member) throw new ApiError("Unknown family member", 401, "unknown_member");
+  if (member.pin !== pin) throw new ApiError("Incorrect PIN", 401, "invalid_pin");
+
+  const actor: Actor = {
+    member_id: member.id,
+    household_id: "demo-household",
+    display_name: member.display_name,
+    role: member.role,
+    timezone: member.timezone,
+    locale: member.locale,
+    scopes: ["notes:read", "notes:write", "search:read", "family:read"],
+  };
+
+  writeDemoSession(actor);
+  return Promise.resolve(actor);
 }
 
 export function listNotes(params: URLSearchParams = new URLSearchParams()): Promise<NoteList> {
@@ -138,6 +199,64 @@ export function createTextBlock(noteId: string, text: string): Promise<NoteBlock
   });
 }
 
+export function createDrawingBlock(
+  noteId: string,
+  data: Record<string, unknown> = {
+    theme: "chalkboard_green",
+    canvas: { width: 4000, height: 3000, unit: "px" },
+    viewport: { x: 0, y: 0, zoom: 1, rotation: 0 },
+    grid: { mode: "dot", spacing: 40, visible: false, snap: false },
+    layers: [
+      { id: "bg", name: "Background", visible: true, locked: true },
+      { id: "main", name: "Main", visible: true, locked: false },
+      { id: "anno", name: "Annotations", visible: true, locked: false },
+    ],
+    active_layer: "main",
+    strokes: [],
+    shapes: [],
+    texts: [],
+    bookmarks: [],
+    meta: { stroke_count: 0, shape_count: 0, text_count: 0, size_bytes: 0 },
+  },
+  textContent: string = "New whiteboard",
+): Promise<NoteBlock> {
+  return apiRequest<NoteBlock>(`/notes/${encodeURIComponent(noteId)}/blocks`, {
+    method: "POST",
+    body: JSON.stringify({
+      type: "drawing",
+      text_content: textContent,
+      data,
+    }),
+  });
+}
+
+export function updateDrawingBlock(
+  blockId: string,
+  data: Record<string, unknown>,
+  textContent?: string,
+): Promise<NoteBlock> {
+  return apiRequest<NoteBlock>(`/blocks/${encodeURIComponent(blockId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      data,
+      text_content: textContent,
+    }),
+  });
+}
+
+export function addTagToNote(noteId: string, name: string): Promise<Tag[]> {
+  return apiRequest<Tag[]>(`/notes/${encodeURIComponent(noteId)}/tags`, {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function removeTagFromNote(noteId: string, slug: string): Promise<Tag[]> {
+  return apiRequest<Tag[]>(`/notes/${encodeURIComponent(noteId)}/tags/${encodeURIComponent(slug)}`, {
+    method: "DELETE",
+  });
+}
+
 export function signIn(email: string, password: string): Promise<{ member_id: string; role: string }> {
   return apiRequest<{ member_id: string; role: string }>("/auth/login", {
     method: "POST",
@@ -146,6 +265,10 @@ export function signIn(email: string, password: string): Promise<{ member_id: st
 }
 
 export async function signOut(): Promise<void> {
+  if (readDemoSession()) {
+    writeDemoSession(null);
+    return;
+  }
   await apiRequest<void>("/auth/logout", { method: "POST" });
 }
 

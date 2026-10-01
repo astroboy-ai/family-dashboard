@@ -9,6 +9,7 @@ class NoteBlockInput(BaseModel):
     type: str = Field(min_length=1, max_length=32)
     text_content: str | None = None
     media_asset_id: uuid.UUID | None = None
+    thumb_media_id: uuid.UUID | None = None
     data: dict[str, Any] = Field(default_factory=dict)
     caption: str | None = None
     expires_at: datetime | None = None
@@ -51,6 +52,7 @@ class NoteBlockPatchRequest(BaseModel):
     type: str | None = Field(default=None, min_length=1, max_length=32)
     text_content: str | None = None
     media_asset_id: uuid.UUID | None = None
+    thumb_media_id: uuid.UUID | None = None
     data: dict[str, Any] | None = None
     caption: str | None = None
     expires_at: datetime | None = None
@@ -74,6 +76,7 @@ class NoteBlockResponse(BaseModel):
     type: str
     text_content: str | None
     media_asset_id: uuid.UUID | None
+    thumb_media_id: uuid.UUID | None = None
     data: dict[str, Any]
     caption: str | None
     ai_description: str | None

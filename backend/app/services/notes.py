@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import Actor
 from app.core.errors import AppError
-from app.models import AuditLog, FamilyMember, JobOutbox, MediaAsset, Note, NoteBlock, Tag, note_tags
+from app.models import AuditLog, FamilyMember, JobOutbox, MediaAsset, Note, NoteBlock, Tag, TagAuditLog, TagExclusion, note_tags
 from app.schemas.notes import (
     NoteBlockInput,
     NoteBlockPatchRequest,
@@ -120,6 +120,27 @@ def suggest_ai_tags(
     return suggestions
 
 
+def build_tag_exclusion_statement(*, actor: Actor, note: Note):
+    member_ids = {member_id for member_id in (note.owner_member_id, note.created_by, actor.member_id) if member_id}
+    now = datetime.now(UTC)
+    return select(TagExclusion.tag_slug).where(
+        TagExclusion.household_id == actor.household_id,
+        TagExclusion.tag_slug.is_not(None),
+        or_(TagExclusion.expires_at.is_(None), TagExclusion.expires_at > now),
+        or_(
+            and_(TagExclusion.scope == "note", TagExclusion.scope_ref == note.id),
+            and_(TagExclusion.scope == "note_type", TagExclusion.scope_note_type == note.type),
+            and_(TagExclusion.scope == "member", TagExclusion.scope_ref.in_(member_ids)) if member_ids else false(),
+            TagExclusion.scope == "household",
+        ),
+    )
+
+
+async def get_excluded_tag_slugs(*, session: AsyncSession, actor: Actor, note: Note) -> set[str]:
+    result = await session.execute(build_tag_exclusion_statement(actor=actor, note=note))
+    return {slug for slug in result.scalars().all() if isinstance(slug, str)}
+
+
 async def _get_note(
     *, session: AsyncSession, actor: Actor, note_id: uuid.UUID, write: bool = False
 ) -> Note:
@@ -196,7 +217,7 @@ async def _get_or_create_tag(
         household_id=household_id,
         name=name,
         slug=slug,
-        kind="general",
+        kind="topic",
     )
     session.add(tag)
     await session.flush()
@@ -379,7 +400,13 @@ async def create_note(
         seen_tag_slugs.add(tag.slug)
         await session.execute(
             pg_insert(note_tags)
-            .values(note_id=note.id, tag_id=tag.id)
+            .values(
+                note_id=note.id,
+                tag_id=tag.id,
+                source="human",
+                applied_by=actor.member_id,
+                approved_by_human=True,
+            )
             .on_conflict_do_nothing()
         )
         tags.append(tag)
@@ -622,7 +649,13 @@ async def add_tag(
     )
     await session.execute(
         pg_insert(note_tags)
-        .values(note_id=note.id, tag_id=tag.id)
+        .values(
+            note_id=note.id,
+            tag_id=tag.id,
+            source="human",
+            applied_by=actor.member_id,
+            approved_by_human=True,
+        )
         .on_conflict_do_nothing()
     )
     note.updated_at = datetime.now(UTC)
@@ -646,13 +679,45 @@ async def remove_tag(
 ) -> list[TagResponse]:
     note = await _get_note(session=session, actor=actor, note_id=note_id, write=True)
     result = await session.execute(
-        select(Tag).where(Tag.household_id == actor.household_id, Tag.slug == tag_slug)
+        select(Tag, note_tags.c.source)
+        .join(note_tags, note_tags.c.tag_id == Tag.id)
+        .where(
+            Tag.household_id == actor.household_id,
+            Tag.slug == tag_slug,
+            note_tags.c.note_id == note.id,
+        )
     )
-    tag = result.scalar_one_or_none()
-    if tag is None:
+    row = result.first()
+    if row is None:
         raise AppError("Tag not found", status_code=404, error_code="not_found")
+    tag, source = row
     await session.execute(
         delete(note_tags).where(note_tags.c.note_id == note.id, note_tags.c.tag_id == tag.id)
+    )
+    session.add(
+        TagExclusion(
+            id=uuid.uuid4(),
+            household_id=actor.household_id,
+            tag_id=tag.id,
+            tag_slug=tag.slug,
+            scope="note",
+            scope_ref=note.id,
+            reason="user_removed",
+            created_by=actor.member_id,
+        )
+    )
+    session.add(
+        TagAuditLog(
+            id=uuid.uuid4(),
+            household_id=actor.household_id,
+            actor_type="human",
+            actor_id=actor.member_id,
+            action="tag_removed",
+            note_id=note.id,
+            tag_slug=tag.slug,
+            reason="user_removed",
+            before={"source": source},
+        )
     )
     note.updated_at = datetime.now(UTC)
     _record_audit(

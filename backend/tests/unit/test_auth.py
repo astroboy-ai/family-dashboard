@@ -43,6 +43,12 @@ class FakeResult:
     def first(self) -> tuple[object, object, object]:
         return self.row
 
+    def scalar_one_or_none(self) -> object | None:
+        return self.row[0] if len(self.row) == 1 else None
+
+    def scalar_one(self) -> int:
+        return int(self.row[0])
+
 
 class FakeSession:
     def __init__(self, rows: list[tuple[object, object, object]]) -> None:
@@ -60,6 +66,20 @@ class FakeSession:
 
 async def unused_probe() -> None:
     return None
+
+
+class SetupSession:
+    def __init__(self) -> None:
+        self.added: list[object] = []
+
+    async def execute(self, _: object) -> FakeResult:
+        return FakeResult((0,))
+
+    def add_all(self, entities: tuple[object, ...]) -> None:
+        self.added.extend(entities)
+
+    async def commit(self) -> None:
+        return None
 
 
 def test_password_hash_verifies_only_the_original_password() -> None:
@@ -213,6 +233,150 @@ async def test_login_sets_cookie_and_me_resolves_member() -> None:
     assert me_response.json()["member_id"] == str(member.id)
     assert me_response.json()["household_id"] == str(household_id)
     assert me_response.json()["role"] == "parent"
+
+
+async def test_pin_login_sets_cookie_for_member_without_user_account() -> None:
+    settings = Settings(jwt_secret="test-only-secret-long-enough-for-hs256")
+    household_id = uuid.uuid4()
+    member = SimpleNamespace(
+        id=uuid.uuid4(),
+        household_id=household_id,
+        user_id=None,
+        display_name="Test Child",
+        role="child",
+        permissions={},
+        is_active=True,
+        pin_hash=hash_password("2468"),
+        pin_failed_attempts=0,
+        pin_locked_until=None,
+    )
+    household = SimpleNamespace(id=household_id, timezone="Asia/Hong_Kong", locale="en")
+    session = FakeSession([(member, household), (member, None, household)])
+    app = create_app(settings=settings, readiness_probes={"database": unused_probe})
+
+    async def fake_session() -> AsyncIterator[FakeSession]:
+        yield session
+
+    app.dependency_overrides[get_session] = fake_session
+    app.dependency_overrides[get_settings] = lambda: settings
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        login_response = await client.post(
+            "/api/auth/pin-login",
+            json={"member_id": str(member.id), "pin": "2468"},
+        )
+        me_response = await client.get("/api/auth/me")
+
+    assert login_response.status_code == 200
+    assert login_response.json() == {"member_id": str(member.id), "role": "child"}
+    assert login_response.cookies.get("access_token")
+    assert "httponly" in login_response.headers["set-cookie"].lower()
+    assert me_response.status_code == 200
+    assert me_response.json()["member_id"] == str(member.id)
+
+
+async def test_pin_login_locks_member_after_five_failed_attempts() -> None:
+    settings = Settings(jwt_secret="test-only-secret-long-enough-for-hs256")
+    household_id = uuid.uuid4()
+    member = SimpleNamespace(
+        id=uuid.uuid4(),
+        household_id=household_id,
+        display_name="Test Parent",
+        role="parent",
+        is_active=True,
+        pin_hash=hash_password("8642"),
+        pin_failed_attempts=0,
+        pin_locked_until=None,
+    )
+    household = SimpleNamespace(id=household_id, timezone="UTC", locale="en")
+    session = FakeSession([(member, household)] * 5)
+    app = create_app(settings=settings, readiness_probes={"database": unused_probe})
+
+    async def fake_session() -> AsyncIterator[FakeSession]:
+        yield session
+
+    app.dependency_overrides[get_session] = fake_session
+    app.dependency_overrides[get_settings] = lambda: settings
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        responses = [
+            await client.post(
+                "/api/auth/pin-login",
+                json={"member_id": str(member.id), "pin": "0000"},
+            )
+            for _ in range(5)
+        ]
+
+    assert [response.status_code for response in responses] == [401, 401, 401, 401, 429]
+    assert responses[-1].headers["retry-after"] == "60"
+    assert member.pin_locked_until is not None
+
+
+async def test_parent_can_set_child_pin() -> None:
+    settings = Settings(jwt_secret="test-only-secret-long-enough-for-hs256")
+    parent = make_actor("parent")
+    child = SimpleNamespace(
+        id=uuid.uuid4(),
+        household_id=parent.household_id,
+        role="child",
+        is_active=True,
+        pin_hash=None,
+        pin_failed_attempts=0,
+        pin_locked_until=None,
+    )
+    session = FakeSession([(child,)])
+    app = create_app(settings=settings, readiness_probes={"database": unused_probe})
+
+    async def fake_session() -> AsyncIterator[FakeSession]:
+        yield session
+
+    app.dependency_overrides[get_session] = fake_session
+    app.dependency_overrides[get_current_actor] = lambda: parent
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/auth/pin",
+            json={"member_id": str(child.id), "pin": "1357"},
+        )
+
+    assert response.status_code == 204
+    assert verify_password("1357", child.pin_hash)
+    assert child.pin_failed_attempts == 0
+
+
+async def test_first_run_setup_creates_household_parent_and_session() -> None:
+    settings = Settings(jwt_secret="test-only-secret-long-enough-for-hs256")
+    session = SetupSession()
+    app = create_app(settings=settings, readiness_probes={"database": unused_probe})
+
+    async def fake_session() -> AsyncIterator[SetupSession]:
+        yield session
+
+    app.dependency_overrides[get_session] = fake_session
+    app.dependency_overrides[get_settings] = lambda: settings
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/auth/setup",
+            json={
+                "household_name": "The Example Family",
+                "timezone": "Asia/Hong_Kong",
+                "locale": "en",
+                "week_starts_on": "monday",
+                "display_name": "Parent",
+                "email": " PARENT@example.test ",
+                "password": "correct horse battery staple",
+                "pin": "2468",
+                "ai_provider": "none",
+            },
+        )
+
+    assert response.status_code == 201
+    assert response.cookies.get("access_token")
+    assert len(session.added) == 3
+    assert next(entity for entity in session.added if getattr(entity, "email", None)).email == "parent@example.test"
+    parent = next(entity for entity in session.added if getattr(entity, "role", None) == "parent")
+    assert verify_password("2468", parent.pin_hash)
 
 
 async def test_me_rejects_missing_access_cookie() -> None:

@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     s3_bucket: str = "familyos-media"
     jwt_secret: str = "local-development-secret-change-before-deploying"
     access_token_minutes: int = 15
+    service_token: str = ""
 
     @model_validator(mode="after")
     def validate_jwt_secret(self) -> "Settings":

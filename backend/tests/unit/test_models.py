@@ -19,6 +19,9 @@ EXPECTED_PHASE_ONE_TABLES = {
     "audit_log",
     "notifications",
     "tools",
+    "tag_exclusions",
+    "tag_proposals",
+    "tag_audit_log",
 }
 
 

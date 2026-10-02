@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import Actor
 from app.core.errors import AppError
+from app.core.text import build_search_text
 from app.models import AuditLog, FamilyMember, JobOutbox, MediaAsset, Note, NoteBlock, Tag, TagAuditLog, TagExclusion, note_tags
 from app.schemas.notes import (
     NoteBlockInput,
@@ -50,13 +51,63 @@ def _record_audit(
 
 
 def _queue_note_enrichment(session: AsyncSession, note_id: uuid.UUID) -> None:
+    """Queue a re-embed for *note*.
+
+    The topic is ``embed.note``, consumed by ``app/workers/outbox.py``. The row
+    is written in the caller's transaction, so a rolled-back note never leaves a
+    job behind (outbox pattern).
+    """
+
     session.add(
         JobOutbox(
             id=uuid.uuid4(),
-            topic="note.enrich",
+            topic="embed.note",
             payload={"note_id": str(note_id)},
         )
     )
+
+
+def apply_note_search_tokens(note: Note) -> None:
+    """Refresh the tokenized mirror of a note's searchable text.
+
+    Must be called whenever ``title``/``summary``/``ai_summary`` change: the
+    ``search_tsv`` column is generated from these token columns, and PostgreSQL
+    cannot segment CJK text on its own (see :mod:`app.core.text`).
+    """
+
+    note.search_tokens_title = build_search_text(note.title)
+    note.search_tokens_summary = build_search_text(note.summary)
+    note.search_tokens_ai_summary = build_search_text(note.ai_summary)
+
+
+def apply_block_search_tokens(block: NoteBlock) -> None:
+    """Refresh the tokenized mirror of every searchable block field.
+
+    Covers OCR text and transcripts as well as plain text, so a photographed
+    notice becomes searchable once enrichment fills those columns.
+    """
+
+    block.search_tokens_text = build_search_text(
+        block.text_content,
+        block.caption,
+        block.ai_description,
+        block.ocr_text,
+        block.transcript,
+        _flatten_block_data(block.data),
+    )
+
+
+def _flatten_block_data(data: Any) -> str:
+    """Flatten a block's structured payload into ``key: value`` lines."""
+
+    if not isinstance(data, dict):
+        return ""
+    lines = []
+    for key, value in data.items():
+        if value in (None, "", [], {}):
+            continue
+        lines.append(f"{key}: {value if not isinstance(value, (dict, list)) else str(value)}")
+    return "\n".join(lines)
 
 
 def note_access_clause(actor: Actor, *, write: bool = False) -> Any:
@@ -366,6 +417,7 @@ async def create_note(
         created_at=now,
         updated_at=now,
     )
+    apply_note_search_tokens(note)
     session.add(note)
     await session.flush()
 
@@ -384,6 +436,7 @@ async def create_note(
             created_at=now,
             updated_at=now,
         )
+        apply_block_search_tokens(block)
         blocks.append(block)
         session.add(block)
 
@@ -452,6 +505,10 @@ async def update_note(
         if value is not None or field in {"title", "summary", "owner_member_id", "occurred_at", "expires_at"}:
             setattr(note, field, value)
     note.updated_at = datetime.now(UTC)
+    # Retokenize before the enrichment check: search_tsv is generated from the
+    # token columns, so stale tokens mean the note becomes unsearchable by its
+    # new text.
+    apply_note_search_tokens(note)
     enrichment_fields = {
         "title",
         "type",
@@ -523,6 +580,7 @@ async def create_block(
         created_at=now,
         updated_at=now,
     )
+    apply_block_search_tokens(block)
     session.add(block)
     note.updated_at = now
     _record_audit(
@@ -569,6 +627,7 @@ async def update_block(
     now = datetime.now(UTC)
     block.updated_at = now
     note.updated_at = now
+    apply_block_search_tokens(block)
     if changes:
         _queue_note_enrichment(session, note.id)
     _record_audit(

@@ -78,12 +78,19 @@ class Note(Base):
     embedding_status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="pending", server_default="pending"
     )
+    # Tokenized mirrors of the searchable text. PostgreSQL's `simple`
+    # configuration does not segment CJK text, so segmentation happens in Python
+    # (app/core/text.py) and `search_tsv` is generated from these columns.
+    # The same segmenter must run on the query path.
+    search_tokens_title: Mapped[str | None] = mapped_column(Text)
+    search_tokens_summary: Mapped[str | None] = mapped_column(Text)
+    search_tokens_ai_summary: Mapped[str | None] = mapped_column(Text)
     search_tsv: Mapped[Any] = mapped_column(
         TSVECTOR,
         Computed(
-            "setweight(to_tsvector('simple', coalesce(title, '')), 'A') || "
-            "setweight(to_tsvector('simple', coalesce(summary, '')), 'B') || "
-            "setweight(to_tsvector('simple', coalesce(ai_summary, '')), 'C')",
+            "setweight(to_tsvector('simple', coalesce(search_tokens_title, '')), 'A') || "
+            "setweight(to_tsvector('simple', coalesce(search_tokens_summary, '')), 'B') || "
+            "setweight(to_tsvector('simple', coalesce(search_tokens_ai_summary, '')), 'C')",
             persisted=True,
         ),
     )
@@ -129,12 +136,14 @@ class NoteBlock(Base):
     transcript: Mapped[str | None] = mapped_column(Text)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     importance: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0, server_default="0")
+    # Tokenized mirror of every searchable field on the block; see the note on
+    # Note.search_tokens_title. OCR text and transcripts land here too, so a
+    # photographed notice becomes searchable in Chinese.
+    search_tokens_text: Mapped[str | None] = mapped_column(Text)
     search_tsv: Mapped[Any] = mapped_column(
         TSVECTOR,
         Computed(
-            "to_tsvector('simple', coalesce(text_content, '') || ' ' || "
-            "coalesce(caption, '') || ' ' || coalesce(ai_description, '') || ' ' || "
-            "coalesce(ocr_text, '') || ' ' || coalesce(transcript, ''))",
+            "to_tsvector('simple', coalesce(search_tokens_text, ''))",
             persisted=True,
         ),
     )

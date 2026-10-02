@@ -5,6 +5,7 @@ from typing import Literal
 from sqlalchemy import Select, func, or_, select
 
 from app.api.deps import Actor
+from app.core.text import build_query_text
 from app.models import MediaAsset, Note, NoteBlock, Tag, note_tags
 from app.services.notes import _load_blocks, _load_tags, _note_response, note_access_clause
 
@@ -39,7 +40,11 @@ def build_search_statement(
 
     normalized_query = query.strip()
     if normalized_query:
-        tsquery = func.websearch_to_tsquery("simple", normalized_query)
+        # Segment the query with the same tokenizer used on the write path —
+        # otherwise a Chinese query never matches the indexed tokens
+        # (see app/core/text.py).
+        tokenized = build_query_text(normalized_query)
+        tsquery = func.websearch_to_tsquery("simple", tokenized)
         note_match = Note.search_tsv.op("@@")(tsquery)
         block_match = (
             select(NoteBlock.id)

@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
 
+from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
 from app.api.internal_agent import router as internal_agent_router
 from app.api.graph import router as graph_router
@@ -71,6 +72,7 @@ def create_app(
     app.include_router(internal_agent_router)
     app.include_router(graph_router, prefix="/api")
     app.include_router(transit_router, prefix="/api")
+    app.include_router(admin_router, prefix="/api")
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:

@@ -1,5 +1,6 @@
 from app.models.audit import AgentToolCall, AuditLog
 from app.models.base import Base
+from app.models.embedding import Embedding
 from app.models.identity import DeviceToken, FamilyMember, Household, User
 from app.models.job import JobOutbox
 from app.models.media import MediaAsset
@@ -13,6 +14,7 @@ __all__ = [
     "AuditLog",
     "Base",
     "DeviceToken",
+    "Embedding",
     "FamilyMember",
     "Household",
     "JobOutbox",

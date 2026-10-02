@@ -1,8 +1,15 @@
 name: familyos
 
 networks:
+  # Internal service mesh: postgres, redis and object-storage are only ever
+  # reached by the backend/worker, so they stay on this network alone.
   familyos:
     driver: bridge
+  # Shared network with cloudflared and the litellm gateway. Only the services
+  # that must be reachable from outside this stack join it.
+  link01:
+    external: true
+    name: ${DOCKER_NETWORK_NAME:-link01}
 
 volumes:
   pgdata: {}
@@ -11,9 +18,9 @@ volumes:
   ollama: {}
 
 x-backend-env: &backend-env
-  DATABASE_URL: postgresql+asyncpg://familyos:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/familyos
-  REDIS_URL: redis://redis:6379/0
-  S3_ENDPOINT: http://object-storage:8333
+  DATABASE_URL: postgresql+asyncpg://familyos:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@familyos-postgres:5432/familyos
+  REDIS_URL: redis://familyos-redis:6379/0
+  S3_ENDPOINT: http://familyos-object-storage:8333
   S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:?Set S3_PUBLIC_ENDPOINT in .env}
   S3_ACCESS_KEY: ${S3_ACCESS_KEY:?Set S3_ACCESS_KEY in .env}
   S3_SECRET_KEY: ${S3_SECRET_KEY:?Set S3_SECRET_KEY in .env}
@@ -38,7 +45,12 @@ services:
       timeout: 5s
       retries: 10
     networks:
-      - familyos
+      familyos:
+        # Unique alias: `postgres` is already claimed on link01 by several other
+        # stacks, and Docker DNS resolves a duplicated name to an arbitrary one
+        # of them. Anything that can see link01 must use this name instead.
+        aliases:
+          - familyos-postgres
 
   redis:
     image: redis:7-alpine
@@ -51,7 +63,9 @@ services:
       timeout: 3s
       retries: 10
     networks:
-      - familyos
+      familyos:
+        aliases:
+          - familyos-redis
 
   object-storage:
     image: chrislusf/seaweedfs:4.48
@@ -69,7 +83,10 @@ services:
     ports:
       - "${S3_API_PORT:-8333}:8333"
     networks:
-      - familyos
+      familyos:
+        aliases:
+          - familyos-object-storage
+      link01:
     restart: unless-stopped
 
   backend:
@@ -98,6 +115,22 @@ services:
       start_period: 20s
     networks:
       - familyos
+      - link01
+
+  worker:
+    build: ./backend
+    environment: *backend-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Consumes jobs_outbox: OCR/ASR/LLM/embed. Long-running poll loop.
+    command: ["uv", "run", "python", "-m", "app.workers.outbox"]
+    networks:
+      - familyos
+      - link01
+    restart: unless-stopped
 
   ollama:
     image: ollama/ollama:latest

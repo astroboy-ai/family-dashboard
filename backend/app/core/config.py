@@ -31,6 +31,14 @@ class Settings(BaseSettings):
     access_token_minutes: int = 15
     service_token: str = ""
 
+    # AI defaults. The authoritative values live in households.settings['ai']
+    # and are editable from the admin page (app/services/ai_settings.py); these
+    # are only the fallback when a household has no override.
+    llm_base_url: str = "http://litellm_proxy:4000"
+    llm_api_key: str = ""
+    embedding_model: str = "gemini/text-embedding-004"
+    embedding_dim: int = 768
+
     @model_validator(mode="after")
     def validate_jwt_secret(self) -> "Settings":
         if self.environment.lower() not in {"development", "test"}:

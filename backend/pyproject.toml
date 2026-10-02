@@ -16,6 +16,7 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0",
     "structlog>=25.1",
     "uvicorn[standard]>=0.34",
+    "tzdata>=2026.4",
 ]
 
 [dependency-groups]

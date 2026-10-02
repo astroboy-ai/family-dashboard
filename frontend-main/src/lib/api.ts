@@ -8,44 +8,12 @@ export type Actor = {
   scopes: string[];
 };
 
-export type DemoMember = {
+export type LoginMember = {
   id: string;
   display_name: string;
-  role: "parent" | "child" | "guest";
-  pin: string;
-  avatar: string;
-  timezone: string;
-  locale: string;
+  avatar: string | null;
+  has_pin: boolean;
 };
-
-export const demoMembers: DemoMember[] = [
-  { id: "dad", display_name: "Dad", role: "parent", pin: "1234", avatar: "👨", timezone: "Asia/Hong_Kong", locale: "en" },
-  { id: "mum", display_name: "Mum", role: "parent", pin: "4321", avatar: "👩", timezone: "Asia/Hong_Kong", locale: "en" },
-  { id: "emma", display_name: "Emma", role: "child", pin: "2468", avatar: "🧒", timezone: "Asia/Hong_Kong", locale: "en" },
-  { id: "guest", display_name: "Guest", role: "guest", pin: "0000", avatar: "👶", timezone: "Asia/Hong_Kong", locale: "en" },
-];
-
-const DEMO_SESSION_KEY = "familyos-demo-session";
-
-function readDemoSession(): Actor | null {
-  if (typeof window === "undefined") return null;
-  const raw = window.localStorage.getItem(DEMO_SESSION_KEY);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as Actor;
-  } catch {
-    return null;
-  }
-}
-
-function writeDemoSession(actor: Actor | null) {
-  if (typeof window === "undefined") return;
-  if (!actor) {
-    window.localStorage.removeItem(DEMO_SESSION_KEY);
-    return;
-  }
-  window.localStorage.setItem(DEMO_SESSION_KEY, JSON.stringify(actor));
-}
 
 export type Tag = {
   id: string;
@@ -53,6 +21,44 @@ export type Tag = {
   slug: string;
   color: string | null;
   kind: string;
+};
+
+export type TagProposal = {
+  id: string;
+  note_id: string;
+  tag_id: string | null;
+  proposed_slug: string;
+  proposed_kind: string;
+  proposed_namespace: string | null;
+  confidence: number;
+  evidence: Record<string, unknown>;
+  model: string;
+  status: string;
+  created_at: string;
+};
+
+export type GraphNode = {
+  id: string;
+  type: string;
+  label: string;
+  note_type: string | null;
+  pinned: boolean;
+  tags: string[];
+  extra: Record<string, unknown>;
+};
+
+export type GraphEdge = {
+  id: string;
+  source: string;
+  target: string;
+  type: string;
+  relation_type: string | null;
+};
+
+export type GraphData = {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  meta: { node_count: number; edge_count: number; truncated: boolean; generated_at: string };
 };
 
 export type NoteBlock = {
@@ -148,33 +154,50 @@ export async function apiRequest<T>(
 }
 
 export function getActor(): Promise<Actor> {
-  const demoActor = readDemoSession();
-  if (demoActor) return Promise.resolve(demoActor);
   return apiRequest<Actor>("/auth/me");
 }
 
-export function demoSignIn(memberId: string, pin: string): Promise<Actor> {
-  const member = demoMembers.find((person) => person.id === memberId);
-  if (!member) throw new ApiError("Unknown family member", 401, "unknown_member");
-  if (member.pin !== pin) throw new ApiError("Incorrect PIN", 401, "invalid_pin");
+export async function listLoginMembers(): Promise<LoginMember[]> {
+  const response = await apiRequest<{ items: LoginMember[] }>("/auth/members");
+  return response.items;
+}
 
-  const actor: Actor = {
-    member_id: member.id,
-    household_id: "demo-household",
-    display_name: member.display_name,
-    role: member.role,
-    timezone: member.timezone,
-    locale: member.locale,
-    scopes: ["notes:read", "notes:write", "search:read", "family:read"],
-  };
+export function signInWithPin(memberId: string, pin: string): Promise<{ member_id: string; role: string }> {
+  return apiRequest<{ member_id: string; role: string }>("/auth/pin-login", {
+    method: "POST",
+    body: JSON.stringify({ member_id: memberId, pin }),
+  });
+}
 
-  writeDemoSession(actor);
-  return Promise.resolve(actor);
+export function getSetupStatus(): Promise<{ available: boolean }> {
+  return apiRequest<{ available: boolean }>("/auth/setup-status");
+}
+
+export function completeSetup(input: {
+  household_name: string;
+  timezone: string;
+  locale: string;
+  week_starts_on: string;
+  display_name: string;
+  email: string;
+  password: string;
+  pin: string;
+  ai_provider: "none" | "ollama" | "openai";
+}): Promise<{ member_id: string; role: string }> {
+  return apiRequest<{ member_id: string; role: string }>("/auth/setup", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 
 export function listNotes(params: URLSearchParams = new URLSearchParams()): Promise<NoteList> {
   const query = params.toString();
   return apiRequest<NoteList>(`/notes${query ? `?${query}` : ""}`);
+}
+
+export function searchNotes(params: URLSearchParams = new URLSearchParams()): Promise<NoteList> {
+  const query = params.toString();
+  return apiRequest<NoteList>(`/search${query ? `?${query}` : ""}`);
 }
 
 export function getNote(noteId: string): Promise<Note> {
@@ -265,10 +288,6 @@ export function signIn(email: string, password: string): Promise<{ member_id: st
 }
 
 export async function signOut(): Promise<void> {
-  if (readDemoSession()) {
-    writeDemoSession(null);
-    return;
-  }
   await apiRequest<void>("/auth/logout", { method: "POST" });
 }
 
@@ -284,4 +303,23 @@ export function patchTextBlock(blockId: string, text: string): Promise<NoteBlock
     method: "PATCH",
     body: JSON.stringify({ text_content: text }),
   });
+}
+
+export function listTagProposals(noteId?: string): Promise<TagProposal[]> {
+  const params = new URLSearchParams();
+  if (noteId) params.set("note_id", noteId);
+  const query = params.toString();
+  return apiRequest<TagProposal[]>(`/tags/proposals${query ? `?${query}` : ""}`);
+}
+
+export function decideTagProposal(proposalId: string, accepted: boolean): Promise<TagProposal> {
+  return apiRequest<TagProposal>(`/tags/proposals/${encodeURIComponent(proposalId)}/decision`, {
+    method: "POST",
+    body: JSON.stringify({ accepted }),
+  });
+}
+
+export function getGraph(scope = "all", limit = 2000): Promise<GraphData> {
+  const params = new URLSearchParams({ scope, limit: String(limit) });
+  return apiRequest<GraphData>(`/graph?${params.toString()}`);
 }

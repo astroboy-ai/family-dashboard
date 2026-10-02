@@ -98,6 +98,35 @@ class TagResponse(BaseModel):
     kind: str
 
 
+class TagProposalInput(BaseModel):
+    slug: str = Field(min_length=1, max_length=120)
+    confidence: float = Field(ge=0, le=1)
+    evidence: dict[str, Any] = Field(default_factory=dict)
+    model: str = Field(min_length=1, max_length=120)
+    kind: Literal["system", "facet", "topic", "adhoc"] = "topic"
+    namespace: str | None = Field(default=None, max_length=32)
+
+
+class TagProposalDecision(BaseModel):
+    accepted: bool
+
+
+class TagProposalResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    note_id: uuid.UUID
+    tag_id: uuid.UUID | None
+    proposed_slug: str
+    proposed_kind: str
+    proposed_namespace: str | None
+    confidence: float
+    evidence: dict[str, Any]
+    model: str
+    status: str
+    created_at: datetime
+
+
 class NoteResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

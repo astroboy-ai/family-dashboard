@@ -151,7 +151,7 @@ class LocalDiskStorage:
         return path
 
     async def presign_put(self, key: str, *, expires: timedelta = timedelta(minutes=10)) -> str:
-        raise NotImplementedError("Browser uploads require a network-addressable S3-compatible backend")
+        raise RuntimeError("Browser uploads require S3-compatible storage; set S3_ENDPOINT in .env")
 
     async def stat(self, key: str) -> StoredObject | None:
         path = self._path(key)

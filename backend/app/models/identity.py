@@ -61,6 +61,9 @@ class FamilyMember(Base):
     points_cached: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
     permissions: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    pin_hash: Mapped[str | None] = mapped_column(Text)
+    pin_failed_attempts: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
+    pin_locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 

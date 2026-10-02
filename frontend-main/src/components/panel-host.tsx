@@ -2,8 +2,8 @@
 
 import { Check, LoaderCircle, PencilLine, Sparkles, Tag, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { addTagToNote, createDrawingBlock, createNote, getNote, removeTagFromNote, updateDrawingBlock, type Note } from "@/lib/api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { addTagToNote, createDrawingBlock, createNote, decideTagProposal, getNote, listTagProposals, removeTagFromNote, updateDrawingBlock, type Note, type TagProposal } from "@/lib/api";
 import { usePanelStore } from "@/lib/panel-store";
 
 function CapturePanel({ close }: { close: () => void }) {
@@ -89,24 +89,18 @@ function stringifyTheme(theme: string | undefined): WhiteboardTheme {
   return "chalkboard_green";
 }
 
-function deriveTagSuggestions(note: Note | null) {
-  if (!note) return [];
-  const haystack = [
-    note.title,
-    note.summary,
-    note.ai_summary,
-    ...note.blocks.map((block) => [block.text_content, block.caption, block.ocr_text, block.transcript].join(" ")),
-  ].join(" ").toLowerCase();
-  const rules: Array<[string, string[]]> = [
-    ["travel", ["travel", "trip", "flight", "airport", "train", "bus", "mtr", "holiday", "vacation", "japan", "kyoto", "tokyo", "beach"]],
-    ["school", ["school", "class", "lesson", "assignment", "homework", "teacher", "camp", "study", "exam", "project"]],
-    ["family", ["family", "dad", "mum", "mom", "parent", "parents", "grandma", "grandpa", "emma", "household"]],
-    ["garden", ["garden", "plant", "plants", "seed", "soil", "greenhouse", "flower", "vegetable", "raised bed"]],
-    ["meals", ["meal", "breakfast", "lunch", "dinner", "recipe", "cook", "snack", "grocery"]],
-    ["shopping", ["shopping", "market", "grocery", "receipt", "budget", "cost", "store"]],
-  ];
-  const existing = new Set(note.tags.map((tag) => tag.slug));
-  return rules.flatMap(([tag, keywords]) => (existing.has(tag) || !keywords.some((keyword) => haystack.includes(keyword)) ? [] : [tag]));
+async function persistWhiteboard(noteId: string, blockId: string | null, drawing: WhiteboardData): Promise<string> {
+  const payload = {
+    ...DEFAULT_WHITEBOARD_DATA,
+    ...drawing,
+    theme: drawing.theme,
+    strokes: drawing.strokes,
+    meta: { ...drawing.meta, stroke_count: drawing.strokes.length },
+  };
+  const block = blockId
+    ? await updateDrawingBlock(blockId, payload, "Whiteboard sketch")
+    : await createDrawingBlock(noteId, payload, "Whiteboard sketch");
+  return block.id;
 }
 
 function WhiteboardPanel({ noteId, close }: { noteId?: string; close: () => void }) {
@@ -117,6 +111,8 @@ function WhiteboardPanel({ noteId, close }: { noteId?: string; close: () => void
   const [brushSize, setBrushSize] = useState(4);
   const [noteBlockId, setNoteBlockId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [error, setError] = useState("");
   const [savedAt, setSavedAt] = useState<string | null>(null);
 
   useEffect(() => {
@@ -263,34 +259,33 @@ function WhiteboardPanel({ noteId, close }: { noteId?: string; close: () => void
         strokes: [...current.strokes, draft],
         meta: { ...current.meta, stroke_count: current.strokes.length + 1 },
       }));
+      setDirty(true);
     }
     draftRef.current = null;
   }
 
-  async function saveDrawing() {
+  const saveDrawing = useCallback(async () => {
     if (!noteId) return;
     setSaving(true);
+    setError("");
     try {
-      const payload = {
-        ...DEFAULT_WHITEBOARD_DATA,
-        ...drawing,
-        theme: drawing.theme,
-        strokes: drawing.strokes,
-        meta: { ...drawing.meta, stroke_count: drawing.strokes.length },
-      };
-      if (noteBlockId) {
-        const block = await updateDrawingBlock(noteBlockId, payload, "Whiteboard sketch");
-        setNoteBlockId(block.id);
-      } else {
-        const block = await createDrawingBlock(noteId, payload, "Whiteboard sketch");
-        setNoteBlockId(block.id);
-      }
+      const blockId = await persistWhiteboard(noteId, noteBlockId, drawing);
+      setNoteBlockId(blockId);
+      setDirty(false);
       const timestamp = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
       setSavedAt(timestamp);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to save the whiteboard.");
     } finally {
       setSaving(false);
     }
-  }
+  }, [drawing, noteBlockId, noteId]);
+
+  useEffect(() => {
+    if (!noteId || !dirty) return;
+    const timer = window.setTimeout(() => void saveDrawing(), 900);
+    return () => window.clearTimeout(timer);
+  }, [dirty, saveDrawing, noteId]);
 
   return (
     <>
@@ -323,7 +318,7 @@ function WhiteboardPanel({ noteId, close }: { noteId?: string; close: () => void
             <span>Brush</span>
             <input type="range" min="2" max="20" value={brushSize} onChange={(event) => setBrushSize(Number(event.target.value))} />
           </label>
-          <select value={drawing.theme} onChange={(event) => setDrawing((current) => ({ ...current, theme: event.target.value as WhiteboardTheme }))}>
+          <select value={drawing.theme} onChange={(event) => { setDrawing((current) => ({ ...current, theme: event.target.value as WhiteboardTheme })); setDirty(true); }}>
             <option value="chalkboard_green">Chalkboard</option>
             <option value="chalkboard_black">Blackboard</option>
             <option value="whiteboard">Whiteboard</option>
@@ -345,11 +340,11 @@ function WhiteboardPanel({ noteId, close }: { noteId?: string; close: () => void
       <div className="panel-footer whiteboard-footer">
         <div className="whiteboard-status">
           <strong>{drawing.strokes.length} strokes</strong>
-          {savedAt ? <span>Saved {savedAt}</span> : <span>Not saved yet</span>}
+          {error ? <span role="alert">{error}</span> : dirty ? <span>Saving shortly…</span> : savedAt ? <span>Saved {savedAt}</span> : noteId ? <span>Not saved yet</span> : <span>Open from a note to save</span>}
         </div>
         <div className="whiteboard-actions">
-          <button type="button" className="secondary-button" onClick={() => setDrawing((current) => ({ ...current, strokes: [] }))}>Clear</button>
-          <button type="button" className="primary-button" onClick={() => void saveDrawing()} disabled={saving}>
+          <button type="button" className="secondary-button" onClick={() => { setDrawing((current) => ({ ...current, strokes: [] })); setDirty(true); }}>Clear</button>
+          <button type="button" className="primary-button" onClick={() => void saveDrawing()} disabled={saving || !noteId}>
             {saving ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}
             {saving ? "Saving" : "Save"}
           </button>
@@ -361,6 +356,8 @@ function WhiteboardPanel({ noteId, close }: { noteId?: string; close: () => void
 
 function TagReviewPanel({ noteId, close }: { noteId?: string; close: () => void }) {
   const [note, setNote] = useState<Note | null>(null);
+  const [proposals, setProposals] = useState<TagProposal[]>([]);
+  const [loadingProposals, setLoadingProposals] = useState(false);
   const [saving, setSaving] = useState(false);
   const [tagInput, setTagInput] = useState("");
   const [error, setError] = useState("");
@@ -374,7 +371,16 @@ function TagReviewPanel({ noteId, close }: { noteId?: string; close: () => void 
     return () => { active = false; };
   }, [noteId]);
 
-  const suggestions = useMemo(() => deriveTagSuggestions(note), [note]);
+  useEffect(() => {
+    if (!noteId) return;
+    let active = true;
+    setLoadingProposals(true);
+    listTagProposals(noteId)
+      .then((value) => active && setProposals(value))
+      .catch((reason: unknown) => active && setError(reason instanceof Error ? reason.message : "Unable to load tag proposals."))
+      .finally(() => active && setLoadingProposals(false));
+    return () => { active = false; };
+  }, [noteId]);
 
   async function addTag(name: string) {
     if (!noteId || !name.trim()) return;
@@ -399,6 +405,23 @@ function TagReviewPanel({ noteId, close }: { noteId?: string; close: () => void 
       setNote((current) => (current ? { ...current, tags } : current));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to remove the tag.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function reviewProposal(proposalId: string, accepted: boolean) {
+    setSaving(true);
+    setError("");
+    try {
+      await decideTagProposal(proposalId, accepted);
+      setProposals((current) => current.filter((proposal) => proposal.id !== proposalId));
+      if (accepted && noteId) {
+        const updated = await getNote(noteId);
+        setNote(updated);
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to update this proposal.");
     } finally {
       setSaving(false);
     }
@@ -438,15 +461,17 @@ function TagReviewPanel({ noteId, close }: { noteId?: string; close: () => void 
             </div>
 
             <div className="suggestion-list">
-              {suggestions.length === 0 ? (
-                <p className="inline-helper">No high-confidence proposals right now.</p>
+              {loadingProposals ? (
+                <p className="inline-helper">Loading proposals…</p>
+              ) : proposals.length === 0 ? (
+                <p className="inline-helper">No pending proposals for this note.</p>
               ) : (
-                suggestions.map((tag) => (
-                  <button key={tag} type="button" className="suggestion-item" onClick={() => void addTag(tag)}>
-                    <Sparkles size={14} />
-                    <span>#{tag}</span>
-                    <small>Proposed</small>
-                  </button>
+                proposals.map((proposal) => (
+                  <article key={proposal.id} className="tag-proposal-item">
+                    <div className="tag-proposal-copy"><Sparkles size={14} /><strong>#{proposal.proposed_slug}</strong><small>{Math.round(proposal.confidence * 100)}% · {proposal.model}</small></div>
+                    <p>{JSON.stringify(proposal.evidence)}</p>
+                    <div className="inline-actions"><button type="button" className="secondary-button" onClick={() => void reviewProposal(proposal.id, false)} disabled={saving}>Reject</button><button type="button" className="primary-button" onClick={() => void reviewProposal(proposal.id, true)} disabled={saving}>Accept</button></div>
+                  </article>
                 ))
               )}
             </div>

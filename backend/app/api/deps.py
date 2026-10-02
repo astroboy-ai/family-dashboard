@@ -4,7 +4,7 @@ from typing import Annotated, Any
 import jwt
 from fastapi import Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
@@ -61,13 +61,13 @@ async def get_current_actor(
 
     statement = (
         select(FamilyMember, User, Household)
-        .join(User, User.id == FamilyMember.user_id)
+        .outerjoin(User, User.id == FamilyMember.user_id)
         .join(Household, Household.id == FamilyMember.household_id)
         .where(
             FamilyMember.id == member_id,
             FamilyMember.household_id == household_id,
             FamilyMember.is_active.is_(True),
-            User.is_active.is_(True),
+            or_(FamilyMember.user_id.is_(None), User.is_active.is_(True)),
         )
     )
     result = await session.execute(statement)

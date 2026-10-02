@@ -1598,6 +1598,126 @@ h2 {
   gap: 7px;
 }
 
+.tag-proposal-item {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+}
+
+.tag-proposal-copy {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.tag-proposal-copy strong {
+  overflow-wrap: anywhere;
+}
+
+.tag-proposal-copy small {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: right;
+}
+
+.tag-proposal-item > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.graph-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 18px 0 12px;
+}
+
+.graph-search {
+  width: min(100%, 520px);
+}
+
+.graph-search button {
+  white-space: nowrap;
+}
+
+.graph-count {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.graph-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 250px;
+  min-height: min(68vh, 760px);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.graph-canvas {
+  position: relative;
+  min-width: 0;
+  min-height: 480px;
+  background-color: #f8faf8;
+  background-image: radial-gradient(#d9e3dc 0.7px, transparent 0.7px);
+  background-size: 20px 20px;
+}
+
+.graph-inspector {
+  padding: 17px;
+  border-left: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.graph-inspector h2 {
+  margin: 6px 0 8px;
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+
+.graph-inspector > p:not(.eyebrow) {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.graph-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.graph-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  background: rgb(248 250 248 / 88%);
+  color: #53645a;
+  text-align: center;
+}
+
+.graph-state strong {
+  color: #17241e;
+}
+
+.graph-error span {
+  max-width: 420px;
+  overflow-wrap: anywhere;
+}
+
 .suggestion-item {
   display: flex;
   align-items: center;
@@ -2323,6 +2443,36 @@ h2 {
 
   .capture-panel-body textarea {
     min-height: 160px;
+  }
+}
+
+@media (max-width: 860px) {
+  .graph-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .graph-canvas {
+    min-height: 56vh;
+  }
+
+  .graph-inspector {
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .graph-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .graph-search {
+    width: 100%;
+  }
+
+  .graph-canvas {
+    min-height: 52vh;
   }
 }
 

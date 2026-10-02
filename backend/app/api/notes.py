@@ -17,6 +17,9 @@ from app.schemas.notes import (
     NoteReorderRequest,
     NoteTagRequest,
     TagResponse,
+    TagProposalDecision,
+    TagProposalInput,
+    TagProposalResponse,
 )
 from app.services.notes import (
     add_tag,
@@ -33,11 +36,14 @@ from app.services.notes import (
     update_block,
     update_note,
 )
+from app.services.tag_governance import decide_tag_proposal, list_pending_tag_proposals, propose_tags
 
 
 notes_router = APIRouter(prefix="/notes", tags=["notes"])
 blocks_router = APIRouter(prefix="/blocks", tags=["blocks"])
 tags_router = APIRouter(prefix="/tags", tags=["tags"])
+
+tag_proposals_router = APIRouter(prefix="/tags/proposals", tags=["tag-proposals"])
 
 
 @notes_router.get("", response_model=NoteListResponse)
@@ -188,3 +194,37 @@ async def get_tags(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> list[TagResponse]:
     return await list_tags(session=session, actor=actor)
+
+
+@notes_router.post("/{note_id}/tag-proposals", response_model=list[TagProposalResponse])
+async def create_tag_proposals(
+    note_id: uuid.UUID,
+    payload: list[TagProposalInput],
+    actor: Annotated[Actor, Depends(get_current_actor)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> list[TagProposalResponse]:
+    return await propose_tags(session=session, actor=actor, note_id=note_id, candidates=payload)
+
+
+@tag_proposals_router.get("", response_model=list[TagProposalResponse])
+async def get_tag_proposals(
+    actor: Annotated[Actor, Depends(get_current_actor)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    note_id: uuid.UUID | None = None,
+) -> list[TagProposalResponse]:
+    return await list_pending_tag_proposals(session=session, actor=actor, note_id=note_id)
+
+
+@tag_proposals_router.post("/{proposal_id}/decision", response_model=TagProposalResponse)
+async def post_tag_proposal_decision(
+    proposal_id: uuid.UUID,
+    payload: TagProposalDecision,
+    actor: Annotated[Actor, Depends(get_current_actor)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> TagProposalResponse:
+    return await decide_tag_proposal(
+        session=session,
+        actor=actor,
+        proposal_id=proposal_id,
+        accepted=payload.accepted,
+    )

@@ -1,10 +1,11 @@
 # FamilyOS
 
-FamilyOS is a self-hosted family knowledge and coordination system. Its core idea is simple: capture information once as a **Note**, then make it easy for family members and approved tools to find and use it. The longer-term plan includes family calendars, chores, meals, learning, a private vault, transit widgets, and the Archify knowledge graph.
+FamilyOS is a self-hosted family knowledge and coordination system. This repository contains an early usable slice, not the complete blueprint: backend foundations, a Next.js dashboard, first-run household setup, email/PIN authentication, notes and blocks, basic keyword search, a freehand whiteboard, persisted tag proposals, an initial Archify graph projection, and a Transit ETA proxy.
 
-This repository is being built in stages. The current code is an early backend foundation, not a finished dashboard: it includes the container stack, database models and initial migration, health/readiness endpoints, login/session foundations, and the first media upload flow. **There is no web frontend or first-run onboarding UI yet.**
+Calendar, transit presets/widgets, complete hybrid/faceted search, full tag governance, the full Archify feature set, Hermes chat, wall/kid apps, and PWA/offline support remain unfinished.
 
 ## What You Need
+For the main frontend, Node.js and npm are required. The current UI lives in `frontend-main/`; run it separately from the backend with `npm install` and `npm run dev`.
 
 For the containerized app:
 
@@ -16,8 +17,6 @@ For backend tests outside Docker:
 
 - `uv` and Python 3.12. The project pins the backend to Python 3.12; `uv` can install it for your user.
 - Docker Engine is additionally required for tests that use Testcontainers and start PostgreSQL. Unit tests that do not need external services can run without Docker.
-
-Node.js is not needed for the current backend or Python Playwright setup. It will be needed when the Next.js frontends are added.
 
 ## Quick Setup (Windows)
 
@@ -107,6 +106,19 @@ Pop-Location
 
 `uv sync` creates an ignored `backend/.venv` and installs the pinned test tools from `backend/uv.lock`. Unit tests run without Docker. Integration tests that start PostgreSQL with Testcontainers require Docker Engine to be installed and running. Python Playwright is included for future browser tests; the current repository does not yet contain frontend end-to-end tests.
 
+## Run the Frontend
+
+From PowerShell at the repository root:
+
+```powershell
+Push-Location frontend-main
+npm install
+npm run dev
+Pop-Location
+```
+
+The app runs at `http://localhost:3000`. API-backed pages also require the backend and its database services to be running.
+
 ## Common Commands
 
 | Command | What it does |
@@ -125,10 +137,13 @@ Pop-Location
 The backend is private to the Compose network in the current setup. Implemented routes include:
 
 - `GET /healthz` and `GET /readyz` for health and dependency readiness.
-- `POST /api/auth/login`, `GET /api/auth/me`, and `POST /api/auth/logout` for the current access-cookie flow.
+- `GET /api/auth/members`, `GET /api/auth/setup-status`, `POST /api/auth/setup`, `POST /api/auth/login`, `POST /api/auth/pin-login`, `POST /api/auth/pin`, `GET /api/auth/me`, and `POST /api/auth/logout` for setup and access-cookie auth.
 - `POST /api/media/presign` and `POST /api/media/{asset_id}/complete` for authenticated media upload setup and completion.
+- Note CRUD, block/tag routes, `GET /api/search`, `GET /api/graph`, and authenticated `GET /api/transit/eta` for the current notes/search/graph/ETA slices.
+- `/api/tags/proposals` routes for parent review of persisted tag proposals.
+- `/internal/agent/tools` routes for the service-token-protected read-only tool registry.
 
-There is not yet a browser-accessible API proxy or frontend, nor a first-run account creation screen. Account provisioning and later API access flows are still under development; the login endpoint expects a user that has already been created in the database. Do not expose the backend directly to an untrusted network.
+The documented APIs are an incomplete subset of the blueprint. Device pairing, refresh-token rotation, calendar, transit presets/widgets, full hybrid/faceted search, Hermes runtime, and several other domain APIs remain in development. Do not expose the backend directly to an untrusted network.
 
 ## Troubleshooting
 
@@ -141,7 +156,8 @@ There is not yet a browser-accessible API proxy or frontend, nor a first-run acc
 ## Project Layout
 
 ```text
-backend/           FastAPI app, SQLAlchemy models, Alembic migration, tests
+backend/           FastAPI app, SQLAlchemy models, Alembic migrations, tests
+frontend-main/     Next.js dashboard and app routes
 [00]System-Blueprint.md
 [01]Add-on 1 — Archify Gallery-Complete Design.md
 [02]Add-on 2--- HK Transit Widget (Bus+MTR).md

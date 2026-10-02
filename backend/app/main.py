@@ -8,8 +8,12 @@ from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
 
 from app.api.auth import router as auth_router
+from app.api.internal_agent import router as internal_agent_router
+from app.api.graph import router as graph_router
 from app.api.media import router as media_router
-from app.api.notes import blocks_router, notes_router, tags_router
+from app.api.notes import blocks_router, notes_router, tag_proposals_router, tags_router
+from app.api.search import router as search_router
+from app.api.transit import router as transit_router
 from app.core.config import Settings, get_settings
 from app.core.db import check_database, dispose_database
 from app.core.errors import AppError, app_error_handler
@@ -62,6 +66,11 @@ def create_app(
     app.include_router(notes_router, prefix="/api")
     app.include_router(blocks_router, prefix="/api")
     app.include_router(tags_router, prefix="/api")
+    app.include_router(tag_proposals_router, prefix="/api")
+    app.include_router(search_router, prefix="/api")
+    app.include_router(internal_agent_router)
+    app.include_router(graph_router, prefix="/api")
+    app.include_router(transit_router, prefix="/api")
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:

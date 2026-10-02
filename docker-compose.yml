@@ -21,6 +21,7 @@ x-backend-env: &backend-env
   JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
   ENVIRONMENT: ${ENVIRONMENT:-development}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  DOCKER_NETWORK: familyos
 
 services:
   postgres:

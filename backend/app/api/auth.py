@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +14,7 @@ from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models import FamilyMember, Household, User
+from app.services.sessions import issue_session, revoke_session, rotate_session
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -67,6 +68,50 @@ def set_access_cookie(response: Response, token: str, settings: Settings) -> Non
     )
 
 
+def set_refresh_cookie(response: Response, token: str, settings: Settings) -> None:
+    """Long-lived session cookie.
+
+    Scoped to ``/api/auth`` so it is only ever sent to the refresh/logout
+    endpoints. Keeping it off ordinary requests means a leaked access token is
+    not enough to extend a session.
+    """
+
+    response.set_cookie(
+        key="refresh_token",
+        value=token,
+        max_age=settings.refresh_token_days * 24 * 60 * 60,
+        httponly=True,
+        secure=settings.environment != "development",
+        samesite="lax",
+        path="/api/auth",
+    )
+
+
+def clear_session_cookies(response: Response) -> None:
+    response.delete_cookie(key="access_token", path="/")
+    response.delete_cookie(key="refresh_token", path="/api/auth")
+
+
+async def start_session(
+    *,
+    response: Response,
+    session: AsyncSession,
+    member: FamilyMember,
+    settings: Settings,
+    user_agent: str | None = None,
+) -> None:
+    """Issue both halves of a session: short access JWT + rotating refresh token."""
+
+    token = create_access_token(
+        member_id=str(member.id),
+        household_id=str(member.household_id),
+        settings=settings,
+    )
+    issued = await issue_session(session=session, member=member, user_agent=user_agent)
+    set_access_cookie(response, token, settings)
+    set_refresh_cookie(response, issued.refresh_token, settings)
+
+
 @router.get("/members")
 async def list_login_members(
     session: Annotated[AsyncSession, Depends(get_session)],
@@ -98,6 +143,7 @@ async def list_login_members(
 async def pin_login(
     payload: PinLoginRequest,
     response: Response,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> dict[str, str]:
@@ -141,12 +187,13 @@ async def pin_login(
     member.pin_failed_attempts = 0
     member.pin_locked_until = None
     await session.commit()
-    token = create_access_token(
-        member_id=str(member.id),
-        household_id=str(member.household_id),
+    await start_session(
+        response=response,
+        session=session,
+        member=member,
         settings=settings,
+        user_agent=request.headers.get("user-agent"),
     )
-    set_access_cookie(response, token, settings)
     return {"member_id": str(member.id), "role": member.role}
 
 
@@ -185,6 +232,7 @@ async def set_member_pin(
 async def login(
     payload: LoginRequest,
     response: Response,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> dict[str, str]:
@@ -210,19 +258,58 @@ async def login(
 
     user.last_login_at = datetime.now(UTC)
     await session.commit()
+    await start_session(
+        response=response,
+        session=session,
+        member=member,
+        settings=settings,
+        user_agent=request.headers.get("user-agent"),
+    )
+    return {"member_id": str(member.id), "role": member.role}
+
+
+@router.post("/refresh")
+async def refresh_session(
+    request: Request,
+    response: Response,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> dict[str, str]:
+    """Exchange the refresh cookie for a fresh access token.
+
+    Returns 401 when the cookie is missing, expired, revoked or replayed; the
+    caller should then send the user to the login page rather than retrying.
+    """
+
+    token = request.cookies.get("refresh_token")
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No session")
+
+    member, issued = await rotate_session(
+        session=session,
+        token=token,
+        user_agent=request.headers.get("user-agent"),
+    )
     access_token = create_access_token(
         member_id=str(member.id),
         household_id=str(member.household_id),
         settings=settings,
     )
     set_access_cookie(response, access_token, settings)
+    set_refresh_cookie(response, issued.refresh_token, settings)
     return {"member_id": str(member.id), "role": member.role}
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout() -> Response:
+async def logout(
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> Response:
+    """Revoke the refresh chain and clear both cookies."""
+
+    await revoke_session(session=session, token=request.cookies.get("refresh_token", ""))
     response = Response(status_code=status.HTTP_204_NO_CONTENT)
-    response.delete_cookie(key="access_token", path="/")
+    clear_session_cookies(response)
     return response
 
 
@@ -289,10 +376,10 @@ async def complete_setup(
     session.add(member)
     await session.commit()
 
-    token = create_access_token(
-        member_id=str(member.id),
-        household_id=str(household.id),
+    await start_session(
+        response=response,
+        session=session,
+        member=member,
         settings=settings,
     )
-    set_access_cookie(response, token, settings)
     return {"member_id": str(member.id), "role": member.role}

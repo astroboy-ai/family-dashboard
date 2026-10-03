@@ -121,6 +121,48 @@ export class ApiError extends Error {
   }
 }
 
+/** Raised when the session cannot be recovered. The UI shows a non-blocking
+ * prompt (copy work / go to login) instead of redirecting, so unsaved input is
+ * never thrown away. */
+export class SessionExpiredError extends ApiError {
+  constructor() {
+    super("Session expired", 401, "session_expired");
+    this.name = "SessionExpiredError";
+  }
+}
+
+type SessionExpiredListener = () => void;
+const sessionExpiredListeners = new Set<SessionExpiredListener>();
+
+/** Subscribe to "session could not be refreshed" events. Returns an unsubscribe. */
+export function onSessionExpired(listener: SessionExpiredListener): () => void {
+  sessionExpiredListeners.add(listener);
+  return () => sessionExpiredListeners.delete(listener);
+}
+
+function notifySessionExpired(): void {
+  sessionExpiredListeners.forEach((listener) => listener());
+}
+
+/** One refresh in flight at a time: a burst of 401s must not fire N rotations,
+ * which would look like token replay and revoke the chain. */
+let refreshInFlight: Promise<boolean> | null = null;
+
+async function refreshSession(): Promise<boolean> {
+  if (!refreshInFlight) {
+    refreshInFlight = fetch("/api/auth/refresh", {
+      method: "POST",
+      credentials: "include",
+    })
+      .then((response) => response.ok)
+      .catch(() => false)
+      .finally(() => {
+        refreshInFlight = null;
+      });
+  }
+  return refreshInFlight;
+}
+
 async function decodeResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as
@@ -136,6 +178,14 @@ async function decodeResponse<T>(response: Response): Promise<T> {
   return (await response.json()) as T;
 }
 
+/**
+ * Fetch wrapper for the app's own API.
+ *
+ * On a 401 it attempts exactly one silent refresh and replays the request; if
+ * that also fails the session is gone and a SessionExpiredError is thrown after
+ * notifying listeners, so the UI can offer to copy unsaved work before the user
+ * navigates to login.
+ */
 export async function apiRequest<T>(
   path: string,
   init: RequestInit = {},
@@ -144,11 +194,26 @@ export async function apiRequest<T>(
   if (init.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
-  const response = await fetch(`/api${path}`, {
-    ...init,
-    headers,
-    credentials: "include",
-  });
+
+  const send = () =>
+    fetch(`/api${path}`, {
+      ...init,
+      headers,
+      credentials: "include",
+    });
+
+  let response = await send();
+
+  if (response.status === 401 && !path.startsWith("/auth/")) {
+    const refreshed = await refreshSession();
+    if (refreshed) {
+      response = await send();
+    }
+    if (!response.ok && response.status === 401) {
+      notifySessionExpired();
+      throw new SessionExpiredError();
+    }
+  }
 
   return decodeResponse<T>(response);
 }
@@ -406,6 +471,36 @@ export function enqueueMediaEnrich(assetId: string): Promise<{ queued: boolean }
   });
 }
 
+/** Update a block's structured payload (checkbox, date, table rows, …). */
+export function patchBlock(
+  blockId: string,
+  input: { text_content?: string; data?: Record<string, unknown>; caption?: string },
+): Promise<NoteBlock> {
+  return apiRequest<NoteBlock>(`/blocks/${encodeURIComponent(blockId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteBlock(blockId: string): Promise<void> {
+  return apiRequest<void>(`/blocks/${encodeURIComponent(blockId)}`, { method: "DELETE" });
+}
+
+async function sha256Hex(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer();
+  const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Upload a file and return the media asset id.
+ *
+ * Prefers the presigned direct-to-S3 PUT (no extra hop). Falls back to relaying
+ * the bytes through the API when the browser cannot reach the S3 endpoint —
+ * which is the normal case until a public tunnel hostname is configured for
+ * storage, and the cause of the earlier "failed to fetch" on upload.
+ */
 export async function uploadFile(file: File): Promise<string> {
   const sha256 = await sha256Hex(file);
   const presigned = await presignMediaUpload({
@@ -414,20 +509,28 @@ export async function uploadFile(file: File): Promise<string> {
     size: file.size,
     sha256,
   });
-  if (presigned.upload_url) {
-    await fetch(presigned.upload_url, {
-      method: "PUT",
-      headers: { "Content-Type": file.type || "application/octet-stream" },
-      body: file,
-    });
-  }
-  await completeMediaUpload(presigned.asset_id);
-  return presigned.asset_id;
-}
 
-async function sha256Hex(file: File): Promise<string> {
-  const buffer = await file.arrayBuffer();
-  const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  if (presigned.upload_url) {
+    try {
+      const put = await fetch(presigned.upload_url, {
+        method: "PUT",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+      });
+      if (put.ok) {
+        await completeMediaUpload(presigned.asset_id);
+        return presigned.asset_id;
+      }
+    } catch {
+      // Unreachable S3 origin (offline, mixed content, DNS) — fall through to
+      // the relay endpoint rather than failing the upload.
+    }
+  }
+
+  await apiRequest<{ status: string }>(`/media/${encodeURIComponent(presigned.asset_id)}/content`, {
+    method: "PUT",
+    headers: { "Content-Type": file.type || "application/octet-stream" },
+    body: file,
+  });
+  return presigned.asset_id;
 }

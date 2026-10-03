@@ -11,6 +11,10 @@ from app.core.storage import StorageBackend
 from app.models import JobOutbox, MediaAsset
 from app.schemas.media import MediaPresignRequest
 
+# Relay uploads buffer the whole body in memory, so they are capped well below
+# what a presigned direct-to-S3 PUT can carry.
+MAX_RELAY_BYTES = 64 * 1024 * 1024
+
 
 def _media_kind(mime: str) -> str:
     if mime.startswith("image/"):
@@ -84,6 +88,75 @@ async def create_upload(
         "fields": {"Content-Type": payload.mime},
         "deduplicated": False,
     }
+
+
+async def store_upload_bytes(
+    *,
+    session: AsyncSession,
+    storage: StorageBackend,
+    actor: Actor,
+    asset_id: uuid.UUID,
+    data: bytes,
+) -> dict[str, object]:
+    """Store *data* as the asset's object (the relay upload path).
+
+    Used when the browser cannot reach the presigned S3 URL. The declared size on
+    the asset record must match, otherwise the object is discarded and the caller
+    gets a 422 — the same guarantee the presigned path gives via ``stat``.
+    """
+
+    asset = await _load_asset(session=session, actor=actor, asset_id=asset_id)
+
+    if asset.enrichment_status != "uploading":
+        return {
+            "asset_id": asset.id,
+            "status": asset.enrichment_status,
+            "queued": False,
+            "already_complete": True,
+        }
+
+    if len(data) != asset.size_bytes:
+        raise AppError(
+            f"Uploaded {len(data)} bytes but {asset.size_bytes} were declared",
+            status_code=422,
+            error_code="upload_size_mismatch",
+        )
+
+    import io
+
+    try:
+        await storage.put(
+            asset.storage_key,
+            io.BytesIO(data),
+            size=len(data),
+            content_type=asset.mime or "application/octet-stream",
+        )
+    except Exception as error:  # noqa: BLE001 - surface as a clean 503
+        raise AppError(
+            "Media storage is unavailable",
+            status_code=503,
+            error_code="storage_unavailable",
+        ) from error
+
+    return await complete_upload(
+        session=session, storage=storage, actor=actor, asset_id=asset_id
+    )
+
+
+async def _load_asset(
+    *, session: AsyncSession, actor: Actor, asset_id: uuid.UUID
+) -> MediaAsset:
+    result = await session.execute(
+        select(MediaAsset).where(
+            MediaAsset.id == asset_id,
+            MediaAsset.household_id == actor.household_id,
+            MediaAsset.deleted_at.is_(None),
+        )
+    )
+    asset = result.scalar_one_or_none()
+    if asset is None:
+        raise AppError("Media asset not found", status_code=404, error_code="not_found")
+    return asset
 
 
 async def complete_upload(

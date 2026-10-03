@@ -105,7 +105,6 @@ export function ToolsDrawer({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search tools…"
-            autoFocus
           />
         </div>
         <div className="drawer-body">

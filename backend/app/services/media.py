@@ -145,3 +145,58 @@ async def complete_upload(
     )
     await session.commit()
     return {"asset_id": asset.id, "status": "pending", "queued": True}
+
+async def load_asset_for_download(
+    *,
+    session: AsyncSession,
+    actor: Actor,
+    asset_id: uuid.UUID,
+) -> MediaAsset:
+    result = await session.execute(
+        select(MediaAsset).where(
+            MediaAsset.id == asset_id,
+            MediaAsset.household_id == actor.household_id,
+            MediaAsset.deleted_at.is_(None),
+        )
+    )
+    asset = result.scalar_one_or_none()
+    if asset is None:
+        raise AppError("Media asset not found", status_code=404, error_code="not_found")
+    return asset
+
+
+async def enqueue_enrichment(
+    *,
+    session: AsyncSession,
+    actor: Actor,
+    asset_id: uuid.UUID,
+) -> dict[str, object]:
+    """Queue a vision description for an uploaded image (``media.enrich``).
+
+    Idempotent: a second request for an asset already described returns
+    ``queued: false`` instead of spending another vision call.
+    """
+
+    asset = await load_asset_for_download(session=session, actor=actor, asset_id=asset_id)
+    if asset.kind != "image":
+        raise AppError(
+            "Only image assets can be enriched",
+            status_code=422,
+            error_code="not_an_image",
+        )
+    if (asset.meta or {}).get("ai_description"):
+        return {"asset_id": asset.id, "queued": False, "already_described": True}
+
+    pending = await session.execute(
+        select(JobOutbox.id).where(
+            JobOutbox.topic == "media.enrich",
+            JobOutbox.status.in_(("pending", "running")),
+            JobOutbox.payload["asset_id"].astext == str(asset.id),
+        )
+    )
+    if pending.first() is not None:
+        return {"asset_id": asset.id, "queued": False, "already_queued": True}
+
+    session.add(JobOutbox(topic="media.enrich", payload={"asset_id": str(asset.id)}))
+    await session.commit()
+    return {"asset_id": asset.id, "queued": True}

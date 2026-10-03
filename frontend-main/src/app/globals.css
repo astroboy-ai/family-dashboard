@@ -2486,3 +2486,358 @@ h2 {
     transition-duration: .01ms !important;
   }
 }
+
+/* === Tools Drawer === */
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 40%);
+  z-index: 100;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.drawer {
+  width: min(420px, 90vw);
+  height: 100%;
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow);
+}
+
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.drawer-header h2 {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.drawer-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.drawer-search input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 14px;
+  outline: none;
+}
+
+.drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+.drawer-group {
+  margin-bottom: 20px;
+}
+
+.drawer-group-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.drawer-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.drawer-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.drawer-item:hover {
+  background: var(--surface-muted);
+  border-color: var(--accent);
+}
+
+/* === Fullscreen === */
+.note-detail-page.fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: var(--background);
+  overflow-y: auto;
+  padding: 20px;
+}
+
+/* === Remove block button === */
+.block-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.block-meta .icon-button {
+  margin-left: auto;
+}
+
+/* === Inline actions === */
+.inline-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* === Block Types === */
+.block-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  cursor: pointer;
+}
+
+.block-checkbox input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+
+.block-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.block-field input[type="date"],
+.block-field input[type="number"],
+.block-field input[type="password"] {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: 14px;
+}
+
+.block-currency select {
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: 14px;
+}
+
+.block-password input[type="password"] {
+  font-family: var(--font-ui);
+}
+
+/* === Media Blocks === */
+.block-media {
+  padding: 8px 0;
+}
+
+.block-image {
+  max-width: 100%;
+  max-height: 300px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+}
+
+.block-file-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--foreground);
+  text-decoration: none;
+  font-size: 14px;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.block-file-link:hover {
+  background: var(--surface-muted);
+  border-color: var(--accent);
+}
+
+/* === Audio Block === */
+.block-audio {
+  padding: 8px 0;
+}
+
+.block-audio-player {
+  width: 100%;
+  max-width: 400px;
+  border-radius: 8px;
+}
+
+/* === Location Block === */
+.block-location {
+  padding: 8px 0;
+}
+
+.block-location-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--foreground);
+  text-decoration: none;
+  font-size: 14px;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.block-location-link:hover {
+  background: var(--surface-muted);
+  border-color: var(--accent);
+}
+
+/* === Table Block === */
+.block-table-wrap {
+  padding: 8px 0;
+  overflow-x: auto;
+}
+
+.block-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.block-table td {
+  border: 1px solid var(--line);
+  padding: 0;
+}
+
+.block-table td input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--foreground);
+  padding: 8px 12px;
+  font-size: 14px;
+  outline: none;
+}
+
+.block-table td input:focus {
+  background: var(--surface-muted);
+}
+
+/* === Reminder / Lock / Link Blocks === */
+.block-reminder,
+.block-lock,
+.block-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 14px;
+  flex-wrap: wrap;
+}
+
+.block-reminder input[type="datetime-local"] {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: 14px;
+}
+
+.block-reminder-done,
+.block-lock-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.block-link-anchor {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.block-link-anchor:hover {
+  text-decoration: underline;
+}
+
+/* === Whiteboard Fullscreen === */
+.whiteboard-canvas-wrap.fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #0b0f0e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.whiteboard-canvas-wrap.fullscreen .whiteboard-canvas {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+/* === Sketch Thumbnail === */
+.sketch-thumb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: var(--surface-muted);
+  border: 1px solid var(--line);
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+/* === Time Block === */
+.block-time {
+  flex-wrap: wrap;
+}
+
+.block-time input[type="time"],
+.block-time input[type="number"] {
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: 14px;
+}

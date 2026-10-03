@@ -1,11 +1,12 @@
 "use client";
 
-import { ArrowLeft, Check, LoaderCircle, Plus, Save, SquarePen } from "lucide-react";
+import { ArrowLeft, Check, LoaderCircle, Maximize, Minimize, Plus, Save, SquarePen, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { addTagToNote, ApiError, createDrawingBlock, createTextBlock, getNote, patchNote, patchTextBlock, removeTagFromNote, type Note } from "@/lib/api";
+import { addTagToNote, ApiError, createBlock, createDrawingBlock, createTextBlock, enqueueMediaEnrich, getNote, patchNote, patchTextBlock, removeTagFromNote, uploadFile, type Note } from "@/lib/api";
 import { usePanelStore } from "@/lib/panel-store";
+import { ToolsDrawer, type Tool } from "@/components/tools-drawer";
 
 export default function NoteDetailPage() {
   const params = useParams<{ id: string }>();
@@ -15,6 +16,8 @@ export default function NoteDetailPage() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [tagInput, setTagInput] = useState("");
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
   const openPanel = usePanelStore((state) => state.open);
 
   useEffect(() => {
@@ -91,6 +94,252 @@ export default function NoteDetailPage() {
     }
   }
 
+  async function removeBlock(blockId: string) {
+    if (!note) return;
+    try {
+      const response = await fetch(`/api/blocks/${encodeURIComponent(blockId)}`, { method: "DELETE", credentials: "include" });
+      if (!response.ok) throw new Error("Couldn't remove block");
+      setNote((current) => current ? { ...current, blocks: current.blocks.filter((b) => b.id !== blockId) } : current);
+      setMessage("Block removed");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Couldn't remove block.");
+    }
+  }
+
+  async function handleToolSelect(tool: Tool) {
+    if (!note) return;
+    try {
+      switch (tool.id) {
+        case "checkbox": {
+          const block = await createBlock(note.id, {
+            type: "checkbox",
+            text_content: "",
+            data: { checked: false },
+          });
+          setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
+          setMessage("Checkbox added");
+          break;
+        }
+        case "date": {
+          const block = await createBlock(note.id, {
+            type: "date",
+            text_content: "",
+            data: { value: new Date().toISOString().slice(0, 10) },
+          });
+          setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
+          setMessage("Date field added");
+          break;
+        }
+        case "currency": {
+          const block = await createBlock(note.id, {
+            type: "currency",
+            text_content: "",
+            data: { value: "", currency: "HKD" },
+          });
+          setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
+          setMessage("Currency field added");
+          break;
+        }
+        case "password": {
+          const block = await createBlock(note.id, {
+            type: "password",
+            text_content: "",
+            data: { value: "", masked: true },
+          });
+          setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
+          setMessage("Password field added");
+          break;
+        }
+        case "photo": {
+          const aiAnalyze = window.confirm(
+            "AI analyse these photos?\n\nOK = describe each photo with the vision model (searchable, slower)\nCancel = just attach them",
+          );
+          const input = document.createElement("input");
+          input.type = "file";
+          input.accept = "image/*";
+          input.multiple = true;
+          input.onchange = async () => {
+            const files = Array.from(input.files ?? []);
+            if (files.length === 0) return;
+            setMessage(`Uploading ${files.length} photo(s)…`);
+            for (const file of files) {
+              try {
+                const assetId = await uploadFile(file);
+                const block = await createBlock(note.id, {
+                  type: "image",
+                  text_content: file.name,
+                  data: { media_asset_id: assetId, ai_analyze: aiAnalyze },
+                });
+                setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
+                if (aiAnalyze) await enqueueMediaEnrich(assetId);
+              } catch (reason) {
+                setError(reason instanceof Error ? reason.message : "Couldn't upload photo.");
+              }
+            }
+            setMessage(aiAnalyze ? `${files.length} photo(s) queued for AI analysis` : `${files.length} photo(s) added`);
+          };
+          input.click();
+          break;
+        }
+        case "file": {
+          const input = document.createElement("input");
+          input.type = "file";
+          input.multiple = true;
+          input.onchange = async () => {
+            const files = Array.from(input.files ?? []);
+            if (files.length === 0) return;
+            setMessage(`Uploading ${files.length} file(s)…`);
+            for (const file of files) {
+              try {
+                const assetId = await uploadFile(file);
+                const block = await createBlock(note.id, {
+                  type: "file",
+                  text_content: file.name,
+                  data: { media_asset_id: assetId },
+                });
+                setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
+              } catch (reason) {
+                setError(reason instanceof Error ? reason.message : "Couldn't upload file.");
+              }
+            }
+            setMessage(`${files.length} file(s) added`);
+          };
+          input.click();
+          break;
+        }
+        case "table": {
+          const block = await createBlock(note.id, {
+            type: "table",
+            text_content: "",
+            data: { rows: [["", ""], ["", ""]], columns: 2 },
+          });
+          setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
+          setMessage("Table added");
+          break;
+        }
+        case "time": {
+          const block = await createBlock(note.id, {
+            type: "time",
+            text_content: "",
+            data: { value: "", duration_min: 0 },
+          });
+          setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
+          setMessage("Time field added");
+          break;
+        }
+        case "drawing": {
+          openPanel("whiteboard", note.id);
+          setMessage("Drawing board opened");
+          break;
+        }
+        case "reminder": {
+          const when = window.prompt("Reminder time (YYYY-MM-DDTHH:MM):", new Date(Date.now() + 3600000).toISOString().slice(0, 16));
+          if (!when) break;
+          const block = await createBlock(note.id, {
+            type: "reminder",
+            text_content: "",
+            data: { remind_at: when, done: false },
+          });
+          setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
+          setMessage("Reminder added");
+          break;
+        }
+        case "lock": {
+          const block = await createBlock(note.id, {
+            type: "lock",
+            text_content: "",
+            data: { locked: true },
+          });
+          setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
+          setMessage("Note locked");
+          break;
+        }
+        case "link": {
+          const target = window.prompt("Note ID or URL to link:");
+          if (!target) break;
+          const block = await createBlock(note.id, {
+            type: "link",
+            text_content: target,
+            data: { target },
+          });
+          setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
+          setMessage("Link added");
+          break;
+        }
+        case "share": {
+          const text = note.blocks.map((b) => b.text_content ?? "").filter(Boolean).join("\n\n");
+          const blob = new Blob([`# ${note.title}\n\n${text}`], { type: "text/markdown" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `${note.title || "note"}.md`;
+          a.click();
+          URL.revokeObjectURL(url);
+          setMessage("Exported as Markdown");
+          break;
+        }
+        case "location": {
+          try {
+            const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+              navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 });
+            });
+            const { latitude, longitude } = position.coords;
+            const block = await createBlock(note.id, {
+              type: "location",
+              text_content: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
+              data: { latitude, longitude },
+            });
+            setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
+            setMessage("Location added");
+          } catch (reason) {
+            setError(reason instanceof Error ? reason.message : "Couldn't get location.");
+          }
+          break;
+        }
+        case "voice": {
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const recorder = new MediaRecorder(stream);
+            const chunks: Blob[] = [];
+            recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+            recorder.onstop = async () => {
+              stream.getTracks().forEach((t) => t.stop());
+              const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+              const file = new File([blob], `voice-${Date.now()}.webm`, { type: blob.type });
+              try {
+                const assetId = await uploadFile(file);
+                const block = await createBlock(note.id, {
+                  type: "audio",
+                  text_content: "Voice note",
+                  data: { media_asset_id: assetId },
+                });
+                setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
+                setMessage("Voice note added");
+              } catch (reason) {
+                setError(reason instanceof Error ? reason.message : "Couldn't upload voice note.");
+              }
+            };
+            recorder.start();
+            setMessage("Recording… tap again to stop");
+            const stopHandler = () => {
+              if (recorder.state !== "inactive") recorder.stop();
+              document.removeEventListener("click", stopHandler);
+            };
+            setTimeout(() => document.addEventListener("click", stopHandler), 100);
+          } catch (reason) {
+            setError(reason instanceof Error ? reason.message : "Microphone access denied.");
+          }
+          break;
+        }
+        default:
+          setMessage(`${tool.label} tool selected — coming soon`);
+          break;
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Couldn't add tool.");
+    }
+  }
+
   async function addTag() {
     if (!note || !tagInput.trim()) return;
     try {
@@ -119,11 +368,14 @@ export default function NoteDetailPage() {
   if (!note) return null;
 
   return (
-    <div className="page-wrap note-detail-page">
-      <div className="detail-back-row"><Link href="/notes"><ArrowLeft size={16} /> Notes</Link><span>{message && <span className="save-state"><Check size={14} /> {message}</span>}</span></div>
+    <div className={`page-wrap note-detail-page ${fullscreen ? "fullscreen" : ""}`}>
+      <div className="detail-back-row"><Link href="/notes"><ArrowLeft size={16} /> Notes</Link><span>{message && <span className="save-state"><Check size={14} /> {message}</span>}</span><button className="icon-button" onClick={() => setFullscreen(!fullscreen)} aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}>{fullscreen ? <Minimize size={16} /> : <Maximize size={16} />}</button></div>
       <section className="note-detail-heading">
         <div><p className="eyebrow">{note.type.replaceAll("_", " ")} · {note.status}</p><input className="note-title-input" value={note.title ?? ""} onChange={(event) => setNote({ ...note, title: event.target.value })} onBlur={() => void saveTitle()} aria-label="Note title" placeholder="Untitled note" /><p className="page-subtitle">Updated {new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(note.updated_at))}</p></div>
-        <button className="secondary-button" onClick={() => void saveTitle()} disabled={saving}>{saving ? <LoaderCircle className="spin" size={16} /> : <Save size={16} />} Save title</button>
+        <div className="inline-actions">
+          <button className="secondary-button" onClick={() => void saveTitle()} disabled={saving}>{saving ? <LoaderCircle className="spin" size={16} /> : <Save size={16} />} Save title</button>
+          <button className="secondary-button" onClick={() => setDrawerOpen(true)}><Plus size={16} /> Tools</button>
+        </div>
       </section>
       <div className="note-tag-row">
         {note.tags.map((tag) => <button type="button" className="tag-chip tag-chip-button" key={tag.id} onClick={() => void removeTag(tag.slug)}>#{tag.slug}</button>)}
@@ -138,7 +390,7 @@ export default function NoteDetailPage() {
         <div className="section-heading"><div><p className="eyebrow">NOTE CONTENT</p><h2>Blocks</h2></div><div className="inline-actions"><button className="text-link" onClick={() => void addTextBlock()}><Plus size={16} /> Add text</button><button className="text-link" onClick={() => void addDrawingBlock()}><SquarePen size={16} /> Add drawing</button></div></div>
         {note.blocks.length === 0 ? <div className="empty-state compact-empty"><strong>This note has no content blocks.</strong><p>Add a text block or a drawing to start writing.</p></div> : note.blocks.map((block) => (
           <div className="editable-block" key={block.id}>
-            <div className="block-meta"><span>{block.type}</span><span>{block.order_index.toString().padStart(4, "0")}</span></div>
+            <div className="block-meta"><span>{block.type}</span><span>{block.order_index.toString().padStart(4, "0")}</span><button className="icon-button small-icon" onClick={() => void removeBlock(block.id)} aria-label="Remove block"><Trash2 size={14} /></button></div>
             {block.type === "text" ? <textarea defaultValue={block.text_content ?? ""} key={`${block.id}:${block.updated_at}`} onBlur={(event) => event.currentTarget.value !== (block.text_content ?? "") && void saveBlock(block.id, event.currentTarget.value)} aria-label="Text block" placeholder="Write a note…" /> : block.type === "drawing" ? (
               <button className="drawing-preview" type="button" onClick={() => openPanel("whiteboard", note.id)}>
                 <span className="drawing-preview-header">
@@ -147,12 +399,322 @@ export default function NoteDetailPage() {
                 </span>
                 <span className="drawing-preview-body">{block.text_content ?? "Sketch board"}</span>
               </button>
+            ) : block.type === "checkbox" ? (
+              <label className="block-checkbox">
+                <input
+                  type="checkbox"
+                  checked={Boolean(block.data?.checked)}
+                  onChange={async (e) => {
+                    try {
+                      const response = await fetch(`/api/blocks/${encodeURIComponent(block.id)}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        credentials: "include",
+                        body: JSON.stringify({ data: { ...block.data, checked: e.target.checked } }),
+                      });
+                      if (response.ok) {
+                        const updated = await response.json();
+                        setNote((current) => current ? { ...current, blocks: current.blocks.map((b) => b.id === block.id ? updated : b) } : current);
+                      }
+                    } catch { /* ignore */ }
+                  }}
+                />
+                <span>{block.text_content || "Checkbox"}</span>
+              </label>
+            ) : block.type === "date" ? (
+              <div className="block-field">
+                <input
+                  type="date"
+                  value={String(block.data?.value ?? "")}
+                  onChange={async (e) => {
+                    try {
+                      const response = await fetch(`/api/blocks/${encodeURIComponent(block.id)}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        credentials: "include",
+                        body: JSON.stringify({ data: { ...block.data, value: e.target.value } }),
+                      });
+                      if (response.ok) {
+                        const updated = await response.json();
+                        setNote((current) => current ? { ...current, blocks: current.blocks.map((b) => b.id === block.id ? updated : b) } : current);
+                      }
+                    } catch { /* ignore */ }
+                  }}
+                />
+              </div>
+            ) : block.type === "currency" ? (
+              <div className="block-field block-currency">
+                <select
+                  value={String(block.data?.currency ?? "HKD")}
+                  onChange={async (e) => {
+                    try {
+                      const response = await fetch(`/api/blocks/${encodeURIComponent(block.id)}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        credentials: "include",
+                        body: JSON.stringify({ data: { ...block.data, currency: e.target.value } }),
+                      });
+                      if (response.ok) {
+                        const updated = await response.json();
+                        setNote((current) => current ? { ...current, blocks: current.blocks.map((b) => b.id === block.id ? updated : b) } : current);
+                      }
+                    } catch { /* ignore */ }
+                  }}
+                >
+                  <option value="HKD">HKD</option>
+                  <option value="USD">USD</option>
+                  <option value="CNY">CNY</option>
+                  <option value="TWD">TWD</option>
+                  <option value="JPY">JPY</option>
+                  <option value="GBP">GBP</option>
+                  <option value="EUR">EUR</option>
+                </select>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={String(block.data?.value ?? "")}
+                  onChange={async (e) => {
+                    try {
+                      const response = await fetch(`/api/blocks/${encodeURIComponent(block.id)}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        credentials: "include",
+                        body: JSON.stringify({ data: { ...block.data, value: e.target.value } }),
+                      });
+                      if (response.ok) {
+                        const updated = await response.json();
+                        setNote((current) => current ? { ...current, blocks: current.blocks.map((b) => b.id === block.id ? updated : b) } : current);
+                      }
+                    } catch { /* ignore */ }
+                  }}
+                />
+              </div>
+            ) : block.type === "password" ? (
+              <div className="block-field block-password">
+                <input
+                  type="password"
+                  placeholder="Enter secret…"
+                  value={String(block.data?.value ?? "")}
+                  onChange={async (e) => {
+                    try {
+                      const response = await fetch(`/api/blocks/${encodeURIComponent(block.id)}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        credentials: "include",
+                        body: JSON.stringify({ data: { ...block.data, value: e.target.value } }),
+                      });
+                      if (response.ok) {
+                        const updated = await response.json();
+                        setNote((current) => current ? { ...current, blocks: current.blocks.map((b) => b.id === block.id ? updated : b) } : current);
+                      }
+                    } catch { /* ignore */ }
+                  }}
+                />
+              </div>
+            ) : block.type === "image" ? (
+              <div className="block-media">
+                <img
+                  src={`/api/media/${encodeURIComponent(String(block.data?.media_asset_id ?? ""))}/download`}
+                  alt={block.text_content ?? "Image"}
+                  className="block-image"
+                />
+                {block.text_content && <p className="block-caption">{block.text_content}</p>}
+              </div>
+            ) : block.type === "file" ? (
+              <div className="block-media block-file">
+                <a
+                  href={`/api/media/${encodeURIComponent(String(block.data?.media_asset_id ?? ""))}/download`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block-file-link"
+                >
+                  📎 {block.text_content ?? "Download file"}
+                </a>
+              </div>
+            ) : block.type === "audio" ? (
+              <div className="block-media block-audio">
+                <audio
+                  controls
+                  src={`/api/media/${encodeURIComponent(String(block.data?.media_asset_id ?? ""))}/download`}
+                  className="block-audio-player"
+                >
+                  Your browser does not support the audio element.
+                </audio>
+                {block.text_content && <p className="block-caption">{block.text_content}</p>}
+              </div>
+            ) : block.type === "location" ? (
+              <div className="block-location">
+                <a
+                  href={`https://www.google.com/maps?q=${Number(block.data?.latitude ?? 0)},${Number(block.data?.longitude ?? 0)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block-location-link"
+                >
+                  📍 {block.text_content || "View on map"}
+                </a>
+              </div>
+            ) : block.type === "table" ? (
+              <div className="block-table-wrap">
+                <table className="block-table">
+                  <tbody>
+                    {(Array.isArray(block.data?.rows) ? (block.data.rows as string[][]) : []).map((row, rowIndex) => (
+                      <tr key={rowIndex}>
+                        {row.map((cell, cellIndex) => (
+                          <td key={cellIndex}>
+                            <input
+                              type="text"
+                              defaultValue={cell}
+                              onBlur={async (e) => {
+                                const rows = (Array.isArray(block.data?.rows) ? (block.data.rows as string[][]) : []).map((r) => [...r]);
+                                rows[rowIndex][cellIndex] = e.currentTarget.value;
+                                try {
+                                  const response = await fetch(`/api/blocks/${encodeURIComponent(block.id)}`, {
+                                    method: "PATCH",
+                                    headers: { "Content-Type": "application/json" },
+                                    credentials: "include",
+                                    body: JSON.stringify({ data: { ...block.data, rows } }),
+                                  });
+                                  if (response.ok) {
+                                    const updated = await response.json();
+                                    setNote((current) => current ? { ...current, blocks: current.blocks.map((b) => b.id === block.id ? updated : b) } : current);
+                                  }
+                                } catch { /* ignore */ }
+                              }}
+                            />
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : block.type === "reminder" ? (
+              <div className="block-reminder">
+                <span className="block-reminder-icon">🔔</span>
+                <input
+                  type="datetime-local"
+                  defaultValue={String(block.data?.remind_at ?? "").slice(0, 16)}
+                  onBlur={async (e) => {
+                    try {
+                      const response = await fetch(`/api/blocks/${encodeURIComponent(block.id)}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        credentials: "include",
+                        body: JSON.stringify({ data: { ...block.data, remind_at: e.currentTarget.value } }),
+                      });
+                      if (response.ok) {
+                        const updated = await response.json();
+                        setNote((current) => current ? { ...current, blocks: current.blocks.map((b) => b.id === block.id ? updated : b) } : current);
+                      }
+                    } catch { /* ignore */ }
+                  }}
+                />
+                <label className="block-reminder-done">
+                  <input
+                    type="checkbox"
+                    defaultChecked={Boolean(block.data?.done)}
+                    onChange={async (e) => {
+                      try {
+                        const response = await fetch(`/api/blocks/${encodeURIComponent(block.id)}`, {
+                          method: "PATCH",
+                          headers: { "Content-Type": "application/json" },
+                          credentials: "include",
+                          body: JSON.stringify({ data: { ...block.data, done: e.target.checked } }),
+                        });
+                        if (response.ok) {
+                          const updated = await response.json();
+                          setNote((current) => current ? { ...current, blocks: current.blocks.map((b) => b.id === block.id ? updated : b) } : current);
+                        }
+                      } catch { /* ignore */ }
+                    }}
+                  />
+                  Done
+                </label>
+              </div>
+            ) : block.type === "lock" ? (
+              <div className="block-lock">
+                <span>🔒 Locked section</span>
+                <label className="block-lock-toggle">
+                  <input
+                    type="checkbox"
+                    defaultChecked={Boolean(block.data?.locked)}
+                    onChange={async (e) => {
+                      try {
+                        const response = await fetch(`/api/blocks/${encodeURIComponent(block.id)}`, {
+                          method: "PATCH",
+                          headers: { "Content-Type": "application/json" },
+                          credentials: "include",
+                          body: JSON.stringify({ data: { ...block.data, locked: e.target.checked } }),
+                        });
+                        if (response.ok) {
+                          const updated = await response.json();
+                          setNote((current) => current ? { ...current, blocks: current.blocks.map((b) => b.id === block.id ? updated : b) } : current);
+                        }
+                      } catch { /* ignore */ }
+                    }}
+                  />
+                  Enabled
+                </label>
+              </div>
+            ) : block.type === "link" ? (
+              <div className="block-link">
+                <a
+                  href={String(block.data?.target ?? "#").startsWith("http") ? String(block.data?.target) : `/notes/${encodeURIComponent(String(block.data?.target ?? ""))}`}
+                  className="block-link-anchor"
+                >
+                  🔗 {block.text_content || String(block.data?.target ?? "")}
+                </a>
+              </div>
+            ) : block.type === "time" ? (
+              <div className="block-field block-time">
+                <input
+                  type="time"
+                  value={String(block.data?.value ?? "")}
+                  onChange={async (e) => {
+                    try {
+                      const response = await fetch(`/api/blocks/${encodeURIComponent(block.id)}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        credentials: "include",
+                        body: JSON.stringify({ data: { ...block.data, value: e.target.value } }),
+                      });
+                      if (response.ok) {
+                        const updated = await response.json();
+                        setNote((current) => current ? { ...current, blocks: current.blocks.map((b) => b.id === block.id ? updated : b) } : current);
+                      }
+                    } catch { /* ignore */ }
+                  }}
+                />
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="duration (min)"
+                  defaultValue={Number(block.data?.duration_min ?? 0) || ""}
+                  onBlur={async (e) => {
+                    try {
+                      const response = await fetch(`/api/blocks/${encodeURIComponent(block.id)}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        credentials: "include",
+                        body: JSON.stringify({ data: { ...block.data, duration_min: Number(e.currentTarget.value) || 0 } }),
+                      });
+                      if (response.ok) {
+                        const updated = await response.json();
+                        setNote((current) => current ? { ...current, blocks: current.blocks.map((b) => b.id === block.id ? updated : b) } : current);
+                      }
+                    } catch { /* ignore */ }
+                  }}
+                />
+              </div>
             ) : <pre>{JSON.stringify(block.data, null, 2)}</pre>}
             {block.caption && <p className="block-caption">{block.caption}</p>}
           </div>
         ))}
       </section>
       {error && <p className="inline-error" role="alert">{error}</p>}
+      <ToolsDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onSelect={handleToolSelect} />
     </div>
   );
 }

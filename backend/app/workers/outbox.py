@@ -27,10 +27,12 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import session_factory
-from app.models import JobOutbox
+from app.models import Household, JobOutbox, MediaAsset, NoteBlock
 from app.services.ai_settings import resolve_ai_settings
 from app.services.embedding_jobs import collect_note_chunks
 from app.services.embeddings import EmbeddingClient, EmbeddingError
+from app.services.notes import apply_block_search_tokens
+from app.services.vision import VisionClient, VisionError
 
 logger = structlog.get_logger(__name__)
 
@@ -202,8 +204,86 @@ async def handle_embed_note(session: AsyncSession, payload: dict[str, Any]) -> N
     logger.info("embed_note_done", note_id=note_id, written=written)
 
 
+async def handle_media_enrich(session: AsyncSession, payload: dict[str, Any]) -> None:
+    """Describe an uploaded image with the vision model (``media.enrich``).
+
+    Idempotent: skips an asset whose description is already stored, so a retry
+    after a crash costs nothing. The description is written to the asset meta and
+    mirrored onto every note block that references the asset, then the block's
+    search tokens are rebuilt so the text becomes searchable.
+    """
+
+    raw_id = payload.get("asset_id")
+    if not raw_id:
+        raise ValueError("media.enrich job requires asset_id")
+    try:
+        asset_id = uuid.UUID(str(raw_id))
+    except ValueError as error:
+        raise ValueError(f"media.enrich job has an invalid asset_id: {raw_id!r}") from error
+
+    asset = await session.get(MediaAsset, asset_id)
+    if asset is None or asset.deleted_at is not None:
+        logger.info("media_enrich_skipped_missing", asset_id=str(asset_id))
+        return
+    if asset.kind != "image":
+        logger.info("media_enrich_skipped_not_image", asset_id=str(asset_id), kind=asset.kind)
+        return
+    if (asset.meta or {}).get("ai_description"):
+        logger.info("media_enrich_skipped_done", asset_id=str(asset_id))
+        return
+
+    household = (
+        await session.execute(select(Household).where(Household.id == asset.household_id))
+    ).scalar_one_or_none()
+    settings = resolve_ai_settings(household.settings if household else None)
+    if not settings.enabled:
+        logger.info("media_enrich_skipped_disabled", asset_id=str(asset_id))
+        return
+
+    from app.core.config import get_settings as _get_settings
+    from app.core.storage import S3CompatibleStorage
+
+    app_settings = _get_settings()
+    storage = S3CompatibleStorage(
+        internal_endpoint=app_settings.s3_endpoint,
+        public_endpoint=app_settings.s3_public_endpoint,
+        access_key=app_settings.s3_access_key,
+        secret_key=app_settings.s3_secret_key,
+        bucket=app_settings.s3_bucket,
+    )
+    try:
+        data = await storage.get(asset.storage_key)
+    except Exception as error:  # noqa: BLE001 - storage failure is a retryable job failure
+        raise VisionError(f"could not read asset from storage: {error}") from error
+
+    client = VisionClient(settings)
+    result = await client.describe(data, mime=asset.mime or "image/jpeg")
+
+    meta = dict(asset.meta or {})
+    meta["ai_description"] = result.description
+    meta["ai_model"] = result.model
+    asset.meta = meta
+    asset.enrichment_status = "complete"
+
+    blocks = (
+        await session.execute(select(NoteBlock).where(NoteBlock.media_asset_id == asset.id))
+    ).scalars().all()
+    for block in blocks:
+        block.ai_description = result.description
+        apply_block_search_tokens(block)
+
+    await session.commit()
+    logger.info(
+        "media_enrich_done",
+        asset_id=str(asset_id),
+        model=result.model,
+        blocks=len(blocks),
+    )
+
+
 HANDLERS = {
     "embed.note": handle_embed_note,
+    "media.enrich": handle_media_enrich,
 }
 
 

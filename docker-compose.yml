@@ -20,7 +20,7 @@ volumes:
 x-backend-env: &backend-env
   DATABASE_URL: postgresql+asyncpg://familyos:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@familyos-postgres:5432/familyos
   REDIS_URL: redis://familyos-redis:6379/0
-  S3_ENDPOINT: http://familyos-object-storage:8333
+  S3_ENDPOINT: http://familyos-storage:8333
   S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:?Set S3_PUBLIC_ENDPOINT in .env}
   S3_ACCESS_KEY: ${S3_ACCESS_KEY:?Set S3_ACCESS_KEY in .env}
   S3_SECRET_KEY: ${S3_SECRET_KEY:?Set S3_SECRET_KEY in .env}
@@ -87,10 +87,14 @@ services:
         aliases:
           - familyos-object-storage
       link01:
+        aliases:
+          - familyos-storage
     restart: unless-stopped
 
   backend:
     build: ./backend
+    ports:
+      - "${BACKEND_PORT:-8001}:8000"
     environment: *backend-env
     depends_on:
       postgres:
@@ -114,8 +118,24 @@ services:
       retries: 10
       start_period: 20s
     networks:
-      - familyos
-      - link01
+      familyos:
+      link01:
+        aliases:
+          - familyos-backend
+
+  frontend:
+    build: ./frontend-main
+    environment:
+      BACKEND_URL: http://familyos-backend:8000
+    depends_on:
+      backend:
+        condition: service_started
+    networks:
+      familyos:
+      link01:
+        aliases:
+          - familyos-frontend
+    restart: unless-stopped
 
   worker:
     build: ./backend

@@ -222,6 +222,16 @@ export function createTextBlock(noteId: string, text: string): Promise<NoteBlock
   });
 }
 
+export function createBlock(
+  noteId: string,
+  input: { type: string; text_content?: string; data?: Record<string, unknown> },
+): Promise<NoteBlock> {
+  return apiRequest<NoteBlock>(`/notes/${encodeURIComponent(noteId)}/blocks`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 export function createDrawingBlock(
   noteId: string,
   data: Record<string, unknown> = {
@@ -322,4 +332,102 @@ export function decideTagProposal(proposalId: string, accepted: boolean): Promis
 export function getGraph(scope = "all", limit = 2000): Promise<GraphData> {
   const params = new URLSearchParams({ scope, limit: String(limit) });
   return apiRequest<GraphData>(`/graph?${params.toString()}`);
+}
+
+export type AdminSettings = {
+  enabled: boolean;
+  base_url: string;
+  api_key_set: boolean;
+  embedding_model: string;
+  embedding_dim: number;
+  embedding_batch_size: number;
+  llm_model: string;
+  vision_model: string;
+};
+
+export type AdminSettingsResponse = {
+  ai: AdminSettings;
+  household?: {
+    name: string;
+    timezone: string;
+    locale: string;
+    week_starts_on: string;
+  };
+  changed?: string[];
+  reembed_required?: boolean;
+  reembed_hint?: string;
+};
+
+export function getAdminSettings(): Promise<AdminSettings> {
+  return apiRequest<AdminSettingsResponse>("/admin/settings").then((r) => r.ai);
+}
+
+export type AdminSettingsPatch = Partial<Omit<AdminSettings, "api_key_set"> & { api_key?: string }>;
+
+export function patchAdminSettings(input: AdminSettingsPatch): Promise<AdminSettingsResponse> {
+  return apiRequest<AdminSettingsResponse>("/admin/settings", {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function reembedAll(): Promise<{ queued: number }> {
+  return apiRequest<{ queued: number }>("/admin/reembed", { method: "POST" });
+}
+
+export type MediaUploadResponse = {
+  asset_id: string;
+  upload_url: string | null;
+  fields: Record<string, string>;
+  deduplicated: boolean;
+};
+
+export function presignMediaUpload(input: {
+  filename: string;
+  mime: string;
+  size: number;
+  sha256: string;
+}): Promise<MediaUploadResponse> {
+  return apiRequest<MediaUploadResponse>("/media/presign", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function completeMediaUpload(assetId: string): Promise<{ status: string; queued: boolean }> {
+  return apiRequest<{ status: string; queued: boolean }>(`/media/${encodeURIComponent(assetId)}/complete`, {
+    method: "POST",
+  });
+}
+
+export function enqueueMediaEnrich(assetId: string): Promise<{ queued: boolean }> {
+  return apiRequest<{ queued: boolean }>(`/media/${encodeURIComponent(assetId)}/enrich`, {
+    method: "POST",
+  });
+}
+
+export async function uploadFile(file: File): Promise<string> {
+  const sha256 = await sha256Hex(file);
+  const presigned = await presignMediaUpload({
+    filename: file.name,
+    mime: file.type || "application/octet-stream",
+    size: file.size,
+    sha256,
+  });
+  if (presigned.upload_url) {
+    await fetch(presigned.upload_url, {
+      method: "PUT",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      body: file,
+    });
+  }
+  await completeMediaUpload(presigned.asset_id);
+  return presigned.asset_id;
+}
+
+async function sha256Hex(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer();
+  const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }

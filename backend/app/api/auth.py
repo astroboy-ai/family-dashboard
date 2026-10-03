@@ -41,7 +41,7 @@ class SetupRequest(BaseModel):
     week_starts_on: str = Field(default="monday", pattern=r"^(monday|sunday|saturday)$")
     display_name: str = Field(min_length=1, max_length=120)
     email: str = Field(min_length=3, max_length=320)
-    password: str = Field(min_length=12, max_length=1024)
+    password: str = Field(min_length=8, max_length=1024)
     pin: str = Field(min_length=4, max_length=6, pattern=r"^\d{4,6}$")
     ai_provider: str = Field(default="none", pattern=r"^(none|ollama|openai)$")
 
@@ -282,7 +282,11 @@ async def complete_setup(
         role="parent",
         pin_hash=hash_password(payload.pin),
     )
-    session.add_all((household, user, member))
+    session.add(household)
+    await session.flush()
+    session.add(user)
+    await session.flush()
+    session.add(member)
     await session.commit()
 
     token = create_access_token(

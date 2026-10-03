@@ -410,8 +410,16 @@ export type AdminSettings = {
   vision_model: string;
 };
 
+export type StorageSettings = {
+  public_endpoint: string;
+  bucket: string;
+  region: string;
+  browser_reachable: boolean;
+};
+
 export type AdminSettingsResponse = {
   ai: AdminSettings;
+  storage?: StorageSettings;
   household?: {
     name: string;
     timezone: string;
@@ -423,17 +431,35 @@ export type AdminSettingsResponse = {
   reembed_hint?: string;
 };
 
-export function getAdminSettings(): Promise<AdminSettings> {
-  return apiRequest<AdminSettingsResponse>("/admin/settings").then((r) => r.ai);
+export function getAdminSettings(): Promise<AdminSettingsResponse> {
+  return apiRequest<AdminSettingsResponse>("/admin/settings");
 }
 
-export type AdminSettingsPatch = Partial<Omit<AdminSettings, "api_key_set"> & { api_key?: string }>;
+export type AdminSettingsPatch = Partial<Omit<AdminSettings, "api_key_set"> & { api_key?: string }> & {
+  storage?: Partial<Omit<StorageSettings, "browser_reachable">>;
+};
 
 export function patchAdminSettings(input: AdminSettingsPatch): Promise<AdminSettingsResponse> {
   return apiRequest<AdminSettingsResponse>("/admin/settings", {
     method: "PATCH",
     body: JSON.stringify(input),
   });
+}
+
+export type StorageTestResult = {
+  ok: boolean;
+  public_endpoint: string;
+  bucket: string;
+  browser_reachable: boolean;
+  upload_url: string | null;
+  probe_key: string | null;
+  internal_ok?: boolean;
+  warnings: string[];
+};
+
+/** Ask the backend to sign a probe URL against the configured upload origin. */
+export function testStorageSettings(): Promise<StorageTestResult> {
+  return apiRequest<StorageTestResult>("/admin/storage/test", { method: "POST" });
 }
 
 export function reembedAll(): Promise<{ queued: number }> {

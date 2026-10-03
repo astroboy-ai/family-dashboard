@@ -8,8 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import Actor
 from app.core.errors import AppError
 from app.core.storage import StorageBackend
-from app.models import JobOutbox, MediaAsset
+from app.models import Household, JobOutbox, MediaAsset
 from app.schemas.media import MediaPresignRequest
+from app.services.storage_settings import resolve_storage_settings
 
 # Relay uploads buffer the whole body in memory, so they are capped well below
 # what a presigned direct-to-S3 PUT can carry.
@@ -34,6 +35,23 @@ def _storage_key(household_id: uuid.UUID, asset_id: uuid.UUID, filename: str) ->
     return f"{household_id}/media/{now:%Y}/{now:%m}/{asset_id}/original{suffix}"
 
 
+async def _storage_for_household(
+    *, session: AsyncSession, storage: StorageBackend, household_id: uuid.UUID
+) -> StorageBackend:
+    """Return a storage backend that signs against this household's public origin.
+
+    The upload origin is an admin-page setting, so it must be read per request
+    rather than fixed at process start. Anything the backend does internally
+    (reads, writes, stat) still uses the internal endpoint.
+    """
+
+    household = await session.get(Household, household_id)
+    resolved = resolve_storage_settings(household.settings if household else None)
+    if hasattr(storage, "with_public_endpoint"):
+        return storage.with_public_endpoint(resolved.public_endpoint, resolved.bucket)
+    return storage
+
+
 async def create_upload(
     *,
     session: AsyncSession,
@@ -41,6 +59,10 @@ async def create_upload(
     actor: Actor,
     payload: MediaPresignRequest,
 ) -> dict[str, object]:
+    storage = await _storage_for_household(
+        session=session, storage=storage, household_id=actor.household_id
+    )
+
     existing_result = await session.execute(
         select(MediaAsset).where(
             MediaAsset.household_id == actor.household_id,

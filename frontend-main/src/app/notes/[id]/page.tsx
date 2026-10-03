@@ -4,8 +4,9 @@ import { ArrowLeft, Check, LoaderCircle, Maximize, Minimize, Plus, Save, SquareP
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { addTagToNote, ApiError, createBlock, createDrawingBlock, createTextBlock, enqueueMediaEnrich, getNote, patchNote, patchTextBlock, removeTagFromNote, uploadFile, type Note } from "@/lib/api";
+import { addTagToNote, ApiError, createBlock, createDrawingBlock, createTextBlock, deleteBlock, enqueueMediaEnrich, getNote, patchBlock, patchNote, patchTextBlock, removeTagFromNote, uploadFile, type Note, type NoteBlock } from "@/lib/api";
 import { usePanelStore } from "@/lib/panel-store";
+import { BlockMenu } from "@/components/block-menu";
 import { ToolsDrawer, type Tool } from "@/components/tools-drawer";
 
 export default function NoteDetailPage() {
@@ -97,12 +98,44 @@ export default function NoteDetailPage() {
   async function removeBlock(blockId: string) {
     if (!note) return;
     try {
-      const response = await fetch(`/api/blocks/${encodeURIComponent(blockId)}`, { method: "DELETE", credentials: "include" });
-      if (!response.ok) throw new Error("Couldn't remove block");
+      await deleteBlock(blockId);
       setNote((current) => current ? { ...current, blocks: current.blocks.filter((b) => b.id !== blockId) } : current);
       setMessage("Block removed");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Couldn't remove block.");
+    }
+  }
+
+  /** Queue (or re-queue) vision analysis for an image block. */
+  async function analyseImage(block: NoteBlock) {
+    const assetId = String(block.data?.media_asset_id ?? "");
+    if (!assetId) return;
+    try {
+      setMessage("Queuing AI analysis…");
+      await enqueueMediaEnrich(assetId);
+      setNote((current) =>
+        current
+          ? {
+              ...current,
+              blocks: current.blocks.map((b) =>
+                b.id === block.id ? { ...b, data: { ...b.data, ai_pending: true } } : b,
+              ),
+            }
+          : current,
+      );
+      setMessage("AI analysis queued — reload in a moment to see the description");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Couldn't queue AI analysis.");
+    }
+  }
+
+  /** Patch one block and splice the server's copy back into the note. */
+  async function updateBlockData(blockId: string, data: Record<string, unknown>) {
+    try {
+      const updated = await patchBlock(blockId, { data });
+      setNote((current) => current ? { ...current, blocks: current.blocks.map((b) => b.id === blockId ? updated : b) } : current);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Couldn't update the block.");
     }
   }
 
@@ -151,9 +184,9 @@ export default function NoteDetailPage() {
           break;
         }
         case "photo": {
-          const aiAnalyze = window.confirm(
-            "AI analyse these photos?\n\nOK = describe each photo with the vision model (searchable, slower)\nCancel = just attach them",
-          );
+          // No up-front prompt: photos are attached straight away and the AI
+          // analysis is chosen per image from the block's ⋮ menu, so adding
+          // several pictures never turns into a chain of dialogs.
           const input = document.createElement("input");
           input.type = "file";
           input.accept = "image/*";
@@ -168,15 +201,14 @@ export default function NoteDetailPage() {
                 const block = await createBlock(note.id, {
                   type: "image",
                   text_content: file.name,
-                  data: { media_asset_id: assetId, ai_analyze: aiAnalyze },
+                  data: { media_asset_id: assetId },
                 });
                 setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
-                if (aiAnalyze) await enqueueMediaEnrich(assetId);
               } catch (reason) {
                 setError(reason instanceof Error ? reason.message : "Couldn't upload photo.");
               }
             }
-            setMessage(aiAnalyze ? `${files.length} photo(s) queued for AI analysis` : `${files.length} photo(s) added`);
+            setMessage(`${files.length} photo(s) added`);
           };
           input.click();
           break;
@@ -400,27 +432,33 @@ export default function NoteDetailPage() {
                 <span className="drawing-preview-body">{block.text_content ?? "Sketch board"}</span>
               </button>
             ) : block.type === "checkbox" ? (
-              <label className="block-checkbox">
+              <div className="block-checkbox">
                 <input
                   type="checkbox"
                   checked={Boolean(block.data?.checked)}
-                  onChange={async (e) => {
-                    try {
-                      const response = await fetch(`/api/blocks/${encodeURIComponent(block.id)}`, {
-                        method: "PATCH",
-                        headers: { "Content-Type": "application/json" },
-                        credentials: "include",
-                        body: JSON.stringify({ data: { ...block.data, checked: e.target.checked } }),
-                      });
-                      if (response.ok) {
-                        const updated = await response.json();
-                        setNote((current) => current ? { ...current, blocks: current.blocks.map((b) => b.id === block.id ? updated : b) } : current);
-                      }
-                    } catch { /* ignore */ }
+                  onChange={(e) => void updateBlockData(block.id, { ...block.data, checked: e.target.checked })}
+                  aria-label={block.text_content || "Checkbox item"}
+                />
+                <input
+                  className="block-checkbox-label"
+                  type="text"
+                  defaultValue={block.text_content ?? ""}
+                  placeholder="What needs doing?"
+                  onBlur={(e) => {
+                    if (e.currentTarget.value === (block.text_content ?? "")) return;
+                    void patchBlock(block.id, { text_content: e.currentTarget.value })
+                      .then((updated) => setNote((current) => current ? { ...current, blocks: current.blocks.map((b) => b.id === block.id ? updated : b) } : current))
+                      .catch(() => setError("Couldn't update the checkbox label."));
                   }}
                 />
-                <span>{block.text_content || "Checkbox"}</span>
-              </label>
+                <input
+                  className="block-checkbox-due"
+                  type="date"
+                  defaultValue={String(block.data?.due ?? "")}
+                  onChange={(e) => void updateBlockData(block.id, { ...block.data, due: e.target.value })}
+                  aria-label="Due date"
+                />
+              </div>
             ) : block.type === "date" ? (
               <div className="block-field">
                 <input
@@ -428,16 +466,7 @@ export default function NoteDetailPage() {
                   value={String(block.data?.value ?? "")}
                   onChange={async (e) => {
                     try {
-                      const response = await fetch(`/api/blocks/${encodeURIComponent(block.id)}`, {
-                        method: "PATCH",
-                        headers: { "Content-Type": "application/json" },
-                        credentials: "include",
-                        body: JSON.stringify({ data: { ...block.data, value: e.target.value } }),
-                      });
-                      if (response.ok) {
-                        const updated = await response.json();
-                        setNote((current) => current ? { ...current, blocks: current.blocks.map((b) => b.id === block.id ? updated : b) } : current);
-                      }
+                      await updateBlockData(block.id, { ...block.data, value: e.target.value });
                     } catch { /* ignore */ }
                   }}
                 />
@@ -448,16 +477,7 @@ export default function NoteDetailPage() {
                   value={String(block.data?.currency ?? "HKD")}
                   onChange={async (e) => {
                     try {
-                      const response = await fetch(`/api/blocks/${encodeURIComponent(block.id)}`, {
-                        method: "PATCH",
-                        headers: { "Content-Type": "application/json" },
-                        credentials: "include",
-                        body: JSON.stringify({ data: { ...block.data, currency: e.target.value } }),
-                      });
-                      if (response.ok) {
-                        const updated = await response.json();
-                        setNote((current) => current ? { ...current, blocks: current.blocks.map((b) => b.id === block.id ? updated : b) } : current);
-                      }
+                      await updateBlockData(block.id, { ...block.data, currency: e.target.value });
                     } catch { /* ignore */ }
                   }}
                 >
@@ -477,16 +497,7 @@ export default function NoteDetailPage() {
                   value={String(block.data?.value ?? "")}
                   onChange={async (e) => {
                     try {
-                      const response = await fetch(`/api/blocks/${encodeURIComponent(block.id)}`, {
-                        method: "PATCH",
-                        headers: { "Content-Type": "application/json" },
-                        credentials: "include",
-                        body: JSON.stringify({ data: { ...block.data, value: e.target.value } }),
-                      });
-                      if (response.ok) {
-                        const updated = await response.json();
-                        setNote((current) => current ? { ...current, blocks: current.blocks.map((b) => b.id === block.id ? updated : b) } : current);
-                      }
+                      await updateBlockData(block.id, { ...block.data, value: e.target.value });
                     } catch { /* ignore */ }
                   }}
                 />
@@ -499,28 +510,34 @@ export default function NoteDetailPage() {
                   value={String(block.data?.value ?? "")}
                   onChange={async (e) => {
                     try {
-                      const response = await fetch(`/api/blocks/${encodeURIComponent(block.id)}`, {
-                        method: "PATCH",
-                        headers: { "Content-Type": "application/json" },
-                        credentials: "include",
-                        body: JSON.stringify({ data: { ...block.data, value: e.target.value } }),
-                      });
-                      if (response.ok) {
-                        const updated = await response.json();
-                        setNote((current) => current ? { ...current, blocks: current.blocks.map((b) => b.id === block.id ? updated : b) } : current);
-                      }
+                      await updateBlockData(block.id, { ...block.data, value: e.target.value });
                     } catch { /* ignore */ }
                   }}
                 />
               </div>
             ) : block.type === "image" ? (
               <div className="block-media">
+                <div className="block-media-head">
+                  <span className="block-media-name">{block.text_content || "Image"}</span>
+                  <BlockMenu
+                    items={[
+                      ...(block.ai_description
+                        ? [{ label: "Re-analyse with AI", action: () => void analyseImage(block) }]
+                        : [{ label: "Analyse with AI", action: () => void analyseImage(block) }]),
+                      { label: "Remove block", action: () => void removeBlock(block.id), danger: true },
+                    ]}
+                  />
+                </div>
                 <img
                   src={`/api/media/${encodeURIComponent(String(block.data?.media_asset_id ?? ""))}/download`}
                   alt={block.text_content ?? "Image"}
                   className="block-image"
                 />
-                {block.text_content && <p className="block-caption">{block.text_content}</p>}
+                {block.ai_description ? (
+                  <p className="block-ai-description">{block.ai_description}</p>
+                ) : block.data?.ai_pending ? (
+                  <p className="block-ai-pending">AI analysis queued…</p>
+                ) : null}
               </div>
             ) : block.type === "file" ? (
               <div className="block-media block-file">
@@ -570,16 +587,7 @@ export default function NoteDetailPage() {
                                 const rows = (Array.isArray(block.data?.rows) ? (block.data.rows as string[][]) : []).map((r) => [...r]);
                                 rows[rowIndex][cellIndex] = e.currentTarget.value;
                                 try {
-                                  const response = await fetch(`/api/blocks/${encodeURIComponent(block.id)}`, {
-                                    method: "PATCH",
-                                    headers: { "Content-Type": "application/json" },
-                                    credentials: "include",
-                                    body: JSON.stringify({ data: { ...block.data, rows } }),
-                                  });
-                                  if (response.ok) {
-                                    const updated = await response.json();
-                                    setNote((current) => current ? { ...current, blocks: current.blocks.map((b) => b.id === block.id ? updated : b) } : current);
-                                  }
+                                  await updateBlockData(block.id, { ...block.data, rows });
                                 } catch { /* ignore */ }
                               }}
                             />
@@ -598,16 +606,7 @@ export default function NoteDetailPage() {
                   defaultValue={String(block.data?.remind_at ?? "").slice(0, 16)}
                   onBlur={async (e) => {
                     try {
-                      const response = await fetch(`/api/blocks/${encodeURIComponent(block.id)}`, {
-                        method: "PATCH",
-                        headers: { "Content-Type": "application/json" },
-                        credentials: "include",
-                        body: JSON.stringify({ data: { ...block.data, remind_at: e.currentTarget.value } }),
-                      });
-                      if (response.ok) {
-                        const updated = await response.json();
-                        setNote((current) => current ? { ...current, blocks: current.blocks.map((b) => b.id === block.id ? updated : b) } : current);
-                      }
+                      await updateBlockData(block.id, { ...block.data, remind_at: e.currentTarget.value });
                     } catch { /* ignore */ }
                   }}
                 />
@@ -617,16 +616,7 @@ export default function NoteDetailPage() {
                     defaultChecked={Boolean(block.data?.done)}
                     onChange={async (e) => {
                       try {
-                        const response = await fetch(`/api/blocks/${encodeURIComponent(block.id)}`, {
-                          method: "PATCH",
-                          headers: { "Content-Type": "application/json" },
-                          credentials: "include",
-                          body: JSON.stringify({ data: { ...block.data, done: e.target.checked } }),
-                        });
-                        if (response.ok) {
-                          const updated = await response.json();
-                          setNote((current) => current ? { ...current, blocks: current.blocks.map((b) => b.id === block.id ? updated : b) } : current);
-                        }
+                        await updateBlockData(block.id, { ...block.data, done: e.target.checked });
                       } catch { /* ignore */ }
                     }}
                   />
@@ -642,16 +632,7 @@ export default function NoteDetailPage() {
                     defaultChecked={Boolean(block.data?.locked)}
                     onChange={async (e) => {
                       try {
-                        const response = await fetch(`/api/blocks/${encodeURIComponent(block.id)}`, {
-                          method: "PATCH",
-                          headers: { "Content-Type": "application/json" },
-                          credentials: "include",
-                          body: JSON.stringify({ data: { ...block.data, locked: e.target.checked } }),
-                        });
-                        if (response.ok) {
-                          const updated = await response.json();
-                          setNote((current) => current ? { ...current, blocks: current.blocks.map((b) => b.id === block.id ? updated : b) } : current);
-                        }
+                        await updateBlockData(block.id, { ...block.data, locked: e.target.checked });
                       } catch { /* ignore */ }
                     }}
                   />
@@ -674,16 +655,7 @@ export default function NoteDetailPage() {
                   value={String(block.data?.value ?? "")}
                   onChange={async (e) => {
                     try {
-                      const response = await fetch(`/api/blocks/${encodeURIComponent(block.id)}`, {
-                        method: "PATCH",
-                        headers: { "Content-Type": "application/json" },
-                        credentials: "include",
-                        body: JSON.stringify({ data: { ...block.data, value: e.target.value } }),
-                      });
-                      if (response.ok) {
-                        const updated = await response.json();
-                        setNote((current) => current ? { ...current, blocks: current.blocks.map((b) => b.id === block.id ? updated : b) } : current);
-                      }
+                      await updateBlockData(block.id, { ...block.data, value: e.target.value });
                     } catch { /* ignore */ }
                   }}
                 />
@@ -694,16 +666,7 @@ export default function NoteDetailPage() {
                   defaultValue={Number(block.data?.duration_min ?? 0) || ""}
                   onBlur={async (e) => {
                     try {
-                      const response = await fetch(`/api/blocks/${encodeURIComponent(block.id)}`, {
-                        method: "PATCH",
-                        headers: { "Content-Type": "application/json" },
-                        credentials: "include",
-                        body: JSON.stringify({ data: { ...block.data, duration_min: Number(e.currentTarget.value) || 0 } }),
-                      });
-                      if (response.ok) {
-                        const updated = await response.json();
-                        setNote((current) => current ? { ...current, blocks: current.blocks.map((b) => b.id === block.id ? updated : b) } : current);
-                      }
+                      await updateBlockData(block.id, { ...block.data, duration_min: Number(e.currentTarget.value) || 0 });
                     } catch { /* ignore */ }
                   }}
                 />

@@ -16,8 +16,10 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { CommandPalette } from "@/components/command-palette";
 import { PanelHost } from "@/components/panel-host";
+import { SessionExpiredNotice } from "@/components/session-expired-notice";
 import { ApiError, getActor, signOut, type Actor } from "@/lib/api";
 import { navigation } from "@/lib/navigation";
+import { useNewNote } from "@/lib/new-note";
 import { usePanelStore } from "@/lib/panel-store";
 
 const notifications = [
@@ -41,6 +43,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<"light" | "dark" | "system">("dark");
   const [density, setDensity] = useState<"comfortable" | "compact">("comfortable");
   const { panels, open, closeTop } = usePanelStore();
+  const { startNewNote } = useNewNote();
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -95,7 +98,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         setPaletteOpen(true);
       } else if (!editing && !event.metaKey && !event.ctrlKey && !event.altKey) {
         const key = event.key.toLowerCase();
-        if (key === "c") open("capture");
+        if (key === "c") void startNewNote();
         if (key === "w") open("whiteboard");
         if (key === "h") open("hermes");
         if (event.key === "Escape") {
@@ -132,7 +135,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <span className="brand-edition">HOME</span>
         </Link>
 
-        <button className="capture-button" onClick={() => open("capture")}>
+        <button className="capture-button" onClick={() => void startNewNote()}>
           <Plus size={18} strokeWidth={2.4} />
           <span>Capture</span>
           <kbd>C</kbd>
@@ -281,7 +284,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <Link href="/search" className={isActive(pathname, "/search") ? "mobile-tab-active" : ""}>
           <Search size={19} /> <span>Search</span>
         </Link>
-        <button className="mobile-capture" onClick={() => open("capture")} aria-label="Capture">
+        <button className="mobile-capture" onClick={() => void startNewNote()} aria-label="New note">
           <Plus size={21} />
         </button>
         <button onClick={() => setMoreOpen((value) => !value)}>
@@ -290,6 +293,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </nav>
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      <SessionExpiredNotice />
     </div>
   );
 }

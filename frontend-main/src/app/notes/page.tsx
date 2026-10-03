@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { NoteRow } from "@/components/note-row";
 import { ApiError, listNotes, type Note } from "@/lib/api";
-import { usePanelStore } from "@/lib/panel-store";
+import { useNewNote } from "@/lib/new-note";
 
 export default function NotesPage() {
   const [notes, setNotes] = useState<Note[]>([]);
@@ -13,7 +13,7 @@ export default function NotesPage() {
   const [status, setStatus] = useState("inbox");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const open = usePanelStore((state) => state.open);
+  const { startNewNote } = useNewNote();
 
   useEffect(() => {
     let active = true;
@@ -36,7 +36,7 @@ export default function NotesPage() {
     <div className="page-wrap list-page">
       <section className="page-heading-row">
         <div><p className="eyebrow">KNOWLEDGE BASE</p><h1>Notes</h1><p className="page-subtitle">Your family’s shared record, kept searchable.</p></div>
-        <button className="primary-button" onClick={() => open("capture")}>＋ <span>Capture</span></button>
+        <button className="primary-button" onClick={() => void startNewNote()}>＋ <span>New note</span></button>
       </section>
       <section className="list-toolbar" aria-label="Note filters">
         <label className="search-field"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filter notes on this page" aria-label="Filter notes" /></label>

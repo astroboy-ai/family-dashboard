@@ -6,6 +6,7 @@ from app.models.job import JobOutbox
 from app.models.media import MediaAsset
 from app.models.notes import Note, NoteBlock, note_tags
 from app.models.notification import Notification
+from app.models.session import RefreshToken
 from app.models.tags import NoteRelation, Tag, TagAuditLog, TagExclusion, TagProposal
 from app.models.tool import ToolRecord
 
@@ -23,6 +24,7 @@ __all__ = [
     "NoteBlock",
     "NoteRelation",
     "Notification",
+    "RefreshToken",
     "Tag",
     "TagAuditLog",
     "TagExclusion",

@@ -1,14 +1,21 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import Actor, get_current_actor
 from app.core.db import get_session
 from app.core.storage import StorageBackend, get_storage
 from app.schemas.media import MediaCompleteResponse, MediaPresignRequest, MediaPresignResponse
-from app.services.media import complete_upload, create_upload, enqueue_enrichment, load_asset_for_download
+from app.services.media import (
+    MAX_RELAY_BYTES,
+    complete_upload,
+    create_upload,
+    enqueue_enrichment,
+    load_asset_for_download,
+    store_upload_bytes,
+)
 
 
 router = APIRouter(prefix="/media", tags=["media"])
@@ -32,6 +39,46 @@ async def complete_media_upload(
     storage: Annotated[StorageBackend, Depends(get_storage)],
 ) -> dict[str, object]:
     return await complete_upload(session=session, storage=storage, actor=actor, asset_id=asset_id)
+
+
+@router.put("/{asset_id}/content")
+async def upload_media_content(
+    asset_id: uuid.UUID,
+    request: Request,
+    actor: Annotated[Actor, Depends(get_current_actor)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    storage: Annotated[StorageBackend, Depends(get_storage)],
+) -> dict[str, object]:
+    """Relay upload: store the raw request body as the asset's object.
+
+    Fallback for when the browser cannot reach the presigned S3 URL (no public
+    endpoint configured, or mixed-content blocking). The declared length is
+    checked against the asset record before the body is buffered.
+    """
+
+    declared = request.headers.get("content-length")
+    if declared is None:
+        raise HTTPException(
+            status_code=status.HTTP_411_LENGTH_REQUIRED,
+            detail="Content-Length is required",
+        )
+    try:
+        size = int(declared)
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Content-Length"
+        ) from error
+
+    if size > MAX_RELAY_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="File too large for the relay endpoint; use the presigned upload",
+        )
+
+    body = await request.body()
+    return await store_upload_bytes(
+        session=session, storage=storage, actor=actor, asset_id=asset_id, data=body
+    )
 
 
 @router.get("/{asset_id}/download")

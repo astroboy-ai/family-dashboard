@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     s3_bucket: str = "familyos-media"
     jwt_secret: str = "local-development-secret-change-before-deploying"
     access_token_minutes: int = 15
+    # Long-lived session cookie; rotated on every use (see services/sessions.py).
+    refresh_token_days: int = 30
     service_token: str = ""
 
     # AI defaults. The authoritative values live in households.settings['ai']

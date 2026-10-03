@@ -68,9 +68,34 @@ class S3CompatibleStorage:
         secret_key: str,
         bucket: str,
     ) -> None:
+        self._internal_endpoint = internal_endpoint
         self._internal = _s3_client(internal_endpoint, access_key, secret_key)
         self._public = _s3_client(public_endpoint, access_key, secret_key)
         self._bucket = bucket
+        # Credentials are kept so a household-specific public origin can build
+        # its own signing client (see with_public_endpoint).
+        self._access_key = access_key
+        self._secret_key = secret_key
+
+    def with_public_endpoint(self, public_endpoint: str, bucket: str | None = None) -> "S3CompatibleStorage":
+        """A copy that signs URLs against *public_endpoint*.
+
+        Used when a household overrides the upload origin from the admin page;
+        the internal endpoint (and therefore every server-side read/write) is
+        unchanged.
+        """
+
+        return S3CompatibleStorage(
+            internal_endpoint=self._internal_endpoint,
+            public_endpoint=public_endpoint,
+            access_key=self._access_key,
+            secret_key=self._secret_key,
+            bucket=bucket or self._bucket,
+        )
+
+    @property
+    def bucket(self) -> str:
+        return self._bucket
 
     async def check(self) -> None:
         await asyncio.to_thread(self._internal.head_bucket, Bucket=self._bucket)

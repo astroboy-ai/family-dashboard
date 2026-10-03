@@ -1,8 +1,16 @@
 "use client";
 
-import { LoaderCircle, Save, ShieldCheck } from "lucide-react";
+import { CheckCircle2, LoaderCircle, Save, ShieldCheck, TriangleAlert, Upload } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
-import { getActor, getAdminSettings, patchAdminSettings, reembedAll, type Actor } from "@/lib/api";
+import {
+  getActor,
+  getAdminSettings,
+  patchAdminSettings,
+  reembedAll,
+  testStorageSettings,
+  type Actor,
+  type StorageTestResult,
+} from "@/lib/api";
 
 type Settings = {
   enabled: boolean;
@@ -26,6 +34,16 @@ export default function SettingsPage() {
   const [embeddingBatchSize, setEmbeddingBatchSize] = useState(16);
   const [llmModel, setLlmModel] = useState("gemini/gemini-3.5-flash");
   const [visionModel, setVisionModel] = useState("");
+
+  // Storage section
+  const [publicEndpoint, setPublicEndpoint] = useState("");
+  const [bucket, setBucket] = useState("");
+  const [region, setRegion] = useState("");
+  const [browserReachable, setBrowserReachable] = useState(true);
+  const [testResult, setTestResult] = useState<StorageTestResult | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [probing, setProbing] = useState(false);
+
   const [pending, setPending] = useState(false);
   const [reembedPending, setReembedPending] = useState(false);
   const [error, setError] = useState("");
@@ -39,14 +57,20 @@ export default function SettingsPage() {
     getAdminSettings()
       .then((value) => {
         if (!active) return;
-        setSettings(value);
-        setEnabled(value.enabled);
-        setBaseUrl(value.base_url);
-        setEmbeddingModel(value.embedding_model);
-        setEmbeddingDim(value.embedding_dim);
-        setEmbeddingBatchSize(value.embedding_batch_size);
-        setLlmModel(value.llm_model);
-        setVisionModel(value.vision_model);
+        setSettings(value.ai);
+        setEnabled(value.ai.enabled);
+        setBaseUrl(value.ai.base_url);
+        setEmbeddingModel(value.ai.embedding_model);
+        setEmbeddingDim(value.ai.embedding_dim);
+        setEmbeddingBatchSize(value.ai.embedding_batch_size);
+        setLlmModel(value.ai.llm_model);
+        setVisionModel(value.ai.vision_model);
+        if (value.storage) {
+          setPublicEndpoint(value.storage.public_endpoint);
+          setBucket(value.storage.bucket);
+          setRegion(value.storage.region);
+          setBrowserReachable(value.storage.browser_reachable);
+        }
       })
       .catch((reason: unknown) => {
         if (active) setError(reason instanceof Error ? reason.message : "Unable to load settings.");
@@ -55,6 +79,25 @@ export default function SettingsPage() {
   }, []);
 
   const isParent = actor?.role === "parent";
+
+  function applyResponse(value: Awaited<ReturnType<typeof patchAdminSettings>>) {
+    if (value.ai) {
+      setSettings(value.ai);
+      setEnabled(value.ai.enabled);
+      setBaseUrl(value.ai.base_url);
+      setEmbeddingModel(value.ai.embedding_model);
+      setEmbeddingDim(value.ai.embedding_dim);
+      setEmbeddingBatchSize(value.ai.embedding_batch_size);
+      setLlmModel(value.ai.llm_model);
+      setVisionModel(value.ai.vision_model);
+    }
+    if (value.storage) {
+      setPublicEndpoint(value.storage.public_endpoint);
+      setBucket(value.storage.bucket);
+      setRegion(value.storage.region);
+      setBrowserReachable(value.storage.browser_reachable);
+    }
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -71,19 +114,15 @@ export default function SettingsPage() {
         embedding_batch_size: embeddingBatchSize,
         llm_model: llmModel.trim(),
         vision_model: visionModel.trim() || undefined,
+        storage: {
+          public_endpoint: publicEndpoint.trim(),
+          bucket: bucket.trim(),
+          region: region.trim(),
+        },
       });
       setSaved(true);
       setApiKey("");
-      if (result.ai) {
-        setSettings(result.ai);
-        setEnabled(result.ai.enabled);
-        setBaseUrl(result.ai.base_url);
-        setEmbeddingModel(result.ai.embedding_model);
-        setEmbeddingDim(result.ai.embedding_dim);
-        setEmbeddingBatchSize(result.ai.embedding_batch_size);
-        setLlmModel(result.ai.llm_model);
-        setVisionModel(result.ai.vision_model);
-      }
+      applyResponse(result);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to save settings.");
     } finally {
@@ -104,6 +143,58 @@ export default function SettingsPage() {
     }
   }
 
+  /** Ask the backend to sign a probe URL against the saved upload origin. */
+  async function runStorageTest() {
+    setTesting(true);
+    setTestResult(null);
+    setError("");
+    try {
+      setTestResult(await testStorageSettings());
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to test storage.");
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  /**
+   * PUT a 1-byte probe to the signed URL from the browser.
+   *
+   * This is the step that actually proves the tunnel works: the backend can sign
+   * a URL for an origin it can reach, but only the browser knows whether *it*
+   * can. A loopback endpoint signs fine and still fails here.
+   */
+  async function runBrowserProbe() {
+    if (!testResult?.upload_url) return;
+    setProbing(true);
+    setError("");
+    try {
+      const response = await fetch(testResult.upload_url, {
+        method: "PUT",
+        headers: { "Content-Type": "text/plain" },
+        body: "familyos-probe",
+      });
+      setTestResult({
+        ...testResult,
+        warnings: response.ok
+          ? ["Browser upload probe succeeded — uploads will go direct to storage."]
+          : [`Browser upload probe failed with HTTP ${response.status}.`],
+        ok: testResult.ok && response.ok,
+      });
+    } catch (reason) {
+      setTestResult({
+        ...testResult,
+        ok: false,
+        warnings: [
+          `Browser upload probe failed: ${reason instanceof Error ? reason.message : "network error"}. ` +
+            "Uploads will use the relay endpoint until this works.",
+        ],
+      });
+    } finally {
+      setProbing(false);
+    }
+  }
+
   if (!isParent) {
     return (
       <main className="page-wrap">
@@ -120,8 +211,8 @@ export default function SettingsPage() {
     <main className="page-wrap">
       <div className="settings-block">
         <p className="eyebrow">ADMINISTRATION</p>
-        <h1>AI & Embedding Settings</h1>
-        <p className="muted">Configure the LLM gateway and embedding model. Changes apply immediately — no restart needed.</p>
+        <h1>AI, Embedding & Storage Settings</h1>
+        <p className="muted">Changes apply immediately — no restart needed.</p>
       </div>
 
       {error && <div className="form-error">{error}</div>}
@@ -170,6 +261,69 @@ export default function SettingsPage() {
             <span>Vision Model (optional)</span>
             <input type="text" value={visionModel} onChange={(e) => setVisionModel(e.target.value)} placeholder="" />
           </label>
+        </section>
+
+        <section className="settings-section">
+          <h2>Storage</h2>
+          <p className="section-hint">
+            The public origin the browser uploads to. Must be an HTTPS hostname reachable from the
+            internet — a Cloudflare tunnel route such as <code>https://media.example.com</code>.
+            Until it is set, uploads use the slower relay endpoint.
+          </p>
+          {!browserReachable && (
+            <p className="inline-warning">
+              <TriangleAlert size={14} /> Current origin is a loopback address, so browser uploads
+              will fall back to the relay.
+            </p>
+          )}
+          <label className="field">
+            <span>Public Upload Endpoint</span>
+            <input
+              type="url"
+              value={publicEndpoint}
+              onChange={(e) => setPublicEndpoint(e.target.value)}
+              placeholder="https://media.logeebox.com"
+            />
+          </label>
+          <label className="field">
+            <span>Bucket</span>
+            <input type="text" value={bucket} onChange={(e) => setBucket(e.target.value)} placeholder="familyos-media" />
+          </label>
+          <label className="field">
+            <span>Region</span>
+            <input type="text" value={region} onChange={(e) => setRegion(e.target.value)} placeholder="us-east-1" />
+          </label>
+
+          <div className="storage-test-row">
+            <button type="button" className="secondary-button" onClick={() => void runStorageTest()} disabled={testing}>
+              {testing ? <LoaderCircle size={16} className="spin" /> : <ShieldCheck size={16} />}
+              {testing ? "Testing…" : "Test storage"}
+            </button>
+            {testResult?.upload_url && (
+              <button type="button" className="secondary-button" onClick={() => void runBrowserProbe()} disabled={probing}>
+                {probing ? <LoaderCircle size={16} className="spin" /> : <Upload size={16} />}
+                {probing ? "Probing…" : "Test browser upload"}
+              </button>
+            )}
+          </div>
+
+          {testResult && (
+            <div className={testResult.ok ? "storage-result ok" : "storage-result warn"}>
+              <p className="storage-result-head">
+                {testResult.ok ? <CheckCircle2 size={15} /> : <TriangleAlert size={15} />}
+                {testResult.ok ? "Storage looks good" : "Storage needs attention"}
+              </p>
+              <ul>
+                <li>Endpoint: <code>{testResult.public_endpoint}</code></li>
+                <li>Bucket: <code>{testResult.bucket}</code></li>
+                <li>Browser-reachable: {testResult.browser_reachable ? "yes" : "no"}</li>
+                <li>Internal storage: {testResult.internal_ok === false ? "unreachable" : "ok"}</li>
+              </ul>
+              {testResult.warnings.map((warning) => (
+                <p className="storage-warning" key={warning}>{warning}</p>
+              ))}
+            </div>
+          )}
         </section>
 
         <div className="settings-actions">

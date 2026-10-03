@@ -1,6 +1,7 @@
 "use client";
 
-import { Check, LoaderCircle, PencilLine, Sparkles, Tag, Trash2, X } from "lucide-react";
+import { Check, LoaderCircle, Maximize, Minimize, PencilLine, Sparkles, Tag, Trash2, X } from "lucide-react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { addTagToNote, createDrawingBlock, createNote, decideTagProposal, getNote, listTagProposals, removeTagFromNote, updateDrawingBlock, type Note, type TagProposal } from "@/lib/api";
@@ -114,6 +115,7 @@ function WhiteboardPanel({ noteId, close }: { noteId?: string; close: () => void
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState("");
   const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [whiteboardFullscreen, setWhiteboardFullscreen] = useState(false);
 
   useEffect(() => {
     if (!noteId) return;
@@ -323,19 +325,62 @@ function WhiteboardPanel({ noteId, close }: { noteId?: string; close: () => void
             <option value="chalkboard_black">Blackboard</option>
             <option value="whiteboard">Whiteboard</option>
           </select>
+          <button
+            type="button"
+            className="icon-button"
+            onClick={() => setWhiteboardFullscreen((value) => !value)}
+            aria-label={whiteboardFullscreen ? "Exit fullscreen drawing" : "Fullscreen drawing"}
+            title={whiteboardFullscreen ? "Exit fullscreen" : "Fullscreen"}
+          >
+            {whiteboardFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
+          </button>
         </div>
       </div>
 
-      <div className="whiteboard-canvas-wrap">
-        <canvas
-          ref={canvasRef}
-          className="whiteboard-canvas"
-          onPointerDown={pointerDown}
-          onPointerMove={pointerMove}
-          onPointerUp={pointerUp}
-          onPointerLeave={pointerUp}
-        />
-      </div>
+      {whiteboardFullscreen ? (
+        createPortal(
+          <div className="whiteboard-fullscreen">
+            <div className="whiteboard-fullscreen-bar">
+              <strong>Whiteboard</strong>
+              <div className="whiteboard-fullscreen-actions">
+                <span className="whiteboard-fullscreen-status">
+                  {dirty ? "Unsaved changes" : savedAt ? `Saved ${savedAt}` : `${drawing.strokes.length} strokes`}
+                </span>
+                <button type="button" className="secondary-button" onClick={() => { setDrawing((current) => ({ ...current, strokes: [] })); setDirty(true); }}>Clear</button>
+                <button type="button" className="primary-button" onClick={() => void saveDrawing()} disabled={saving || !noteId}>
+                  {saving ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}
+                  {saving ? "Saving" : "Save"}
+                </button>
+                <button type="button" className="secondary-button" onClick={() => setWhiteboardFullscreen(false)}>
+                  <Minimize size={16} /> Exit
+                </button>
+              </div>
+            </div>
+            <div className="whiteboard-fullscreen-canvas">
+              <canvas
+                ref={canvasRef}
+                className="whiteboard-canvas"
+                onPointerDown={pointerDown}
+                onPointerMove={pointerMove}
+                onPointerUp={pointerUp}
+                onPointerLeave={pointerUp}
+              />
+            </div>
+          </div>,
+          document.body,
+        )
+      ) : (
+        <div className="whiteboard-canvas-wrap">
+          <canvas
+            ref={canvasRef}
+            className="whiteboard-canvas"
+            onPointerDown={pointerDown}
+            onPointerMove={pointerMove}
+            onPointerUp={pointerUp}
+            onPointerLeave={pointerUp}
+          />
+        </div>
+      )}
 
       <div className="panel-footer whiteboard-footer">
         <div className="whiteboard-status">

@@ -88,6 +88,24 @@ def _register_tools(server: MCPServer) -> None:
         handler.__signature__ = _signature_from_model(definition.params_model)
         server.add_tool(handler, name=name, description=definition.description)
 
+    # get_agent_instructions: returns the AGENTS.md content so agents can
+    # discover how to use the system without hardcoding instructions.
+    async def get_agent_instructions() -> str:
+        """Return the AGENTS.md content for agent reference."""
+        from pathlib import Path
+        agents_md = Path(__file__).resolve().parents[3] / "AGENTS.md"
+        try:
+            return agents_md.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return "AGENTS.md not found. Contact the system administrator."
+
+    get_agent_instructions.__name__ = "get_agent_instructions"
+    server.add_tool(
+        get_agent_instructions,
+        name="get_agent_instructions",
+        description="Get the AGENTS.md instructions for how to use the FamilyOS system.",
+    )
+
 
 def _signature_from_model(params_model: type) -> inspect.Signature:
     from typing import Annotated

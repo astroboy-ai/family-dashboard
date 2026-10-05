@@ -13,6 +13,8 @@ Every invocation is written to ``agent_tool_calls`` for audit.
 import uuid
 from typing import Annotated, Any
 
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
@@ -97,6 +99,21 @@ async def list_agent_tools() -> list[dict[str, Any]]:
         }
         for tool in sorted(registry.values(), key=lambda item: item.name)
     ]
+
+
+@router.get("/instructions", dependencies=[Depends(require_agent)])
+async def get_agent_instructions() -> dict[str, str]:
+    """Return the AGENTS.md content for agent reference.
+
+    Agents call this endpoint to discover how to use the system.
+    The instructions file is the single source of truth — when it is
+    updated, all agents immediately see the change on next call.
+    """
+    agents_md = Path(__file__).resolve().parents[3] / "AGENTS.md"
+    try:
+        return {"instructions": agents_md.read_text(encoding="utf-8")}
+    except FileNotFoundError:
+        return {"instructions": "AGENTS.md not found. Contact the system administrator."}
 
 
 @router.get("/tools/{name}/schema", dependencies=[Depends(require_agent)])

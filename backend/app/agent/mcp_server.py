@@ -94,7 +94,10 @@ def _signature_from_model(params_model: type) -> inspect.Signature:
 
     parameters = []
     for field_name, field in params_model.model_fields.items():
-        annotation = Annotated[field.annotation, *field.metadata]
+        if field.metadata:
+            annotation = Annotated[field.annotation, *field.metadata]
+        else:
+            annotation = field.annotation
         default = (
             inspect.Parameter.empty
             if field.is_required()

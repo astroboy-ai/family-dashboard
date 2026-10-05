@@ -13,6 +13,7 @@ from datetime import timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
+import httpx
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -61,6 +62,7 @@ class AiSettingsPatch(BaseModel):
     embedding_batch_size: int | None = Field(default=None, ge=1, le=256)
     llm_model: str | None = Field(default=None, max_length=120)
     vision_model: str | None = Field(default=None, max_length=120)
+    tagging_model: str | None = Field(default=None, max_length=120)
     # Nested rather than a second body parameter: two Pydantic params would make
     # FastAPI expect an embedded body and break the existing flat client payload.
     storage: StorageSettingsPatch | None = None
@@ -179,6 +181,87 @@ async def patch_admin_settings(
             "POST /admin/reembed completes."
         )
     return response
+
+
+@router.get("/models")
+async def list_gateway_models(
+    actor: Annotated[Actor, Depends(get_current_actor)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """List the models the gateway actually serves, grouped by capability.
+
+    The settings page renders dropdowns from this, so the operator picks a model
+    that exists instead of typing a name and discovering the typo when a note is
+    classified. Queried live rather than cached: the gateway catalog changes
+    without a redeploy.
+    """
+
+    require_admin(actor)
+    household = await _load_household(session, actor)
+    resolved = resolve_ai_settings(household.settings)
+
+    headers = {}
+    if resolved.api_key:
+        headers["Authorization"] = f"Bearer {resolved.api_key}"
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(
+                f"{resolved.base_url.rstrip('/')}/v1/models", headers=headers
+            )
+        response.raise_for_status()
+        payload = response.json()
+    except httpx.HTTPError as error:
+        return {
+            "ok": False,
+            "error": f"{type(error).__name__}: {error}",
+            "base_url": resolved.base_url,
+            "groups": {},
+            "count": 0,
+        }
+    except ValueError as error:
+        return {
+            "ok": False,
+            "error": f"gateway returned a non-JSON body: {error}",
+            "base_url": resolved.base_url,
+            "groups": {},
+            "count": 0,
+        }
+
+    # litellm reports a `mode` per model (chat / embedding / rerank / realtime).
+    # Models with no mode are still chat-capable — fall back rather than drop them.
+    groups: dict[str, list[dict[str, Any]]] = {}
+    entries = payload.get("data")
+    if not isinstance(entries, list):
+        entries = []
+
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        model_id = entry.get("id")
+        if not isinstance(model_id, str) or not model_id:
+            continue
+        mode = entry.get("mode")
+        if not isinstance(mode, str) or not mode:
+            mode = "chat"
+        groups.setdefault(mode, []).append(
+            {
+                "id": model_id,
+                "mode": mode,
+                "max_input_tokens": entry.get("max_input_tokens"),
+                "max_output_tokens": entry.get("max_output_tokens"),
+            }
+        )
+
+    for models in groups.values():
+        models.sort(key=lambda item: item["id"])
+
+    return {
+        "ok": True,
+        "base_url": resolved.base_url,
+        "groups": groups,
+        "count": sum(len(models) for models in groups.values()),
+    }
 
 
 @router.post("/storage/test")

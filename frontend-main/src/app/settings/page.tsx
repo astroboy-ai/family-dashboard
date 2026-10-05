@@ -1,14 +1,16 @@
 "use client";
 
-import { CheckCircle2, LoaderCircle, Save, ShieldCheck, TriangleAlert, Upload } from "lucide-react";
-import { useEffect, useState, type FormEvent } from "react";
+import { CheckCircle2, LoaderCircle, RefreshCw, Save, ShieldCheck, TriangleAlert, Upload } from "lucide-react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
   getActor,
   getAdminSettings,
+  listGatewayModels,
   patchAdminSettings,
   reembedAll,
   testStorageSettings,
   type Actor,
+  type GatewayModel,
   type StorageTestResult,
 } from "@/lib/api";
 
@@ -21,7 +23,56 @@ type Settings = {
   embedding_batch_size: number;
   llm_model: string;
   vision_model: string;
+  tagging_model: string;
+  effective_tagging_model: string;
 };
+
+/**
+ * A model picker backed by the live gateway catalog.
+ *
+ * Renders a <select> of the models whose `mode` matches, and keeps the current
+ * value selectable even when it is absent from the catalog — otherwise opening
+ * the page with a model the gateway no longer lists would silently reset the
+ * setting to the first option on save.
+ */
+function ModelSelect({
+  label,
+  hint,
+  value,
+  onChange,
+  models,
+  catalogOk,
+  placeholder,
+}: {
+  label: string;
+  hint?: string;
+  value: string;
+  onChange: (next: string) => void;
+  models: GatewayModel[];
+  catalogOk: boolean;
+  placeholder?: string;
+}) {
+  const missing = value !== "" && !models.some((m) => m.id === value);
+  const options = missing ? [{ id: value, mode: "", max_input_tokens: null, max_output_tokens: null }, ...models] : models;
+
+  return (
+    <label className="field">
+      <span>
+        {label} {hint && <em>{hint}</em>}
+      </span>
+      <select value={value} onChange={(e) => onChange(e.target.value)} disabled={!catalogOk && options.length === 0}>
+        {placeholder !== undefined && <option value="">{placeholder}</option>}
+        {options.map((model) => (
+          <option key={model.id} value={model.id}>
+            {model.id}
+            {model.max_input_tokens ? ` (${Math.round(model.max_input_tokens / 1000)}k in)` : ""}
+            {model.id === value && missing ? " — not in catalog" : ""}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
 
 export default function SettingsPage() {
   const [actor, setActor] = useState<Actor | null>(null);
@@ -34,6 +85,13 @@ export default function SettingsPage() {
   const [embeddingBatchSize, setEmbeddingBatchSize] = useState(16);
   const [llmModel, setLlmModel] = useState("gemini/gemini-3.5-flash");
   const [visionModel, setVisionModel] = useState("");
+  const [taggingModel, setTaggingModel] = useState("");
+
+  // Live model catalog from the gateway (drives the dropdowns)
+  const [catalog, setCatalog] = useState<Record<string, GatewayModel[]>>({});
+  const [catalogOk, setCatalogOk] = useState(false);
+  const [catalogError, setCatalogError] = useState("");
+  const [catalogLoading, setCatalogLoading] = useState(false);
 
   // Storage section
   const [publicEndpoint, setPublicEndpoint] = useState("");
@@ -48,6 +106,23 @@ export default function SettingsPage() {
   const [reembedPending, setReembedPending] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+
+  const loadCatalog = useCallback(async () => {
+    setCatalogLoading(true);
+    setCatalogError("");
+    try {
+      const value = await listGatewayModels();
+      setCatalog(value.groups ?? {});
+      setCatalogOk(value.ok);
+      if (!value.ok) setCatalogError(value.error ?? "Gateway did not return a model list.");
+    } catch (reason) {
+      setCatalogOk(false);
+      setCatalog({});
+      setCatalogError(reason instanceof Error ? reason.message : "Unable to reach the gateway.");
+    } finally {
+      setCatalogLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -65,6 +140,7 @@ export default function SettingsPage() {
         setEmbeddingBatchSize(value.ai.embedding_batch_size);
         setLlmModel(value.ai.llm_model);
         setVisionModel(value.ai.vision_model);
+        setTaggingModel(value.ai.tagging_model);
         if (value.storage) {
           setPublicEndpoint(value.storage.public_endpoint);
           setBucket(value.storage.bucket);
@@ -75,8 +151,9 @@ export default function SettingsPage() {
       .catch((reason: unknown) => {
         if (active) setError(reason instanceof Error ? reason.message : "Unable to load settings.");
       });
+    void loadCatalog();
     return () => { active = false; };
-  }, []);
+  }, [loadCatalog]);
 
   const isParent = actor?.role === "parent";
 
@@ -90,6 +167,7 @@ export default function SettingsPage() {
       setEmbeddingBatchSize(value.ai.embedding_batch_size);
       setLlmModel(value.ai.llm_model);
       setVisionModel(value.ai.vision_model);
+      setTaggingModel(value.ai.tagging_model);
     }
     if (value.storage) {
       setPublicEndpoint(value.storage.public_endpoint);
@@ -114,6 +192,7 @@ export default function SettingsPage() {
         embedding_batch_size: embeddingBatchSize,
         llm_model: llmModel.trim(),
         vision_model: visionModel.trim() || undefined,
+        tagging_model: taggingModel.trim() || undefined,
         storage: {
           public_endpoint: publicEndpoint.trim() || undefined,
           bucket: bucket.trim() || undefined,
@@ -236,11 +315,24 @@ export default function SettingsPage() {
         </section>
 
         <section className="settings-section">
-          <h2>Embedding</h2>
-          <label className="field">
-            <span>Model</span>
-            <input type="text" value={embeddingModel} onChange={(e) => setEmbeddingModel(e.target.value)} placeholder="gemini/text-embedding-004" />
-          </label>
+          <h2>
+            Embedding
+            <button type="button" className="catalog-refresh" onClick={() => void loadCatalog()} disabled={catalogLoading} title="Reload the model list from the gateway">
+              <RefreshCw size={12} className={catalogLoading ? "spin" : ""} />
+            </button>
+          </h2>
+          {!catalogOk && catalogError && (
+            <p className="section-warning">
+              Model list unavailable ({catalogError}). The current value is kept; reload to pick a different model.
+            </p>
+          )}
+          <ModelSelect
+            label="Model"
+            value={embeddingModel}
+            onChange={setEmbeddingModel}
+            models={catalog.embedding ?? []}
+            catalogOk={catalogOk}
+          />
           <label className="field">
             <span>Dimensions</span>
             <input type="number" min={1} max={8192} value={embeddingDim} onChange={(e) => setEmbeddingDim(Number(e.target.value))} />
@@ -253,14 +345,34 @@ export default function SettingsPage() {
 
         <section className="settings-section">
           <h2>LLM</h2>
-          <label className="field">
-            <span>Chat Model</span>
-            <input type="text" value={llmModel} onChange={(e) => setLlmModel(e.target.value)} placeholder="gemini/gemini-3.5-flash" />
-          </label>
-          <label className="field">
-            <span>Vision Model (optional)</span>
-            <input type="text" value={visionModel} onChange={(e) => setVisionModel(e.target.value)} placeholder="" />
-          </label>
+          {!catalogOk && catalogError && (
+            <p className="section-warning">Model list unavailable ({catalogError}).</p>
+          )}
+          <ModelSelect
+            label="Chat Model"
+            value={llmModel}
+            onChange={setLlmModel}
+            models={catalog.chat ?? []}
+            catalogOk={catalogOk}
+          />
+          <ModelSelect
+            label="Tagging Model"
+            hint="(note classification — falls back to Chat Model)"
+            value={taggingModel}
+            onChange={setTaggingModel}
+            models={catalog.chat ?? []}
+            catalogOk={catalogOk}
+            placeholder="Use Chat Model"
+          />
+          <ModelSelect
+            label="Vision Model"
+            hint="(optional — image analysis)"
+            value={visionModel}
+            onChange={setVisionModel}
+            models={[...(catalog.chat ?? []), ...(catalog.vision ?? [])]}
+            catalogOk={catalogOk}
+            placeholder="Use Chat Model"
+          />
         </section>
 
         <section className="settings-section">

@@ -3443,6 +3443,76 @@ color: var(--gold-on-strong);
   accent-color: var(--accent);
 }
 
+.settings-section .field select {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 9px 12px;
+  font-size: 14px;
+  background: var(--surface);
+  color: var(--ink);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.settings-section .field select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.settings-section .field select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.settings-section h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.catalog-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+}
+
+.catalog-refresh:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.catalog-refresh:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.spin {
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.section-warning {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--warning, #b45309);
+  background: var(--warning-soft, #fdf9f0);
+  border: 1px solid var(--warning, #b45309);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+
 .settings-actions {
   display: flex;
   gap: 12px;

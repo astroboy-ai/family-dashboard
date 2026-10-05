@@ -579,7 +579,29 @@ export type AdminSettings = {
   embedding_batch_size: number;
   llm_model: string;
   vision_model: string;
+  tagging_model: string;
+  effective_tagging_model: string;
 };
+
+export type GatewayModel = {
+  id: string;
+  mode: string;
+  max_input_tokens: number | null;
+  max_output_tokens: number | null;
+};
+
+export type GatewayModelsResponse = {
+  ok: boolean;
+  error?: string;
+  base_url: string;
+  groups: Record<string, GatewayModel[]>;
+  count: number;
+};
+
+/** Live model catalog from the gateway, grouped by capability (chat/embedding/…). */
+export function listGatewayModels(): Promise<GatewayModelsResponse> {
+  return apiRequest<GatewayModelsResponse>("/admin/models");
+}
 
 export type StorageSettings = {
   public_endpoint: string;

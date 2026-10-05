@@ -28,6 +28,7 @@ from mcp.server.auth.provider import AccessToken
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
 
+import app.agent.tools  # noqa: F401 — populates the registry via @register
 from app.agent.executor import execute_tool
 from app.agent.registry import ToolContext, registry
 from app.api.deps import Actor

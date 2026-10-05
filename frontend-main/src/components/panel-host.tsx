@@ -529,7 +529,9 @@ function TagReviewPanel({ noteId, close }: { noteId?: string; close: () => void 
                 proposals.map((proposal) => (
                   <article key={proposal.id} className="tag-proposal-item">
                     <div className="tag-proposal-copy"><Sparkles size={14} /><strong>#{proposal.proposed_slug}</strong><small>{Math.round(proposal.confidence * 100)}% · {proposal.model}</small></div>
-                    <p>{JSON.stringify(proposal.evidence)}</p>
+                    {typeof proposal.evidence?.reason === "string" && (
+                      <p className="tag-proposal-reason">{String(proposal.evidence.reason)}</p>
+                    )}
                     <div className="inline-actions"><button type="button" className="secondary-button" onClick={() => void reviewProposal(proposal.id, false)} disabled={saving}>Reject</button><button type="button" className="primary-button" onClick={() => void reviewProposal(proposal.id, true)} disabled={saving}>Accept</button></div>
                   </article>
                 ))

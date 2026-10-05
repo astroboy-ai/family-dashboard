@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     google_calendar_enabled: bool = False
     google_client_id: str = ""
     google_client_secret: str = ""
+    google_redirect_uri: str = "https://familyos.logeebox.com/api/calendar/oauth/callback"
 
     @model_validator(mode="after")
     def validate_jwt_secret(self) -> "Settings":

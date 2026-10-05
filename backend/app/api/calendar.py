@@ -43,27 +43,28 @@ from app.services.google_calendar import (
 
 router = APIRouter(prefix="/calendar", tags=["calendar"])
 
-# OAuth state storage — in production use Redis or signed JWT
-_oauth_states: dict[str, dict] = {}
-
 
 @router.get("/oauth/url", response_model=OAuthUrlResponse)
 async def get_oauth_url(
     actor: Annotated[Actor, Depends(require_scope("calendar.read"))],
-    redirect_uri: str = Query(..., description="Redirect URI registered in Google Cloud Console"),
 ) -> OAuthUrlResponse:
     """Get Google OAuth authorize URL."""
-    if not get_settings().google_calendar_enabled:
+    settings = get_settings()
+    if not settings.google_calendar_enabled:
         raise HTTPException(status_code=400, detail="Google Calendar is not enabled")
 
-    state = str(uuid.uuid4())
-    _oauth_states[state] = {
-        "household_id": str(actor.household_id),
-        "member_id": str(actor.member_id) if actor.member_id else None,
-        "redirect_uri": redirect_uri,
-        "expires_at": datetime.now(UTC) + timedelta(minutes=10),
-    }
-    return OAuthUrlResponse(authorize_url=get_authorize_url(state, redirect_uri))
+    # Use a signed JWT as state for CSRF protection (stateless)
+    import jwt
+    state = jwt.encode(
+        {
+            "household_id": str(actor.household_id),
+            "member_id": str(actor.member_id) if actor.member_id else None,
+            "exp": datetime.now(UTC) + timedelta(minutes=10),
+        },
+        settings.jwt_secret,
+        algorithm="HS256",
+    )
+    return OAuthUrlResponse(authorize_url=get_authorize_url(state, settings.google_redirect_uri))
 
 
 @router.post("/oauth/callback", response_model=CalendarAccountResponse)
@@ -73,24 +74,43 @@ async def oauth_callback(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> CalendarAccountResponse:
     """Exchange OAuth code for tokens and create calendar account."""
-    if not get_settings().google_calendar_enabled:
+    settings = get_settings()
+    if not settings.google_calendar_enabled:
         raise HTTPException(status_code=400, detail="Google Calendar is not enabled")
 
-    state_data = _oauth_states.pop(payload.state, None)
-    if not state_data:
-        raise HTTPException(status_code=400, detail="Invalid or expired state")
+    # Decode and verify the signed JWT state
+    import jwt
+    try:
+        state_claims = jwt.decode(
+            payload.state,
+            settings.jwt_secret,
+            algorithms=["HS256"],
+        )
+    except jwt.InvalidTokenError as e:
+        raise HTTPException(status_code=400, detail="Invalid or expired state") from e
 
-    if state_data["household_id"] != str(actor.household_id):
+    if state_claims.get("household_id") != str(actor.household_id):
         raise HTTPException(status_code=403, detail="State mismatch")
 
-    token_data = await exchange_code(payload.code, state_data["redirect_uri"])
+    token_data = await exchange_code(payload.code, settings.google_redirect_uri)
 
-    # Check if account already exists
+    # Fetch user info to get email
+    import httpx
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.get(
+            "https://www.googleapis.com/oauth2/v2/userinfo",
+            headers={"Authorization": f"Bearer {token_data.access_token}"},
+        )
+        resp.raise_for_status()
+        user_info = resp.json()
+        email = user_info.get("email", "unknown@gmail.com")
+
+    # Check if account already exists for this email in this household
     existing = (
         await session.execute(
             select(CalendarAccount).where(
                 CalendarAccount.household_id == actor.household_id,
-                CalendarAccount.email == token_data.scope,  # TODO: get email from Google
+                CalendarAccount.email == email,
             )
         )
     ).scalar_one_or_none()
@@ -107,21 +127,6 @@ async def oauth_callback(
             is_active=existing.is_active,
             created_at=existing.created_at,
         )
-
-    # Get email from Google
-    from app.services.google_calendar import _get_valid_token
-    token = await _get_valid_token(session, existing.id) if existing else token_data.access_token
-
-    # Fetch user info to get email
-    import httpx
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.get(
-            "https://www.googleapis.com/oauth2/v2/userinfo",
-            headers={"Authorization": f"Bearer {token_data.access_token}"},
-        )
-        resp.raise_for_status()
-        user_info = resp.json()
-        email = user_info.get("email", "unknown@gmail.com")
 
     account = CalendarAccount(
         household_id=actor.household_id,

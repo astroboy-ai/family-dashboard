@@ -13,9 +13,10 @@ from datetime import timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.api.deps import Actor, get_current_actor
 from app.core.db import get_session
@@ -38,6 +39,15 @@ class StorageSettingsPatch(BaseModel):
     public_endpoint: str | None = Field(default=None, max_length=500)
     bucket: str | None = Field(default=None, max_length=200)
     region: str | None = Field(default=None, max_length=64)
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def empty_to_none(cls, v: object) -> object:
+        """Treat blank strings as "not set" so they don't overwrite with empty."""
+
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
 
 
 class AiSettingsPatch(BaseModel):
@@ -107,7 +117,16 @@ async def patch_admin_settings(
     household = await _load_household(session, actor)
 
     changes = payload.model_dump(exclude_unset=True, exclude_none=True)
-    storage_changes = changes.pop("storage", None) or {}
+    # Serialized explicitly: exclude_none=True at the top level would drop
+    # storage=None, making it impossible to clear an override back to the env
+    # default.
+    storage_field = payload.storage
+    storage_changes = (
+        storage_field.model_dump(exclude_unset=True, exclude_none=False)
+        if storage_field is not None
+        else {}
+    )
+    changes.pop("storage", None)
 
     if not changes and not storage_changes:
         return {
@@ -138,6 +157,9 @@ async def patch_admin_settings(
 
     # Reassign (rather than mutate) so SQLAlchemy notices the JSONB change.
     household.settings = settings
+    # Force SQLAlchemy to detect the JSONB change — assigning a new dict does
+    # not always trigger an UPDATE on its own.
+    flag_modified(household, "settings")
     await session.commit()
 
     model_changed = (

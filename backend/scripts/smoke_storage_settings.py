@@ -9,12 +9,13 @@ Runs inside the backend container against the live API and database.
 """
 
 import asyncio
+import uuid
 
 import httpx
 from sqlalchemy import select
 
 from app.core.db import session_factory
-from app.models import FamilyMember, Household
+from app.models import FamilyMember, Household, MediaAsset
 from app.services.sessions import issue_session
 from app.services.storage_settings import resolve_storage_settings
 
@@ -55,6 +56,7 @@ async def main() -> None:
         jar = cookies_from(r, **jar)
         auth = cookie_header(jar)
 
+        asset_id = None
         try:
             # --- 1. GET exposes the storage section ------------------------
             r = await client.get("/api/admin/settings", headers=auth)
@@ -97,9 +99,17 @@ async def main() -> None:
             )
 
             # The next presign must use it without any restart.
+            # A unique digest per run matters: presign dedupes on sha256, and a
+            # repeat would return the *existing* asset whose URL was signed
+            # against the endpoint in force back then.
             r = await client.post(
                 "/api/media/presign",
-                json={"filename": "p.txt", "mime": "text/plain", "size": 1, "sha256": "a" * 64},
+                json={
+                    "filename": "p.txt",
+                    "mime": "text/plain",
+                    "size": 1,
+                    "sha256": uuid.uuid4().hex + uuid.uuid4().hex,
+                },
                 headers=auth,
             )
             check("presign still works", r.status_code == 201, f"got {r.status_code}")
@@ -137,6 +147,13 @@ async def main() -> None:
                 household = await session.get(Household, member.household_id)
                 household.settings = original_settings
                 await session.commit()
+            # Drop the probe asset so repeated runs stay independent.
+            if asset_id is not None:
+                async with session_factory() as session:
+                    asset = await session.get(MediaAsset, asset_id)
+                    if asset is not None:
+                        await session.delete(asset)
+                        await session.commit()
             print("settings restored")
 
     # --- 7. resolution helper behaves on its own ---------------------------

@@ -18,13 +18,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import Actor, get_current_actor, require_scope
 from app.core.config import get_settings
 from app.core.db import get_session
-from app.models.calendar import Calendar, CalendarAccount, CalendarEvent
+from app.models.calendar import Calendar, CalendarAccount, CalendarEvent, CalendarPermission, CalendarView
 from app.schemas.calendar import (
     CalendarAccountResponse,
     CalendarEventCreateRequest,
     CalendarEventResponse,
     CalendarEventUpdateRequest,
+    CalendarPermissionRequest,
+    CalendarPermissionResponse,
     CalendarResponse,
+    CalendarViewCreateRequest,
+    CalendarViewResponse,
+    CalendarViewUpdateRequest,
     OAuthCallbackRequest,
     OAuthUrlResponse,
     SyncResponse,
@@ -412,3 +417,217 @@ async def sync_calendars(
         total_events += result["events"]
 
     return SyncResponse(calendars=total_calendars, events=total_events)
+
+
+# ── Calendar Permissions ──────────────────────────────────────────────────────
+
+@router.get("/permissions", response_model=list[CalendarPermissionResponse])
+async def list_permissions(
+    actor: Annotated[Actor, Depends(require_scope("calendar.read"))],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    calendar_id: uuid.UUID | None = None,
+) -> list[CalendarPermissionResponse]:
+    """List calendar permissions for the household."""
+    stmt = (
+        select(CalendarPermission)
+        .join(Calendar, CalendarPermission.calendar_id == Calendar.id)
+        .join(CalendarAccount, Calendar.account_id == CalendarAccount.id)
+        .where(CalendarAccount.household_id == actor.household_id)
+    )
+    if calendar_id:
+        stmt = stmt.where(CalendarPermission.calendar_id == calendar_id)
+    rows = (await session.execute(stmt)).scalars().all()
+    return [
+        CalendarPermissionResponse(
+            id=r.id,
+            calendar_id=r.calendar_id,
+            member_id=r.member_id,
+            level=r.level,
+        )
+        for r in rows
+    ]
+
+
+@router.post("/permissions", response_model=CalendarPermissionResponse, status_code=status.HTTP_201_CREATED)
+async def create_permission(
+    payload: CalendarPermissionRequest,
+    actor: Annotated[Actor, Depends(require_scope("calendar.admin"))],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    calendar_id: uuid.UUID = Query(...),
+) -> CalendarPermissionResponse:
+    """Grant a permission on a calendar. Requires admin level."""
+    # Verify the calendar belongs to this household
+    calendar = await session.get(Calendar, calendar_id)
+    if not calendar:
+        raise HTTPException(status_code=404, detail="Calendar not found")
+    account = await session.get(CalendarAccount, calendar.account_id)
+    if not account or account.household_id != actor.household_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Check for existing permission
+    existing = (
+        await session.execute(
+            select(CalendarPermission).where(
+                CalendarPermission.calendar_id == calendar_id,
+                CalendarPermission.member_id == payload.member_id,
+            )
+        )
+    ).scalar_one_or_none()
+
+    if existing:
+        existing.level = payload.level
+        await session.commit()
+        return CalendarPermissionResponse(
+            id=existing.id,
+            calendar_id=existing.calendar_id,
+            member_id=existing.member_id,
+            level=existing.level,
+        )
+
+    perm = CalendarPermission(
+        calendar_id=calendar_id,
+        member_id=payload.member_id,
+        level=payload.level,
+    )
+    session.add(perm)
+    await session.commit()
+    await session.refresh(perm)
+    return CalendarPermissionResponse(
+        id=perm.id,
+        calendar_id=perm.calendar_id,
+        member_id=perm.member_id,
+        level=perm.level,
+    )
+
+
+@router.delete("/permissions/{permission_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_permission(
+    permission_id: uuid.UUID,
+    actor: Annotated[Actor, Depends(require_scope("calendar.admin"))],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> None:
+    """Revoke a permission. Requires admin level."""
+    perm = await session.get(CalendarPermission, permission_id)
+    if not perm:
+        raise HTTPException(status_code=404, detail="Permission not found")
+
+    calendar = await session.get(Calendar, perm.calendar_id)
+    account = await session.get(CalendarAccount, calendar.account_id)
+    if not account or account.household_id != actor.household_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    await session.delete(perm)
+    await session.commit()
+
+
+# ── Calendar Views (device config) ────────────────────────────────────────────
+
+@router.get("/views", response_model=list[CalendarViewResponse])
+async def list_views(
+    actor: Annotated[Actor, Depends(require_scope("calendar.read"))],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> list[CalendarViewResponse]:
+    """List calendar views for the household."""
+    rows = (
+        await session.execute(
+            select(CalendarView).where(CalendarView.household_id == actor.household_id)
+        )
+    ).scalars().all()
+    return [
+        CalendarViewResponse(
+            id=r.id,
+            name=r.name,
+            calendar_ids=r.calendar_ids,
+            layout=r.layout,
+            is_default=r.is_default,
+        )
+        for r in rows
+    ]
+
+
+@router.post("/views", response_model=CalendarViewResponse, status_code=status.HTTP_201_CREATED)
+async def create_view(
+    payload: CalendarViewCreateRequest,
+    actor: Annotated[Actor, Depends(require_scope("calendar.manage"))],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> CalendarViewResponse:
+    """Create a calendar view (device config)."""
+    if payload.is_default:
+        # Unset any existing default
+        await session.execute(
+            CalendarView.__table__.update()
+            .where(CalendarView.household_id == actor.household_id)
+            .values(is_default=False)
+        )
+
+    view = CalendarView(
+        household_id=actor.household_id,
+        name=payload.name,
+        calendar_ids=payload.calendar_ids,
+        layout=payload.layout,
+        is_default=payload.is_default,
+    )
+    session.add(view)
+    await session.commit()
+    await session.refresh(view)
+    return CalendarViewResponse(
+        id=view.id,
+        name=view.name,
+        calendar_ids=view.calendar_ids,
+        layout=view.layout,
+        is_default=view.is_default,
+    )
+
+
+@router.patch("/views/{view_id}", response_model=CalendarViewResponse)
+async def update_view(
+    view_id: uuid.UUID,
+    payload: CalendarViewUpdateRequest,
+    actor: Annotated[Actor, Depends(require_scope("calendar.manage"))],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> CalendarViewResponse:
+    """Update a calendar view."""
+    view = await session.get(CalendarView, view_id)
+    if not view or view.household_id != actor.household_id:
+        raise HTTPException(status_code=404, detail="View not found")
+
+    if payload.is_default:
+        await session.execute(
+            CalendarView.__table__.update()
+            .where(CalendarView.household_id == actor.household_id)
+            .values(is_default=False)
+        )
+
+    if payload.name is not None:
+        view.name = payload.name
+    if payload.calendar_ids is not None:
+        view.calendar_ids = payload.calendar_ids
+    if payload.layout is not None:
+        view.layout = payload.layout
+    if payload.is_default is not None:
+        view.is_default = payload.is_default
+
+    await session.commit()
+    await session.refresh(view)
+    return CalendarViewResponse(
+        id=view.id,
+        name=view.name,
+        calendar_ids=view.calendar_ids,
+        layout=view.layout,
+        is_default=view.is_default,
+    )
+
+
+@router.delete("/views/{view_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_view(
+    view_id: uuid.UUID,
+    actor: Annotated[Actor, Depends(require_scope("calendar.manage"))],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> None:
+    """Delete a calendar view."""
+    view = await session.get(CalendarView, view_id)
+    if not view or view.household_id != actor.household_id:
+        raise HTTPException(status_code=404, detail="View not found")
+
+    await session.delete(view)
+    await session.commit()

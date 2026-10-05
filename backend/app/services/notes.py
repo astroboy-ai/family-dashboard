@@ -67,6 +67,23 @@ def _queue_note_enrichment(session: AsyncSession, note_id: uuid.UUID) -> None:
     )
 
 
+def _queue_tag_propose(session: AsyncSession, note_id: uuid.UUID) -> None:
+    """Queue an AI classification job for *note*.
+
+    The topic is ``tag.propose``, consumed by ``app/workers/outbox.py``. The row
+    is written in the caller's transaction, so a rolled-back note never leaves a
+    job behind (outbox pattern).
+    """
+
+    session.add(
+        JobOutbox(
+            id=uuid.uuid4(),
+            topic="tag.propose",
+            payload={"note_id": str(note_id)},
+        )
+    )
+
+
 def apply_note_search_tokens(note: Note) -> None:
     """Refresh the tokenized mirror of a note's searchable text.
 
@@ -465,6 +482,7 @@ async def create_note(
         tags.append(tag)
 
     _queue_note_enrichment(session, note.id)
+    _queue_tag_propose(session, note.id)
     _record_audit(
         session,
         actor,
@@ -523,6 +541,7 @@ async def update_note(
     }
     if changes.keys() & enrichment_fields:
         _queue_note_enrichment(session, note.id)
+    _queue_tag_propose(session, note.id)
     _record_audit(
         session,
         actor,
@@ -630,6 +649,7 @@ async def update_block(
     apply_block_search_tokens(block)
     if changes:
         _queue_note_enrichment(session, note.id)
+    _queue_tag_propose(session, note.id)
     _record_audit(
         session,
         actor,
@@ -654,6 +674,7 @@ async def delete_block(
     await session.delete(block)
     note.updated_at = datetime.now(UTC)
     _queue_note_enrichment(session, note.id)
+    _queue_tag_propose(session, note.id)
     _record_audit(
         session,
         actor,
@@ -685,6 +706,7 @@ async def reorder_blocks(
         block.order_index = index * 1000
     note.updated_at = datetime.now(UTC)
     _queue_note_enrichment(session, note.id)
+    _queue_tag_propose(session, note.id)
     _record_audit(
         session,
         actor,

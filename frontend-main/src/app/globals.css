@@ -3410,3 +3410,188 @@ h2 {
   gap: 4px;
   margin-top: 14px;
 }
+
+/* ── Tag Review ── */
+
+.tag-review-filters {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 16px;
+  flex-wrap: wrap;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.filter-chip:hover {
+  border-color: var(--accent);
+}
+
+.filter-chip.active {
+  background: var(--accent);
+  color: var(--accent-foreground);
+  border-color: var(--accent);
+}
+
+.filter-count {
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.tag-proposal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tag-proposal-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.tag-proposal-card.status-accepted {
+  border-color: var(--success, #22c55e);
+  opacity: 0.7;
+}
+
+.tag-proposal-card.status-rejected {
+  border-color: var(--danger, #ef4444);
+  opacity: 0.5;
+}
+
+.proposal-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.proposal-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.proposal-slug {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.proposal-status {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.proposal-status.status-pending {
+  background: var(--warning, #f59e0b);
+  color: #000;
+}
+
+.proposal-status.status-accepted {
+  background: var(--success, #22c55e);
+  color: #fff;
+}
+
+.proposal-status.status-rejected {
+  background: var(--danger, #ef4444);
+  color: #fff;
+}
+
+.proposal-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.proposal-confidence {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.proposal-reason {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 4px 0;
+  line-height: 1.4;
+}
+
+.proposal-note-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.proposal-note-link:hover {
+  text-decoration: underline;
+}
+
+.proposal-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.btn-accept,
+.btn-reject {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-accept {
+  background: var(--success, #22c55e);
+  color: #fff;
+}
+
+.btn-accept:hover {
+  opacity: 0.85;
+}
+
+.btn-reject {
+  background: var(--danger, #ef4444);
+  color: #fff;
+}
+
+.btn-reject:hover {
+  opacity: 0.85;
+}
+
+.btn-accept:disabled,
+.btn-reject:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

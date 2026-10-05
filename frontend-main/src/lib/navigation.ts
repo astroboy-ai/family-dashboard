@@ -13,6 +13,7 @@ import {
   Tags,
   Toolbox,
   Vault,
+  Waypoints,
 } from "lucide-react";
 
 export const navigation = [
@@ -26,8 +27,9 @@ export const navigation = [
   { label: "Learning", href: "/learning", icon: BookOpen },
   { label: "Rewards", href: "/rewards", icon: Gift },
   { label: "Vault", href: "/vault", icon: Vault },
-  { label: "Archify", href: "/graph", icon: Network },
-  { label: "Tools", href: "/tools", icon: Toolbox },
+  { label: "KB Viewer", href: "/graph", icon: Network },
+  { label: "Archify", href: "/archify", icon: Waypoints },
+  { label: "Utilities", href: "/utilities", icon: Toolbox },
   { label: "Hermes", href: "/hermes", icon: Sparkles },
   { label: "Tag review", href: "/tags/review", icon: Tags },
   { label: "Settings", href: "/settings", icon: Settings },

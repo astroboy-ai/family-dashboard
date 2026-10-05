@@ -60,6 +60,7 @@ class FamilyMember(Base):
     color: Mapped[str | None] = mapped_column(String(32))
     points_cached: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
     permissions: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    preferences: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     pin_hash: Mapped[str | None] = mapped_column(Text)
     pin_failed_attempts: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")

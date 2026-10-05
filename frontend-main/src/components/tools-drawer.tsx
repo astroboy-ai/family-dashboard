@@ -129,7 +129,7 @@ export function ToolsDrawer({
     <div className="drawer-overlay" onClick={onClose}>
       <div className="drawer" onClick={(e) => e.stopPropagation()}>
         <div className="drawer-header">
-          <h2>Tools</h2>
+          <h2>Add Block</h2>
           <button className="icon-button" onClick={onClose} aria-label="Close">
             <X size={18} />
           </button>
@@ -139,7 +139,7 @@ export function ToolsDrawer({
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search tools…"
+            placeholder="Search blocks…"
           />
         </div>
         <div className="drawer-body">

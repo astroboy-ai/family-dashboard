@@ -17,7 +17,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { CommandPalette } from "@/components/command-palette";
 import { PanelHost } from "@/components/panel-host";
 import { SessionExpiredNotice } from "@/components/session-expired-notice";
-import { ApiError, getActor, signOut, type Actor } from "@/lib/api";
+import { ApiError, getActor, getMyPreferences, signOut, updateMyPreferences, type Actor } from "@/lib/api";
 import { navigation } from "@/lib/navigation";
 import { useNewNote } from "@/lib/new-note";
 import { usePanelStore } from "@/lib/panel-store";
@@ -41,6 +41,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [userOpen, setUserOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark" | "system">("dark");
+  // Calendar theme is deliberately independent of the system theme: a child can
+  // theme the calendar without changing the whole app.
+  const [calendarTheme, setCalendarTheme] = useState("auto");
   const [density, setDensity] = useState<"comfortable" | "compact">("comfortable");
   const { panels, open, closeTop } = usePanelStore();
   const { startNewNote } = useNewNote();
@@ -67,6 +70,29 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     window.localStorage.setItem("familyos-theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    let active = true;
+    getMyPreferences()
+      .then((prefs) => {
+        if (active && prefs.calendar_theme) setCalendarTheme(prefs.calendar_theme);
+      })
+      .catch(() => {
+        // Preferences are optional; the default theme is fine when unavailable.
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function chooseCalendarTheme(next: string) {
+    setCalendarTheme(next);
+    try {
+      await updateMyPreferences({ calendar_theme: next });
+    } catch {
+      // Keep the local choice; the next load re-syncs from the server.
+    }
+  }
 
   useEffect(() => {
     window.localStorage.setItem("familyos-density", density);
@@ -203,6 +229,14 @@ export function AppShell({ children }: { children: ReactNode }) {
                     <div className="segmented-control compact-control">
                       <button className={density === "comfortable" ? "selected" : ""} onClick={() => setDensity("comfortable")}>Comfort</button>
                       <button className={density === "compact" ? "selected" : ""} onClick={() => setDensity("compact")}>Compact</button>
+                    </div>
+                  </div>
+                  <div className="user-menu-section">
+                    <span>Calendar theme</span>
+                    <div className="segmented-control compact-control">
+                      <button className={calendarTheme === "auto" ? "selected" : ""} onClick={() => void chooseCalendarTheme("auto")}>Auto</button>
+                      <button className={calendarTheme === "light" ? "selected" : ""} onClick={() => void chooseCalendarTheme("light")}>Light</button>
+                      <button className={calendarTheme === "dark" ? "selected" : ""} onClick={() => void chooseCalendarTheme("dark")}>Dark</button>
                     </div>
                   </div>
                   <button onClick={handleSignOut} className="user-menu-button danger">Sign out</button>

@@ -231,7 +231,8 @@ async def main() -> None:
         print("\n=== Cleanup ===")
         await session.execute(delete(TagExclusion).where(TagExclusion.scope_ref == note.id))
         await session.execute(delete(TagProposal).where(TagProposal.note_id == note.id))
-        await session.execute(delete(Note.__table__.c.note_tags).where(Note.__table__.c.note_tags.c.note_id == note.id))
+        from app.models import note_tags
+        await session.execute(delete(note_tags).where(note_tags.c.note_id == note.id))
         await session.execute(delete(JobOutbox).where(JobOutbox.payload["note_id"].astext == str(note.id)))
         await session.execute(delete(Note).where(Note.id == note.id))
         await session.commit()

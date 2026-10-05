@@ -196,6 +196,7 @@ async def classify_note(
         blocks.append({
             "type": b.type,
             "data": b.data or {},
+            "text_content": b.text_content,
             "ocr_text": b.ocr_text,
             "ai_description": b.ai_description,
             "transcript": b.transcript,

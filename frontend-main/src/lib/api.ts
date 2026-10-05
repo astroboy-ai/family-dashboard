@@ -523,9 +523,12 @@ export function patchTextBlock(blockId: string, text: string): Promise<NoteBlock
   });
 }
 
-export function listTagProposals(noteId?: string): Promise<TagProposal[]> {
+export function listTagProposals(
+  options: { noteId?: string; status?: "pending" | "accepted" | "rejected" | "all" } = {},
+): Promise<TagProposal[]> {
   const params = new URLSearchParams();
-  if (noteId) params.set("note_id", noteId);
+  if (options.noteId) params.set("note_id", options.noteId);
+  if (options.status) params.set("status", options.status);
   const query = params.toString();
   return apiRequest<TagProposal[]>(`/tags/proposals${query ? `?${query}` : ""}`);
 }

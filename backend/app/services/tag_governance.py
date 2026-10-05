@@ -86,19 +86,38 @@ async def propose_tags(
     return [TagProposalResponse.model_validate(proposal) for proposal in created]
 
 
+async def list_tag_proposals(
+    *,
+    session: AsyncSession,
+    actor: Actor,
+    note_id: uuid.UUID | None = None,
+    status: str | None = None,
+) -> list[TagProposalResponse]:
+    """List tag proposals, newest first.
+
+    ``status`` filters to one of the lifecycle states. Omitted or ``"all"``
+    returns every status — the review page's tabs need the decided ones too, not
+    just the pending queue.
+    """
+
+    if actor.role != "parent" or "notes.read" not in actor.scopes:
+        raise AppError("Permission denied", status_code=403, error_code="permission_denied")
+
+    statement = select(TagProposal).where(TagProposal.household_id == actor.household_id)
+    if status and status != "all":
+        statement = statement.where(TagProposal.status == status)
+    if note_id is not None:
+        statement = statement.where(TagProposal.note_id == note_id)
+    result = await session.execute(statement.order_by(TagProposal.created_at.desc()).limit(200))
+    return [TagProposalResponse.model_validate(proposal) for proposal in result.scalars().all()]
+
+
 async def list_pending_tag_proposals(
     *, session: AsyncSession, actor: Actor, note_id: uuid.UUID | None = None
 ) -> list[TagProposalResponse]:
-    if actor.role != "parent" or "notes.read" not in actor.scopes:
-        raise AppError("Permission denied", status_code=403, error_code="permission_denied")
-    statement = select(TagProposal).where(
-        TagProposal.household_id == actor.household_id,
-        TagProposal.status == "pending",
+    return await list_tag_proposals(
+        session=session, actor=actor, note_id=note_id, status="pending"
     )
-    if note_id is not None:
-        statement = statement.where(TagProposal.note_id == note_id)
-    result = await session.execute(statement.order_by(TagProposal.created_at.desc()).limit(100))
-    return [TagProposalResponse.model_validate(proposal) for proposal in result.scalars().all()]
 
 
 async def decide_tag_proposal(

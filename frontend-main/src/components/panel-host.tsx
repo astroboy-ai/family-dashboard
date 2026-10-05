@@ -435,7 +435,7 @@ function TagReviewPanel({ noteId, close }: { noteId?: string; close: () => void 
     if (!noteId) return;
     let active = true;
     setLoadingProposals(true);
-    listTagProposals(noteId)
+    listTagProposals({ noteId })
       .then((value) => active && setProposals(value))
       .catch((reason: unknown) => active && setError(reason instanceof Error ? reason.message : "Unable to load tag proposals."))
       .finally(() => active && setLoadingProposals(false));

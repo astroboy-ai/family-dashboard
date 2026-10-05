@@ -19,7 +19,9 @@ export default function TagReviewPage() {
     setLoading(true);
     setError("");
     try {
-      const data = await listTagProposals();
+      // Fetch every status in one call: the tab counts need the decided ones
+      // too, so filtering server-side per tab would make the counts wrong.
+      const data = await listTagProposals({ status: "all" });
       setProposals(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load proposals");
@@ -45,10 +47,7 @@ export default function TagReviewPage() {
     }
   }
 
-  const filtered = proposals.filter((p) => {
-    if (filter === "all") return true;
-    return p.status === filter;
-  });
+  const filtered = proposals.filter((p) => (filter === "all" ? true : p.status === filter));
 
   const counts = {
     all: proposals.length,

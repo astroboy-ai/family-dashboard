@@ -36,7 +36,12 @@ from app.services.notes import (
     update_block,
     update_note,
 )
-from app.services.tag_governance import decide_tag_proposal, list_pending_tag_proposals, propose_tags
+from app.services.tag_governance import (
+    decide_tag_proposal,
+    list_pending_tag_proposals,
+    list_tag_proposals,
+    propose_tags,
+)
 
 
 notes_router = APIRouter(prefix="/notes", tags=["notes"])
@@ -211,8 +216,11 @@ async def get_tag_proposals(
     actor: Annotated[Actor, Depends(get_current_actor)],
     session: Annotated[AsyncSession, Depends(get_session)],
     note_id: uuid.UUID | None = None,
+    status: str | None = None,
 ) -> list[TagProposalResponse]:
-    return await list_pending_tag_proposals(session=session, actor=actor, note_id=note_id)
+    return await list_tag_proposals(
+        session=session, actor=actor, note_id=note_id, status=status
+    )
 
 
 @tag_proposals_router.post("/{proposal_id}/decision", response_model=TagProposalResponse)

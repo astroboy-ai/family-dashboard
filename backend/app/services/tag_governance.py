@@ -181,6 +181,32 @@ async def decide_tag_proposal(
             )
             .on_conflict_do_nothing()
         )
+    else:
+        # Rejected → write a note-level exclusion so the AI never proposes
+        # this tag for this note again.
+        from app.models import TagExclusion
+
+        existing_exclusion = (
+            await session.execute(
+                select(TagExclusion).where(
+                    TagExclusion.household_id == actor.household_id,
+                    TagExclusion.tag_slug == proposal.proposed_slug,
+                    TagExclusion.scope == "note",
+                    TagExclusion.scope_ref == note.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing_exclusion is None:
+            session.add(
+                TagExclusion(
+                    household_id=actor.household_id,
+                    tag_slug=proposal.proposed_slug,
+                    scope="note",
+                    scope_ref=note.id,
+                    reason="user_rejected",
+                    created_by=actor.member_id,
+                )
+            )
     session.add(
         TagAuditLog(
             id=uuid.uuid4(),

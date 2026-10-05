@@ -78,19 +78,26 @@ def _build_user_prompt(
     for i, block in enumerate(blocks):
         btype = block.get("type", "unknown")
         data = block.get("data", {})
-        if btype == "text" and data.get("text"):
-            parts.append(f"Block {i} (text): {data['text'][:500]}")
+        text_content = block.get("text_content") or data.get("text") or ""
+        ocr_text = block.get("ocr_text") or ""
+        ai_desc = block.get("ai_description") or ""
+        transcript = block.get("transcript") or ""
+
+        if btype == "text" and text_content:
+            parts.append(f"Block {i} (text): {text_content[:500]}")
         elif btype == "table" and data.get("rows"):
             rows = data["rows"][:5]  # first 5 rows
             parts.append(f"Block {i} (table): {json.dumps(rows, ensure_ascii=False)[:500]}")
-        elif btype == "drawing" and data.get("ai_description"):
-            parts.append(f"Block {i} (drawing): {data['ai_description'][:200]}")
-        elif btype == "photo" and data.get("ai_description"):
-            parts.append(f"Block {i} (photo): {data['ai_description'][:200]}")
+        elif btype == "drawing" and ai_desc:
+            parts.append(f"Block {i} (drawing): {ai_desc[:200]}")
+        elif btype == "photo" and ai_desc:
+            parts.append(f"Block {i} (photo): {ai_desc[:200]}")
         elif btype == "link" and data.get("url"):
             parts.append(f"Block {i} (link): {data['url']}")
-        elif btype == "audio" and data.get("transcript"):
-            parts.append(f"Block {i} (audio transcript): {data['transcript'][:300]}")
+        elif btype == "audio" and transcript:
+            parts.append(f"Block {i} (audio transcript): {transcript[:300]}")
+        elif ocr_text:
+            parts.append(f"Block {i} ({btype} OCR): {ocr_text[:300]}")
 
     if existing_tags:
         parts.append(f"Existing tags: {', '.join(existing_tags)}")
@@ -178,12 +185,22 @@ async def classify_note(
     - model: model name used
     """
 
-    # Gather context
+    # Gather context — blocks are in a separate table
+    from app.models import NoteBlock
+
     blocks_result = await session.execute(
-        select(Note.__table__.c.blocks).where(Note.id == note.id)
+        select(NoteBlock).where(NoteBlock.note_id == note.id).order_by(NoteBlock.order_index)
     )
-    blocks_raw = blocks_result.scalar_one_or_none() or []
-    blocks = [dict(b) for b in blocks_raw] if isinstance(blocks_raw, list) else []
+    blocks = []
+    for b in blocks_result.scalars().all():
+        blocks.append({
+            "type": b.type,
+            "data": b.data or {},
+            "text_content": b.text_content,
+            "ocr_text": b.ocr_text,
+            "ai_description": b.ai_description,
+            "transcript": b.transcript,
+        })
 
     # Existing tags on this note
     existing_tags_result = await session.execute(

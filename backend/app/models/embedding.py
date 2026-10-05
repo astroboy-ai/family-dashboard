@@ -28,7 +28,39 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pgvector.sqlalchemy import Vector
+from sqlalchemy.types import TypeDecorator, UserDefinedType
+
+
+class HalfVector(UserDefinedType):
+    """SQLAlchemy type mapping to PostgreSQL ``halfvec`` (float16 vector).
+
+    The pgvector Python package on this host predates the ``HalfVector`` helper,
+    but the database extension (0.8.6) supports the type. This wrapper lets the
+    ORM work with ``halfvec`` columns without upgrading the dependency.
+    """
+
+    cache_ok = True
+
+    def get_col_spec(self, **kw: object) -> str:
+        return "halfvec"
+
+    def bind_processor(self, dialect: object) -> object:
+        def process(value: object) -> object:
+            if value is None:
+                return None
+            # pgvector accepts a JSON-style array literal for halfvec.
+            return "[" + ",".join(str(float(v)) for v in value) + "]"
+        return process
+
+    def result_processor(self, dialect: object, coltype: object) -> object:
+        def process(value: object) -> object:
+            if value is None:
+                return None
+            if isinstance(value, str):
+                # pgvector returns "[1,2,3]" — strip brackets and split.
+                return [float(v) for v in value.strip("[]").split(",") if v]
+            return [float(v) for v in value]
+        return process
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
@@ -92,6 +124,6 @@ class Embedding(Base):
     dim: Mapped[int] = mapped_column(Integer, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
 
-    embedding: Mapped[list[float]] = mapped_column(Vector(), nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(HalfVector(), nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

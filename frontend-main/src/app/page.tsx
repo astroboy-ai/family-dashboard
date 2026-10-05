@@ -5,13 +5,13 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { NoteRow } from "@/components/note-row";
 import { ApiError, listNotes, type Note, type NoteList } from "@/lib/api";
-import { usePanelStore } from "@/lib/panel-store";
+import { useNewNote } from "@/lib/new-note";
 
 export default function HomePage() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const open = usePanelStore((state) => state.open);
+  const { startNewNote } = useNewNote();
 
   async function refresh() {
     setLoading(true);
@@ -39,7 +39,7 @@ export default function HomePage() {
           <h1>{greeting}, family.</h1>
           <p className="welcome-subtitle">A clear place for the things you want to remember.</p>
         </div>
-        <button className="primary-button" onClick={() => open("capture")}><Plus size={17} /> Capture</button>
+        <button className="primary-button" onClick={() => void startNewNote()}><Plus size={17} /> Capture</button>
       </section>
 
       <section className="home-grid" aria-label="Family overview">
@@ -64,7 +64,7 @@ export default function HomePage() {
             <div className="empty-state compact-empty">
               <span className="empty-mark">N</span>
               <div><strong>Your inbox is clear.</strong><p>New notes you capture will be collected here.</p></div>
-              <button className="text-link" onClick={() => open("capture")}>Capture a note <ArrowRight size={15} /></button>
+              <button className="text-link" onClick={() => void startNewNote()}>Capture a note <ArrowRight size={15} /></button>
             </div>
           ) : (
             <div className="note-list home-note-list">
@@ -91,7 +91,7 @@ export default function HomePage() {
           <div><p className="eyebrow">QUICK ACCESS</p><h2>Start somewhere</h2></div>
         </div>
         <div className="shortcut-grid">
-          <button className="shortcut-row" onClick={() => open("capture")}><span className="shortcut-icon capture-shortcut"><Plus size={17} /></span><span><strong>Capture something</strong><small>Text, plans, reminders</small></span><ArrowUpRight size={16} /></button>
+          <button className="shortcut-row" onClick={() => void startNewNote()}><span className="shortcut-icon capture-shortcut"><Plus size={17} /></span><span><strong>Capture something</strong><small>Text, plans, reminders</small></span><ArrowUpRight size={16} /></button>
           <Link className="shortcut-row" href="/notes"><span className="shortcut-icon notes-shortcut"><Inbox size={17} /></span><span><strong>Browse notes</strong><small>Open your family inbox</small></span><ArrowUpRight size={16} /></Link>
           <Link className="shortcut-row" href="/search"><span className="shortcut-icon search-shortcut"><RefreshCw size={17} /></span><span><strong>Find a detail</strong><small>Search by word or tag</small></span><ArrowUpRight size={16} /></Link>
         </div>

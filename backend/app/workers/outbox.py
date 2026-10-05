@@ -87,23 +87,28 @@ async def finish_job(session: AsyncSession, job: JobOutbox) -> None:
 async def fail_job(session: AsyncSession, job: JobOutbox, error: str) -> None:
     """Retry with backoff, or park the job as ``dead`` after MAX_ATTEMPTS."""
 
-    if job.attempts >= MAX_ATTEMPTS:
+    # Capture values before any rollback expires the ORM instance.
+    job_id = job.id
+    job_topic = job.topic
+    job_attempts = job.attempts
+    job_payload = dict(job.payload or {})
+
+    if job_attempts >= MAX_ATTEMPTS:
         status = "dead"
         available_at = datetime.now(UTC)
-        logger.error("job_dead", job_id=str(job.id), topic=job.topic, error=error)
+        logger.error("job_dead", job_id=str(job_id), topic=job_topic, error=error)
     else:
         status = "pending"
-        delay = BACKOFF_SECONDS[min(job.attempts, len(BACKOFF_SECONDS) - 1)]
+        delay = BACKOFF_SECONDS[min(job_attempts, len(BACKOFF_SECONDS) - 1)]
         available_at = datetime.now(UTC) + timedelta(seconds=delay)
-        logger.warning("job_retry", job_id=str(job.id), topic=job.topic, delay=delay, error=error)
+        logger.warning("job_retry", job_id=str(job_id), topic=job_topic, delay=delay, error=error)
 
-    payload = dict(job.payload or {})
-    payload["last_error"] = error[:1000]
+    job_payload["last_error"] = error[:1000]
 
     await session.execute(
         update(JobOutbox)
-        .where(JobOutbox.id == job.id)
-        .values(status=status, available_at=available_at, payload=payload)
+        .where(JobOutbox.id == job_id)
+        .values(status=status, available_at=available_at, payload=job_payload)
     )
     await session.commit()
 
@@ -303,7 +308,14 @@ async def process_once() -> int:
                 await session.rollback()
                 await fail_job(session, job, f"{type(error).__name__}: {error}")
             else:
-                await finish_job(session, job)
+                # Re-query the job: the handler committed, which expires the
+                # instance. Reading job.id off the stale object would trigger a
+                # lazy load — impossible under async SQLAlchemy (MissingGreenlet).
+                fresh = (
+                    await session.execute(select(JobOutbox).where(JobOutbox.id == job.id))
+                ).scalar_one_or_none()
+                if fresh is not None:
+                    await finish_job(session, fresh)
         return len(jobs)
 
 
@@ -313,7 +325,12 @@ async def run_forever() -> None:
         try:
             handled = await process_once()
         except Exception as error:  # noqa: BLE001
-            logger.error("worker_loop_error", error=f"{type(error).__name__}: {error}")
+            import traceback
+            logger.error(
+                "worker_loop_error",
+                error=f"{type(error).__name__}: {error}",
+                traceback=traceback.format_exc(),
+            )
             handled = 0
         if handled == 0:
             await asyncio.sleep(POLL_INTERVAL_SECONDS)

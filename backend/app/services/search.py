@@ -119,11 +119,69 @@ async def search_notes(
     actor: Actor,
     **filters: object,
 ):
-    statement = build_search_statement(actor=actor, **filters)
-    result = await session.execute(statement)
-    notes = list(result.scalars().all())
+    query = filters.get("query", "").strip()
+    limit = filters.get("limit", 50)
+
+    # If there is a query, run hybrid search (keyword + semantic with RRF fusion)
+    if query:
+        from app.services.hybrid_search import hybrid_search
+        from app.services.ai_settings import resolve_ai_settings
+        from app.services.embeddings import EmbeddingClient
+        from app.models import Household
+
+        household = (
+            await session.execute(
+                select(Household).where(Household.id == actor.household_id)
+            )
+        ).scalar_one_or_none()
+        if household:
+            ai_settings = resolve_ai_settings(household.settings)
+            if ai_settings.enabled:
+                client = EmbeddingClient(ai_settings)
+                try:
+                    embed_result = await client.embed([query])
+                    if embed_result.vectors:
+                        search_result = await hybrid_search(
+                            session=session,
+                            actor=actor,
+                            query=query,
+                            query_vector=embed_result.vectors[0],
+                            dim=embed_result.dim,
+                            mode="hybrid",
+                            limit=limit,
+                        )
+                        # Fetch the notes from hybrid search results
+                        note_ids = [item["note_id"] for item in search_result["items"]]
+                        if note_ids:
+                            notes = list(
+                                (await session.execute(
+                                    select(Note).where(Note.id.in_(note_ids))
+                                )).scalars().all()
+                            )
+                            # Reorder to match hybrid ranking
+                            note_map = {n.id: n for n in notes}
+                            notes = [note_map[nid] for nid in note_ids if nid in note_map]
+                        else:
+                            notes = []
+                    else:
+                        notes = []
+                except Exception:
+                    # If hybrid search fails, fall back to keyword-only
+                    statement = build_search_statement(actor=actor, **filters)
+                    result = await session.execute(statement)
+                    notes = list(result.scalars().all())
+            else:
+                notes = []
+        else:
+            notes = []
+    else:
+        # No query, just list notes
+        statement = build_search_statement(actor=actor, **filters)
+        result = await session.execute(statement)
+        notes = list(result.scalars().all())
+
     items = [
         _note_response(note, await _load_blocks(session, note.id), await _load_tags(session, note.id))
         for note in notes
     ]
-    return {"items": items, "limit": filters.get("limit", 50), "offset": filters.get("offset", 0)}
+    return {"items": items, "limit": limit, "offset": filters.get("offset", 0)}

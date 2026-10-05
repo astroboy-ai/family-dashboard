@@ -694,7 +694,17 @@ async def reorder_blocks(
         after={"block_ids": [str(block.id) for block in ordered]},
     )
     await session.commit()
-    return [NoteBlockResponse.model_validate(block) for block in ordered]
+    # Re-read after commit. ``updated_at`` carries onupdate=func.now(), so the
+    # flush expires it and pydantic reading it would attempt a lazy refresh —
+    # impossible under async SQLAlchemy (MissingGreenlet). Re-querying gets the
+    # DB-generated values; same approach as add_tag/remove_tag below.
+    refreshed = await _load_blocks(session, note.id)
+    by_id_after = {block.id: block for block in refreshed}
+    return [
+        NoteBlockResponse.model_validate(by_id_after[block.id])
+        for block in ordered
+        if block.id in by_id_after
+    ]
 
 
 async def add_tag(

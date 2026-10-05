@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy import Float, Select, func, or_, select, type_coerce
 from sqlalchemy.ext.asyncio import AsyncSession
-from pgvector.sqlalchemy import Vector
+from app.models.embedding import HalfVector
 
 from app.api.deps import Actor
 from app.core.text import build_query_text
@@ -137,7 +137,7 @@ def semantic_statement(
     # operand's type (Vector), so the result processor would try to parse the
     # distance as a vector and crash. Coerce the expression to Float explicitly.
     cast_distance = type_coerce(
-        func.cast(Embedding.embedding, Vector(dim)).op("<=>")(query_vector),
+        func.cast(Embedding.embedding, HalfVector()).op("<=>")(query_vector),
         Float,
     )
 

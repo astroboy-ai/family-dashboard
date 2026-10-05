@@ -25,6 +25,7 @@ from typing import Any
 
 import structlog
 from mcp.server.auth.provider import AccessToken
+from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
 
 from app.agent.executor import execute_tool
@@ -38,6 +39,7 @@ logger = structlog.get_logger(__name__)
 
 MCP_SERVER_NAME = "familyos"
 MCP_MOUNT_PATH = "/mcp"
+MCP_PUBLIC_BASE_URL = "https://familyos.logeebox.com"
 
 
 class DeviceTokenVerifier:
@@ -181,8 +183,16 @@ def _jsonable(value: Any) -> Any:
     return str(value)
 
 
-def build_mcp_server() -> MCPServer:
-    """Create the MCP server with the household tools registered."""
+def build_mcp_server(*, public_base_url: str) -> MCPServer:
+    """Create the MCP server with the household tools registered.
+
+    ``token_verifier`` and ``auth`` must be supplied together — the SDK rejects
+    one without the other. ``auth`` does not start an OAuth flow here (no
+    ``auth_server_provider``); it only publishes the protected-resource metadata
+    document and enables the bearer middleware. ``validate_token_resource`` is
+    off because our verifier decides validity from the database, not from a
+    resource indicator.
+    """
 
     server = MCPServer(
         name=MCP_SERVER_NAME,
@@ -192,12 +202,17 @@ def build_mcp_server() -> MCPServer:
             "Notes marked private to another member are not visible."
         ),
         token_verifier=DeviceTokenVerifier(),
+        auth=AuthSettings(
+            issuer_url=public_base_url,
+            resource_server_url=public_base_url,
+            validate_token_resource=False,
+        ),
     )
     _register_tools(server)
     return server
 
 
-mcp_server = build_mcp_server()
+mcp_server = build_mcp_server(public_base_url=MCP_PUBLIC_BASE_URL)
 
 
 @contextlib.asynccontextmanager

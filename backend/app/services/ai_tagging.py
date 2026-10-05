@@ -31,7 +31,7 @@ logger = structlog.get_logger(__name__)
 
 PROMPT_VERSION = "tag-v1"
 MAX_TAGS = 8
-LLM_TIMEOUT = 45.0
+LLM_TIMEOUT = 120.0
 
 
 # ── Prompt ──────────────────────────────────────────────────────────

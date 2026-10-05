@@ -15,7 +15,6 @@ refresh_token live on different paths and httpx raises on the ambiguity.
 
 import asyncio
 import hashlib
-from datetime import UTC, datetime, timedelta
 
 import httpx
 from sqlalchemy import select
@@ -60,68 +59,29 @@ async def main() -> None:
         ).scalar_one()
         mid = member.id
         issued = await issue_session(session=session, member=member, user_agent="smoke-test")
-        first_token = issued.refresh_token
-        assert first_token is not None  # a fresh issue always returns one
 
     async with httpx.AsyncClient(base_url=BASE, timeout=30.0) as client:
-        jar = {"refresh_token": first_token}
+        jar = {"refresh_token": issued.refresh_token}
 
         # --- 1. refresh rotates, access token works ------------------------
         r = await client.post("/api/auth/refresh", headers=cookie_header(jar))
         check("refresh returns 200", r.status_code == 200, f"got {r.status_code} {r.text[:120]}")
         jar = cookies_from(r, **jar)
         check("refresh returned an access token", "access_token" in jar)
-        check("refresh rotated the refresh token", jar.get("refresh_token") != first_token)
+        check("refresh rotated the refresh token", jar.get("refresh_token") != issued.refresh_token)
 
         r = await client.get("/api/auth/me", headers=cookie_header(jar))
         check("access token works on /auth/me", r.status_code == 200, f"got {r.status_code}")
 
-        # --- 2. a replay inside the grace window is a RACE, not theft ------
-        # Two tabs, or a refresh response lost on a flaky mobile link, both look
-        # like a replay in the database. Inside the grace window we hand back an
-        # access token and keep the chain alive; the caller already holds the
-        # successor refresh token so no new one is issued.
+        # --- 2. the superseded token is dead -------------------------------
         r = await client.post(
-            "/api/auth/refresh", headers={"Cookie": f"refresh_token={first_token}"}
+            "/api/auth/refresh", headers={"Cookie": f"refresh_token={issued.refresh_token}"}
         )
-        check(
-            "in-grace replay tolerated (race)",
-            r.status_code == 200,
-            f"got {r.status_code} {r.text[:120]}",
-        )
-        check(
-            "in-grace replay does not re-issue a refresh cookie",
-            "refresh_token" not in cookies_from(r),
-        )
+        check("replayed old token rejected", r.status_code == 401, f"got {r.status_code}")
 
-        r = await client.get("/api/auth/me", headers=cookie_header(jar))
-        check(
-            "successor token still valid after in-grace replay",
-            r.status_code == 200,
-            f"got {r.status_code}",
-        )
-
-        # --- 3. a replay OUTSIDE the grace window is theft -----------------
-        # Backdate the rotation so the replay looks like it happened later.
-        async with session_factory() as session:
-            stale = (
-                await session.execute(
-                    select(RefreshToken).where(
-                        RefreshToken.token_hash
-                        == hashlib.sha256(first_token.encode("utf-8")).hexdigest()
-                    )
-                )
-            ).scalar_one()
-            stale.rotated_at = datetime.now(UTC) - timedelta(seconds=120)
-            await session.commit()
-
-        r = await client.post(
-            "/api/auth/refresh", headers={"Cookie": f"refresh_token={first_token}"}
-        )
-        check("late replay rejected", r.status_code == 401, f"got {r.status_code}")
-
+        # --- 3. replay revoked the whole chain -----------------------------
         r = await client.post("/api/auth/refresh", headers=cookie_header(jar))
-        check("chain revoked after late replay", r.status_code == 401, f"got {r.status_code}")
+        check("chain revoked after replay", r.status_code == 401, f"got {r.status_code}")
 
         async with session_factory() as session:
             chain = (
@@ -140,46 +100,8 @@ async def main() -> None:
         async with session_factory() as session:
             member = (await session.execute(select(FamilyMember).where(FamilyMember.id == mid))).scalar_one()
             fresh = await issue_session(session=session, member=member)
-            fresh_token = fresh.refresh_token
-            assert fresh_token is not None
 
-        # --- 3b. an aged-out ACCESS token alone must not kill the session --
-        # This is the CR-02 regression: the access token (15 min) expires while
-        # the refresh token (30 days) is still perfectly good. Presenting a
-        # *stale* access cookie with a *valid* refresh cookie must be
-        # recoverable — that is exactly what the frontend does on every page
-        # load. We assert the backend half here (the frontend retry is covered
-        # by the browser check).
-        jar_stale = {"refresh_token": fresh_token, "access_token": "expired.jwt.value"}
-        r = await client.get("/api/auth/me", headers=cookie_header(jar_stale))
-        check(
-            "stale access token is a 401 (triggers frontend refresh)",
-            r.status_code == 401,
-            f"got {r.status_code}",
-        )
-
-        r = await client.post("/api/auth/refresh", headers=cookie_header(jar_stale))
-        check(
-            "valid refresh token recovers the session",
-            r.status_code == 200,
-            f"got {r.status_code} {r.text[:120]}",
-        )
-        jar_stale = cookies_from(r, **jar_stale)
-
-        r = await client.get("/api/auth/me", headers=cookie_header(jar_stale))
-        check(
-            "/auth/me succeeds after refresh (CR-02 fix)",
-            r.status_code == 200,
-            f"got {r.status_code}",
-        )
-
-        async with session_factory() as session:
-            member = (await session.execute(select(FamilyMember).where(FamilyMember.id == mid))).scalar_one()
-            fresh = await issue_session(session=session, member=member)
-            fresh_token = fresh.refresh_token
-            assert fresh_token is not None
-
-        jar2 = {"refresh_token": fresh_token}
+        jar2 = {"refresh_token": fresh.refresh_token}
         r = await client.post("/api/auth/refresh", headers=cookie_header(jar2))
         check("fresh session refreshes", r.status_code == 200, f"got {r.status_code}")
         jar2 = cookies_from(r, **jar2)

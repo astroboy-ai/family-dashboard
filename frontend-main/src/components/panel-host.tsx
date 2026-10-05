@@ -104,15 +104,7 @@ async function persistWhiteboard(noteId: string, blockId: string | null, drawing
   return block.id;
 }
 
-function WhiteboardPanel({
-  noteId,
-  blockId,
-  close,
-}: {
-  noteId?: string;
-  blockId?: string;
-  close: () => void;
-}) {
+function WhiteboardPanel({ noteId, close }: { noteId?: string; close: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const draftRef = useRef<Stroke | null>(null);
   const [drawing, setDrawing] = useState<WhiteboardData>(DEFAULT_WHITEBOARD_DATA);
@@ -131,12 +123,7 @@ function WhiteboardPanel({
     getNote(noteId)
       .then((note) => {
         if (!active) return;
-        // Target the requested block, not merely the first drawing on the note.
-        // Falling back to the first drawing keeps older links working, but a
-        // second drawing block must never load its sibling's strokes.
-        const drawingBlock = blockId
-          ? note.blocks.find((block) => block.id === blockId)
-          : note.blocks.find((block) => block.type === "drawing");
+        const drawingBlock = note.blocks.find((block) => block.type === "drawing");
         if (!drawingBlock) {
           setDrawing(DEFAULT_WHITEBOARD_DATA);
           setNoteBlockId(null);
@@ -170,7 +157,7 @@ function WhiteboardPanel({
         }
       });
     return () => { active = false; };
-  }, [noteId, blockId]);
+  }, [noteId]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -373,7 +360,6 @@ function WhiteboardPanel({
               <canvas
                 ref={canvasRef}
                 className="whiteboard-canvas"
-                style={{ aspectRatio: `${drawing.canvas.width} / ${drawing.canvas.height}` }}
                 onPointerDown={pointerDown}
                 onPointerMove={pointerMove}
                 onPointerUp={pointerUp}
@@ -388,7 +374,6 @@ function WhiteboardPanel({
           <canvas
             ref={canvasRef}
             className="whiteboard-canvas"
-            style={{ aspectRatio: `${drawing.canvas.width} / ${drawing.canvas.height}` }}
             onPointerDown={pointerDown}
             onPointerMove={pointerMove}
             onPointerUp={pointerUp}
@@ -558,11 +543,11 @@ export function PanelHost() {
   return (
     <aside className="panel-rail" aria-label="Open panels">
       {panels.map((panel) => (
-        <section className="slide-panel" key={`${panel.kind}-${panel.noteId ?? "root"}-${panel.blockId ?? "new"}`} aria-label={`${panel.kind} panel`}>
+        <section className="slide-panel" key={`${panel.kind}-${panel.noteId ?? "root"}`} aria-label={`${panel.kind} panel`}>
           {panel.kind === "capture" ? (
             <CapturePanel close={() => close(panel.kind)} />
           ) : panel.kind === "whiteboard" ? (
-            <WhiteboardPanel noteId={panel.noteId} blockId={panel.blockId} close={() => close(panel.kind)} />
+            <WhiteboardPanel noteId={panel.noteId} close={() => close(panel.kind)} />
           ) : (
             <TagReviewPanel noteId={panel.noteId} close={() => close(panel.kind)} />
           )}

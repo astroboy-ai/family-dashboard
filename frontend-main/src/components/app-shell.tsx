@@ -5,9 +5,7 @@ import {
   ChevronDown,
   Command,
   Home,
-  Maximize,
   Menu,
-  Minimize,
   NotebookPen,
   Plus,
   Search,
@@ -19,7 +17,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { CommandPalette } from "@/components/command-palette";
 import { PanelHost } from "@/components/panel-host";
 import { SessionExpiredNotice } from "@/components/session-expired-notice";
-import { SessionExpiredError, getActor, signOut, type Actor } from "@/lib/api";
+import { ApiError, getActor, signOut, type Actor } from "@/lib/api";
 import { navigation } from "@/lib/navigation";
 import { useNewNote } from "@/lib/new-note";
 import { usePanelStore } from "@/lib/panel-store";
@@ -40,10 +38,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [actor, setActor] = useState<Actor | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const [theme, setTheme] = useState<"light" | "dark" | "midnight" | "forest" | "unicorn" | "pixel" | "system">("dark");
+  const [theme, setTheme] = useState<"light" | "dark" | "system">("dark");
   const [density, setDensity] = useState<"comfortable" | "compact">("comfortable");
   const { panels, open, closeTop } = usePanelStore();
   const { startNewNote } = useNewNote();
@@ -61,7 +58,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [theme]);
 
   useEffect(() => {
-    const storedTheme = window.localStorage.getItem("familyos-theme") as "light" | "dark" | "midnight" | "forest" | "unicorn" | "pixel" | "system" | null;
+    const storedTheme = window.localStorage.getItem("familyos-theme") as "light" | "dark" | "system" | null;
     const storedDensity = window.localStorage.getItem("familyos-density") as "comfortable" | "compact" | null;
     if (storedTheme) setTheme(storedTheme);
     if (storedDensity) setDensity(storedDensity);
@@ -83,12 +80,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       .catch((reason: unknown) => {
         if (!active) return;
         setActor(null);
-        // Only bounce to login when the session is genuinely unrecoverable.
-        // A bare 401 is NOT enough: the API layer already tried a silent
-        // refresh, and the access token aging out is the normal case that must
-        // stay invisible. SessionExpiredError is thrown only after that refresh
-        // actually failed, and the modal offers to copy unsaved work first.
-        if (reason instanceof SessionExpiredError) {
+        if (reason instanceof ApiError && reason.status === 401) {
           router.replace(`/login?next=${encodeURIComponent(pathname)}`);
         }
       });
@@ -96,27 +88,6 @@ export function AppShell({ children }: { children: ReactNode }) {
       active = false;
     };
   }, [pathname, router]);
-
-  useEffect(() => {
-    // Track the real browser state rather than our own flag, so exiting with
-    // Esc or F11 keeps the icon honest.
-    const sync = () => setIsFullscreen(Boolean(document.fullscreenElement));
-    document.addEventListener("fullscreenchange", sync);
-    sync();
-    return () => document.removeEventListener("fullscreenchange", sync);
-  }, []);
-
-  async function toggleFullscreen() {
-    try {
-      if (document.fullscreenElement) {
-        await document.exitFullscreen();
-      } else {
-        await document.documentElement.requestFullscreen();
-      }
-    } catch {
-      // Some embedded webviews refuse the request; leave the state untouched.
-    }
-  }
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -221,14 +192,10 @@ export function AppShell({ children }: { children: ReactNode }) {
                   <button onClick={() => setUserOpen(false)} className="user-menu-button">Switch member</button>
                   <div className="user-menu-section">
                     <span>Theme</span>
-                    <div className="theme-grid">
-                      <button className={theme === "light" ? "selected" : ""} onClick={() => setTheme("light")}>☀️ Light</button>
-                      <button className={theme === "dark" ? "selected" : ""} onClick={() => setTheme("dark")}>🌙 Dark</button>
-                      <button className={theme === "midnight" ? "selected" : ""} onClick={() => setTheme("midnight")}>🔵 Midnight</button>
-                      <button className={theme === "forest" ? "selected" : ""} onClick={() => setTheme("forest")}>🌲 Forest</button>
-                      <button className={theme === "unicorn" ? "selected" : ""} onClick={() => setTheme("unicorn")}>🦄 Unicorn</button>
-                      <button className={theme === "pixel" ? "selected" : ""} onClick={() => setTheme("pixel")}>👾 Pixel</button>
-                      <button className={theme === "system" ? "selected" : ""} onClick={() => setTheme("system")}>⚙️ Auto</button>
+                    <div className="segmented-control">
+                      <button className={theme === "dark" ? "selected" : ""} onClick={() => setTheme("dark")}>Dark</button>
+                      <button className={theme === "light" ? "selected" : ""} onClick={() => setTheme("light")}>Light</button>
+                      <button className={theme === "system" ? "selected" : ""} onClick={() => setTheme("system")}>Auto</button>
                     </div>
                   </div>
                   <div className="user-menu-section">
@@ -261,14 +228,6 @@ export function AppShell({ children }: { children: ReactNode }) {
               <span>Search or ask…</span>
               <kbd><Command size={11} /> K</kbd>
             </button>
-            <button
-              className="icon-button fullscreen-button"
-              onClick={() => void toggleFullscreen()}
-              aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-              title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-            >
-              {isFullscreen ? <Minimize size={19} /> : <Maximize size={19} />}
-            </button>
             <div className="notification-wrap">
               <button className="icon-button notification-button" aria-label="Notifications" onClick={() => setNotificationsOpen((value) => !value)}>
                 <Bell size={19} />
@@ -299,29 +258,14 @@ export function AppShell({ children }: { children: ReactNode }) {
         </header>
 
         {moreOpen && (
-          <>
-            <div className="mobile-more-menu-overlay" onClick={() => setMoreOpen(false)} />
-            <div className="mobile-more-menu">
-              {navigation.slice(3).map(({ href, label, icon: Icon }) => (
-                <Link href={href} key={href} onClick={() => setMoreOpen(false)}>
-                  <Icon size={17} /> {label}
-                </Link>
-              ))}
-              <div className="mobile-menu-section">
-                <span>Theme</span>
-                <div className="theme-grid">
-                  <button className={theme === "light" ? "selected" : ""} onClick={() => setTheme("light")}>☀️ Light</button>
-                  <button className={theme === "dark" ? "selected" : ""} onClick={() => setTheme("dark")}>🌙 Dark</button>
-                  <button className={theme === "midnight" ? "selected" : ""} onClick={() => setTheme("midnight")}>🔵 Midnight</button>
-                  <button className={theme === "forest" ? "selected" : ""} onClick={() => setTheme("forest")}>🌲 Forest</button>
-                  <button className={theme === "unicorn" ? "selected" : ""} onClick={() => setTheme("unicorn")}>🦄 Unicorn</button>
-                  <button className={theme === "pixel" ? "selected" : ""} onClick={() => setTheme("pixel")}>👾 Pixel</button>
-                  <button className={theme === "system" ? "selected" : ""} onClick={() => setTheme("system")}>⚙️ Auto</button>
-                </div>
-              </div>
-              <Link href="/login" onClick={() => setMoreOpen(false)}>Sign in / switch member</Link>
-            </div>
-          </>
+          <div className="mobile-more-menu">
+            {navigation.slice(3).map(({ href, label, icon: Icon }) => (
+              <Link href={href} key={href} onClick={() => setMoreOpen(false)}>
+                <Icon size={17} /> {label}
+              </Link>
+            ))}
+            <Link href="/login" onClick={() => setMoreOpen(false)}>Sign in / switch member</Link>
+          </div>
         )}
 
         <div className="workspace-row">

@@ -34,20 +34,9 @@ def _hash_token(token: str) -> str:
 
 @dataclass(frozen=True)
 class IssuedSession:
-    refresh_token: str | None
+    refresh_token: str
     expires_at: datetime
     family_id: uuid.UUID
-
-
-#: A rotation replayed inside this window is treated as a race (multiple tabs,
-#: a retried request, a slow proxy) rather than theft. Outside it, a replay
-#: still revokes the whole chain.
-_REPLAY_GRACE = timedelta(seconds=15)
-
-
-def _as_utc(value: datetime) -> datetime:
-    """SQLite/psycopg may hand back a naive datetime; normalise for arithmetic."""
-    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
 def _refresh_lifetime() -> timedelta:
@@ -105,42 +94,7 @@ async def rotate_session(
         raise AppError("Session revoked", status_code=401, error_code="session_revoked")
 
     if row.rotated_at is not None:
-        # The token was already exchanged. Two very different situations look
-        # identical in the database, so we must tell them apart by time:
-        #
-        #   * a *replay* (token stolen and used later) — must revoke the chain;
-        #   * a *race* (two tabs / a retried request hitting the rotation within
-        #     a few seconds) — the legitimate client already holds the new token,
-        #     so revoking the chain would sign the user out for no reason.
-        #
-        # Within the grace window we treat it as a race and hand back the same
-        # successor token instead of killing the session. That keeps the
-        # detection meaningful (an attacker replaying minutes or days later is
-        # still caught) while making it impossible for normal multi-tab use to
-        # log the whole family out.
-        if now - _as_utc(row.rotated_at) <= _REPLAY_GRACE:
-            successor = (
-                await session.execute(
-                    select(RefreshToken)
-                    .where(
-                        RefreshToken.family_id == row.family_id,
-                        RefreshToken.rotated_at.is_(None),
-                        RefreshToken.revoked_at.is_(None),
-                    )
-                    .order_by(RefreshToken.issued_at.desc())
-                    .limit(1)
-                )
-            ).scalar_one_or_none()
-            if successor is not None and successor.expires_at > now:
-                member = await session.get(FamilyMember, row.member_id)
-                if member is not None and member.is_active:
-                    return member, IssuedSession(
-                        refresh_token=None,
-                        expires_at=successor.expires_at,
-                        family_id=successor.family_id,
-                    )
-
-        # Outside the grace window: assume theft, kill the chain.
+        # Replay of an already-exchanged token: assume theft, kill the chain.
         await session.execute(
             update(RefreshToken)
             .where(

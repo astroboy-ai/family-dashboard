@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
 
@@ -6,7 +7,9 @@ import structlog
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
+from starlette.routing import Mount
 
+from app.agent.mcp_server import MCP_MOUNT_PATH, mcp_lifespan, mcp_server
 from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
 from app.api.internal_agent import router as internal_agent_router
@@ -38,7 +41,11 @@ def create_app(
     async def lifespan(_: FastAPI):
         configure_logging(app_settings.log_level)
         try:
-            yield
+            # The MCP session manager must be running for the mounted MCP app to
+            # serve requests; without it every call returns 500.
+            async with contextlib.AsyncExitStack() as stack:
+                await stack.enter_async_context(mcp_lifespan())
+                yield
         finally:
             await dispose_database()
 
@@ -75,6 +82,19 @@ def create_app(
     app.include_router(graph_views_router, prefix="/api")
     app.include_router(transit_router, prefix="/api")
     app.include_router(admin_router, prefix="/api")
+
+    # MCP for agents (Hermes, Kururu). Mounted with the endpoint at the mount
+    # point itself, so clients connect to /mcp rather than /mcp/mcp.
+    app.router.routes.append(
+        Mount(
+            MCP_MOUNT_PATH,
+            app=mcp_server.streamable_http_app(
+                streamable_http_path="/",
+                stateless_http=True,
+                json_response=True,
+            ),
+        )
+    )
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:

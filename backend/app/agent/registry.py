@@ -13,6 +13,9 @@ class ToolContext:
     actor: Actor
     session: AsyncSession
     request_id: str
+    # Which agent called the tool, for the audit row. Defaults to "hermes" so
+    # existing callers keep working, but every other agent must name itself.
+    agent: str = "hermes"
 
 
 @dataclass(frozen=True)

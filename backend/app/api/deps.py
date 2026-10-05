@@ -25,13 +25,21 @@ ROLE_SCOPES: dict[str, set[str]] = {
     "child": {"notes.read.own", "notes.write.own", "calendar.read"},
     "guest": {"notes.read.shared", "calendar.read"},
     "device": {"calendar.read"},
+    # Agents (Hermes, Kururu) authenticate with a device token, not a session.
+    # Their real scopes come from the token row, so this entry is intentionally
+    # empty: it exists so `role` is never an unknown key. Do NOT add scopes here
+    # — a role-based grant would let every agent inherit them.
+    "agent": set(),
 }
 
 
 class Actor(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    member_id: uuid.UUID
+    # None for an agent token that acts for the household rather than as a
+    # specific family member. `note_access_clause` treats a missing member as
+    # "owns nothing", so such a caller sees shared notes only.
+    member_id: uuid.UUID | None = None
     household_id: uuid.UUID
     role: str
     display_name: str

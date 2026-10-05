@@ -29,6 +29,7 @@ from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from sqlalchemy import delete, select
 
+import app.agent.tools  # noqa: F401 — populates the registry
 from app.agent.registry import registry
 from app.core.db import session_factory
 from app.models import AgentToolCall, DeviceToken, Household

@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
+from app.core.config import get_settings
 from app.models.calendar import Calendar, CalendarAccount, CalendarEvent
 
 logger = structlog.get_logger(__name__)
@@ -67,7 +67,7 @@ class GoogleEvent(BaseModel):
 def get_authorize_url(state: str, redirect_uri: str) -> str:
     """Build the Google OAuth authorize URL."""
     params = {
-        "client_id": settings.google_client_id,
+        "client_id": get_settings().google_client_id,
         "redirect_uri": redirect_uri,
         "response_type": "code",
         "scope": " ".join(SCOPES),
@@ -86,8 +86,8 @@ async def exchange_code(code: str, redirect_uri: str) -> GoogleTokenResponse:
             GOOGLE_TOKEN_URL,
             data={
                 "code": code,
-                "client_id": settings.google_client_id,
-                "client_secret": settings.google_client_secret,
+                "client_id": get_settings().google_client_id,
+                "client_secret": get_settings().google_client_secret,
                 "redirect_uri": redirect_uri,
                 "grant_type": "authorization_code",
             },
@@ -102,8 +102,8 @@ async def refresh_access_token(refresh_token: str) -> GoogleTokenResponse:
         response = await client.post(
             GOOGLE_TOKEN_URL,
             data={
-                "client_id": settings.google_client_id,
-                "client_secret": settings.google_client_secret,
+                "client_id": get_settings().google_client_id,
+                "client_secret": get_settings().google_client_secret,
                 "refresh_token": refresh_token,
                 "grant_type": "refresh_token",
             },

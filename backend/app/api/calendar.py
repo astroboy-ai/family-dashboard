@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import Actor, get_current_actor, require_scope
-from app.core.config import settings
+from app.core.config import get_settings
 from app.core.db import get_session
 from app.models.calendar import Calendar, CalendarAccount, CalendarEvent
 from app.schemas.calendar import (
@@ -53,7 +53,7 @@ async def get_oauth_url(
     redirect_uri: str = Query(..., description="Redirect URI registered in Google Cloud Console"),
 ) -> OAuthUrlResponse:
     """Get Google OAuth authorize URL."""
-    if not settings.google_calendar_enabled:
+    if not get_settings().google_calendar_enabled:
         raise HTTPException(status_code=400, detail="Google Calendar is not enabled")
 
     state = str(uuid.uuid4())
@@ -73,7 +73,7 @@ async def oauth_callback(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> CalendarAccountResponse:
     """Exchange OAuth code for tokens and create calendar account."""
-    if not settings.google_calendar_enabled:
+    if not get_settings().google_calendar_enabled:
         raise HTTPException(status_code=400, detail="Google Calendar is not enabled")
 
     state_data = _oauth_states.pop(payload.state, None)

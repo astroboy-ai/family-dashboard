@@ -37,6 +37,9 @@ class CalendarEventResponse(BaseModel):
     end_time: datetime
     all_day: bool
     location: str | None = None
+    # RRULE strings (RFC 5545), e.g. ["FREQ=WEEKLY;INTERVAL=1"]. Exposed so the
+    # UI can prefill the repeat dropdown when editing a recurring event.
+    recurrence: list[str] | None = None
     status: str
     html_link: str | None = None
 
@@ -49,6 +52,10 @@ class CalendarEventCreateRequest(BaseModel):
     end_time: datetime
     all_day: bool = False
     location: str | None = None
+    recurrence: list[str] | None = Field(
+        default=None,
+        description='RRULE strings, e.g. ["FREQ=WEEKLY;INTERVAL=1"]',
+    )
 
 
 class CalendarEventUpdateRequest(BaseModel):
@@ -58,6 +65,10 @@ class CalendarEventUpdateRequest(BaseModel):
     end_time: datetime | None = None
     all_day: bool | None = None
     location: str | None = None
+    recurrence: list[str] | None = Field(
+        default=None,
+        description='RRULE strings. Empty list clears the recurrence.',
+    )
 
 
 class SyncResponse(BaseModel):

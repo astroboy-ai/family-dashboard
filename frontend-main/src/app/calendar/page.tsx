@@ -71,6 +71,33 @@ function toRRULE(recurrence: string, interval: number = 1): string {
   }
 }
 
+/** Inverse of toRRULE, for prefilling the dropdown when editing. */
+function fromRRULE(rrule: string | null | undefined): string {
+  if (!rrule) return "";
+  const freq = /FREQ=([A-Z]+)/.exec(rrule)?.[1];
+  switch (freq) {
+    case "DAILY": return "daily";
+    case "WEEKLY": return "weekly";
+    case "MONTHLY": return "monthly";
+    case "YEARLY": return "yearly";
+    default: return "";
+  }
+}
+
+/**
+ * Convert an ISO timestamp to the value a datetime-local input expects.
+ *
+ * The input needs local wall-clock time ("YYYY-MM-DDTHH:mm"); handing it a full
+ * ISO string makes the field render blank, which silently loses the time.
+ */
+function toDatetimeLocal(iso: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export default function CalendarPage() {
   const router = useRouter();
   const [calendars, setCalendars] = useState<Calendar[]>([]);
@@ -82,6 +109,8 @@ export default function CalendarPage() {
   const [showEventModal, setShowEventModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [eventForm, setEventForm] = useState({
     title: "",
     description: "",
@@ -127,6 +156,7 @@ export default function CalendarPage() {
   const openNewEvent = (date: Date) => {
     setSelectedDate(date);
     setEditingEvent(null);
+    setFormError(null);
     setEventForm({
       title: "",
       description: "",
@@ -141,29 +171,41 @@ export default function CalendarPage() {
 
   const openEditEvent = (event: CalendarEvent) => {
     setEditingEvent(event);
+    setFormError(null);
+    // selectedDate drives the modal's date context, and handleSaveEvent bails
+    // out when it is null — without this, "Save Changes" did nothing at all.
+    setSelectedDate(new Date(event.start_time));
     setEventForm({
       title: event.title,
       description: event.description || "",
-      start_time: event.start_time,
-      end_time: event.end_time,
+      start_time: toDatetimeLocal(event.start_time),
+      end_time: toDatetimeLocal(event.end_time),
       all_day: event.all_day,
       location: event.location || "",
-      recurrence: "",
+      recurrence: fromRRULE(event.recurrence?.[0]),
     });
     setShowEventModal(true);
   };
 
   const handleSaveEvent = async () => {
-    if (!selectedDate || !eventForm.title) return;
+    if (!eventForm.title) return;
     const calendarId = calendars[0]?.id;
-    if (!calendarId) return;
+    if (!calendarId) {
+      setFormError("No calendar connected. Go to Calendar Settings and add a Google account first.");
+      return;
+    }
+    if (!editingEvent && !selectedDate) return;
+
+    const baseDate = selectedDate ?? new Date(eventForm.start_time);
 
     const start = eventForm.all_day
-      ? selectedDate.toISOString().split("T")[0]
-      : eventForm.start_time || selectedDate.toISOString();
+      ? baseDate.toISOString().split("T")[0]
+      : eventForm.start_time || baseDate.toISOString();
     const end = eventForm.all_day
-      ? selectedDate.toISOString().split("T")[0]
-      : eventForm.end_time || new Date(selectedDate.getTime() + 3600000).toISOString();
+      ? baseDate.toISOString().split("T")[0]
+      : eventForm.end_time || new Date(baseDate.getTime() + 3600000).toISOString();
+
+    const rrule = toRRULE(eventForm.recurrence);
 
     const payload = {
       title: eventForm.title,
@@ -172,8 +214,11 @@ export default function CalendarPage() {
       end_time: end,
       all_day: eventForm.all_day,
       location: eventForm.location || undefined,
+      recurrence: rrule ? [rrule] : [],
     };
 
+    setFormError(null);
+    setSaving(true);
     try {
       if (editingEvent) {
         await updateCalendarEvent(editingEvent.id, payload);
@@ -183,7 +228,11 @@ export default function CalendarPage() {
       setShowEventModal(false);
       await fetchData();
     } catch (err) {
+      // Surface it: a silent failure here is indistinguishable from a no-op.
       console.error("Failed to save event:", err);
+      setFormError(err instanceof Error ? err.message : "Failed to save event");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -193,6 +242,7 @@ export default function CalendarPage() {
       await fetchData();
     } catch (err) {
       console.error("Failed to delete event:", err);
+      setFormError(err instanceof Error ? err.message : "Failed to delete event");
     }
   };
 
@@ -490,12 +540,17 @@ export default function CalendarPage() {
                   ))}
                 </select>
               </div>
+              {formError && (
+                <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">
+                  {formError}
+                </p>
+              )}
               <button
                 onClick={handleSaveEvent}
-                disabled={!eventForm.title}
+                disabled={!eventForm.title || saving}
                 className="w-full rounded-xl bg-[var(--primary)] py-3 text-sm font-semibold text-white disabled:opacity-40"
               >
-                {editingEvent ? "Save Changes" : "Create Event"}
+                {saving ? "Saving..." : editingEvent ? "Save Changes" : "Create Event"}
               </button>
             </div>
           </div>

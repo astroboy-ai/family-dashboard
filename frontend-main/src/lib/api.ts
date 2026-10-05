@@ -785,6 +785,8 @@ export type CalendarEvent = {
   end_time: string;
   all_day: boolean;
   location: string | null;
+  /** RRULE strings (RFC 5545), e.g. ["FREQ=WEEKLY;INTERVAL=1"]. */
+  recurrence: string[] | null;
   status: string;
   html_link: string | null;
 };
@@ -835,6 +837,7 @@ export function createCalendarEvent(input: {
   end_time: string;
   all_day?: boolean;
   location?: string;
+  recurrence?: string[];
 }): Promise<CalendarEvent> {
   return apiRequest<CalendarEvent>("/calendar/events", {
     method: "POST",
@@ -851,6 +854,7 @@ export function updateCalendarEvent(
     end_time: string;
     all_day: boolean;
     location: string;
+    recurrence: string[];
   }>,
 ): Promise<CalendarEvent> {
   return apiRequest<CalendarEvent>(`/calendar/events/${encodeURIComponent(eventId)}`, {

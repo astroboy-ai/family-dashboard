@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     embedding_model: str = "gemini/text-embedding-004"
     embedding_dim: int = 768
 
+    # Google Calendar OAuth. Credentials come from the Google Cloud Console;
+    # the redirect URI must be registered there as well.
+    google_calendar_enabled: bool = False
+    google_client_id: str = ""
+    google_client_secret: str = ""
+
     @model_validator(mode="after")
     def validate_jwt_secret(self) -> "Settings":
         if self.environment.lower() not in {"development", "test"}:

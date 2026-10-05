@@ -1,5 +1,6 @@
 from app.models.audit import AgentToolCall, AuditLog
 from app.models.base import Base
+from app.models.calendar import Calendar, CalendarAccount, CalendarEvent
 from app.models.embedding import Embedding
 from app.models.graph_view import GraphView
 from app.models.identity import DeviceToken, FamilyMember, Household, User
@@ -15,6 +16,9 @@ __all__ = [
     "AgentToolCall",
     "AuditLog",
     "Base",
+    "Calendar",
+    "CalendarAccount",
+    "CalendarEvent",
     "DeviceToken",
     "Embedding",
     "FamilyMember",

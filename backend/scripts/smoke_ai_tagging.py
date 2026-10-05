@@ -208,15 +208,16 @@ async def main() -> None:
 
         _queue_tag_propose(session, note.id)
         await session.commit()
-        job = (
+        jobs = (
             await session.execute(
                 select(JobOutbox).where(
                     JobOutbox.topic == "tag.propose",
                     JobOutbox.payload["note_id"].astext == str(note.id),
                 )
             )
-        ).scalar_one_or_none()
-        check("tag.propose job queued", job is not None)
+        ).scalars().all()
+        print(f"  tag.propose jobs for this note: {len(jobs)}")
+        check("tag.propose job queued", len(jobs) > 0)
 
         # ── Summary ──────────────────────────────────────────────────
         print(f"\n{'='*50}")

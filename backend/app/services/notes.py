@@ -132,6 +132,15 @@ def note_access_clause(actor: Actor, *, write: bool = False) -> Any:
     if actor.role == "parent":
         required_scope = "notes.write" if write else "notes.read"
         return true() if required_scope in actor.scopes else false()
+    if actor.role == "agent":
+        # Agents act for the household, not as a person. Read access follows the
+        # same rule as a guest (shared notes only) so an agent token can never
+        # reach another member's private notes. Writes are refused outright:
+        # `execute_tool` already blocks mutating tools, and this closes the
+        # clause for any future caller that forgets to check.
+        if write or "notes.read" not in actor.scopes:
+            return false()
+        return Note.visibility == "family"
     if actor.role == "child":
         required_scope = "notes.write.own" if write else "notes.read.own"
         if required_scope not in actor.scopes:

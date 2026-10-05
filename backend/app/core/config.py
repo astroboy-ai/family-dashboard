@@ -31,7 +31,10 @@ class Settings(BaseSettings):
     access_token_minutes: int = 15
     # Long-lived session cookie; rotated on every use (see services/sessions.py).
     refresh_token_days: int = 30
-    service_token: str = ""
+    # NOTE: there is deliberately no shared service token. Internal agents
+    # authenticate with per-agent device tokens stored in `device_tokens`
+    # (see services/agent_tokens.py), so one agent can be revoked without
+    # rotating a secret shared with every other agent.
 
     # AI defaults. The authoritative values live in households.settings['ai']
     # and are editable from the admin page (app/services/ai_settings.py); these

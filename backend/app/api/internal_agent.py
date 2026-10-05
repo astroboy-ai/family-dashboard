@@ -1,20 +1,30 @@
-import hmac
+"""Internal agent API: tool discovery and invocation for trusted agents.
+
+Authentication is a **device token**, resolved server-side to a household and a
+set of scopes. The request body names the tool and its parameters — it never
+names the caller. An earlier design accepted ``household_id`` and
+``actor_member_id`` from the body, which meant any holder of the shared service
+token could act as any family member, including a parent. Identity now comes
+only from the token, so one agent can be revoked without touching another.
+
+Every invocation is written to ``agent_tool_calls`` for audit.
+"""
+
 import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
-from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.executor import execute_tool
 from app.agent.registry import ToolContext, ToolResult, registry
 from app.agent import tools as registered_tools
-from app.api.deps import ROLE_SCOPES, Actor
-from app.core.config import Settings, get_settings
+from app.api.deps import Actor
 from app.core.db import get_session
-from app.models import FamilyMember, Household, User
+from app.models import Household
+from app.services.agent_tokens import AgentIdentity, resolve_agent_token, touch_agent_token
 
 
 router = APIRouter(prefix="/internal/agent", tags=["internal-agent"])
@@ -22,61 +32,59 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 
 class ToolInvocationRequest(BaseModel):
-    household_id: uuid.UUID
-    actor_member_id: uuid.UUID
     params: dict[str, Any] = Field(default_factory=dict)
 
 
-async def require_service_token(
+def _unauthorized(detail: str) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail)
+
+
+async def require_agent(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
-    settings: Annotated[Settings, Depends(get_settings)],
-) -> None:
-    if not settings.service_token:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Agent service is not configured")
-    if credentials is None or not hmac.compare_digest(credentials.credentials, settings.service_token):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid service token")
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> AgentIdentity:
+    """Resolve the bearer token to an agent identity.
+
+    Deliberately returns the same 401 for unknown, revoked and expired tokens so
+    the response does not reveal which tokens exist.
+    """
+
+    if credentials is None or not credentials.credentials:
+        raise _unauthorized("Missing agent token")
+
+    identity = await resolve_agent_token(session, credentials.credentials)
+    if identity is None:
+        raise _unauthorized("Invalid agent token")
+    return identity
 
 
 async def load_actor(
     *,
     session: AsyncSession,
-    household_id: uuid.UUID,
-    actor_member_id: uuid.UUID,
+    identity: AgentIdentity,
 ) -> Actor:
-    statement = (
-        select(FamilyMember, Household)
-        .outerjoin(User, User.id == FamilyMember.user_id)
-        .join(Household, Household.id == FamilyMember.household_id)
-        .where(
-            FamilyMember.id == actor_member_id,
-            FamilyMember.household_id == household_id,
-            FamilyMember.is_active.is_(True),
-            or_(FamilyMember.user_id.is_(None), User.is_active.is_(True)),
-        )
-    )
-    result = await session.execute(statement)
-    row = result.first()
-    if row is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid actor")
-    member, household = row
-    extra_scopes = member.permissions.get("scopes", [])
-    if not isinstance(extra_scopes, (list, tuple, set)):
-        extra_scopes = []
-    scopes = ROLE_SCOPES.get(member.role, set()) | {
-        scope for scope in extra_scopes if isinstance(scope, str)
-    }
+    """Build the Actor for a token.
+
+    The household comes from the token's own row and the scopes are the token's
+    own — not a role's. There is no path for the caller to widen either.
+    """
+
+    household = await session.get(Household, identity.household_id)
+    if household is None:
+        raise _unauthorized("Invalid agent token")
+
     return Actor(
-        member_id=member.id,
-        household_id=member.household_id,
-        role=member.role,
-        display_name=member.display_name,
+        member_id=identity.member_id,
+        household_id=identity.household_id,
+        role="agent",
+        display_name=identity.label,
         timezone=household.timezone,
         locale=household.locale,
-        scopes=frozenset(scopes),
+        scopes=identity.scopes,
     )
 
 
-@router.get("/tools", dependencies=[Depends(require_service_token)])
+@router.get("/tools", dependencies=[Depends(require_agent)])
 async def list_agent_tools() -> list[dict[str, Any]]:
     return [
         {
@@ -91,7 +99,7 @@ async def list_agent_tools() -> list[dict[str, Any]]:
     ]
 
 
-@router.get("/tools/{name}/schema", dependencies=[Depends(require_service_token)])
+@router.get("/tools/{name}/schema", dependencies=[Depends(require_agent)])
 async def get_tool_schema(name: str) -> dict[str, Any]:
     tool = registry.get(name)
     if tool is None:
@@ -99,21 +107,29 @@ async def get_tool_schema(name: str) -> dict[str, Any]:
     return tool.params_model.model_json_schema()
 
 
-@router.post("/tools/{name}", response_model=ToolResult, dependencies=[Depends(require_service_token)])
+@router.post("/tools/{name}", response_model=ToolResult)
 async def invoke_tool(
     name: str,
     payload: ToolInvocationRequest,
     request: Request,
+    identity: Annotated[AgentIdentity, Depends(require_agent)],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> ToolResult:
-    actor = await load_actor(
-        session=session,
-        household_id=payload.household_id,
-        actor_member_id=payload.actor_member_id,
-    )
+    actor = await load_actor(session=session, identity=identity)
     context = ToolContext(
         actor=actor,
         session=session,
         request_id=request.headers.get("X-Request-ID", str(uuid.uuid4())),
+        # Record which token called, so the audit log can tell the agents apart.
+        agent=identity.agent_name,
     )
-    return await execute_tool(name=name, params=payload.params, context=context)
+    result = await execute_tool(name=name, params=payload.params, context=context)
+
+    # Best-effort: failing to record last-seen must not fail the tool call.
+    try:
+        await touch_agent_token(session, identity.token_id)
+        await session.commit()
+    except Exception:
+        await session.rollback()
+
+    return result

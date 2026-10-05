@@ -53,7 +53,7 @@ async def execute_tool(
             id=uuid.uuid4(),
             household_id=context.actor.household_id,
             actor_member_id=context.actor.member_id,
-            agent="hermes",
+            agent=context.agent,
             tool_name=name,
             params=_redact_params(params),
             result_summary=result.error_code or ("ok" if result.ok else "error"),

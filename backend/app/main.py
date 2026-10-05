@@ -11,6 +11,7 @@ from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
 from app.api.internal_agent import router as internal_agent_router
 from app.api.graph import router as graph_router
+from app.api.graph_views import router as graph_views_router
 from app.api.media import router as media_router
 from app.api.notes import blocks_router, notes_router, tag_proposals_router, tags_router
 from app.api.search import router as search_router
@@ -71,6 +72,7 @@ def create_app(
     app.include_router(search_router, prefix="/api")
     app.include_router(internal_agent_router)
     app.include_router(graph_router, prefix="/api")
+    app.include_router(graph_views_router, prefix="/api")
     app.include_router(transit_router, prefix="/api")
     app.include_router(admin_router, prefix="/api")
 

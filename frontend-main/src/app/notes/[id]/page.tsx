@@ -451,7 +451,7 @@ export default function NoteDetailPage() {
         <div><p className="eyebrow">{note.type.replaceAll("_", " ")} · {note.status}</p><input className="note-title-input" value={note.title ?? ""} onChange={(event) => setNote({ ...note, title: event.target.value })} onBlur={() => void saveTitle()} aria-label="Note title" placeholder="Untitled note" /><p className="page-subtitle">Updated {new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(note.updated_at))}</p></div>
         <div className="inline-actions">
           <button className="secondary-button" onClick={() => void saveTitle()} disabled={saving}>{saving ? <LoaderCircle className="spin" size={16} /> : <Save size={16} />} Save title</button>
-          <button className="secondary-button" onClick={() => setDrawerOpen(true)}><Plus size={16} /> Tools</button>
+          <button className="secondary-button" onClick={() => setDrawerOpen(true)}><Plus size={16} /> Add Block</button>
         </div>
       </section>
       <div className="note-tag-row">

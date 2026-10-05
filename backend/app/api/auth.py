@@ -8,12 +8,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.api.deps import Actor, get_current_actor
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models import FamilyMember, Household, User
+from app.schemas.preferences import MemberPreferences, MemberPreferencesPatch
 from app.services.sessions import issue_session, revoke_session, rotate_session
 
 
@@ -330,6 +332,43 @@ async def get_me(
         "locale": actor.locale,
         "scopes": sorted(actor.scopes),
     }
+
+
+@router.get("/me/preferences", response_model=MemberPreferences)
+async def get_my_preferences(
+    actor: Annotated[Actor, Depends(get_current_actor)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> MemberPreferences:
+    member = (
+        await session.execute(select(FamilyMember).where(FamilyMember.id == actor.member_id))
+    ).scalar_one()
+    stored = member.preferences or {}
+    known = {key: stored[key] for key in ("calendar_theme", "calendar_stickers", "extra") if key in stored}
+    return MemberPreferences(**known)
+
+
+@router.patch("/me/preferences", response_model=MemberPreferences)
+async def patch_my_preferences(
+    payload: MemberPreferencesPatch,
+    actor: Annotated[Actor, Depends(get_current_actor)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> MemberPreferences:
+    member = (
+        await session.execute(select(FamilyMember).where(FamilyMember.id == actor.member_id))
+    ).scalar_one()
+    # Merge rather than replace: a PATCH that only sends calendar_theme must not
+    # wipe stickers or other future preference keys.
+    merged = dict(member.preferences or {})
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        if value is None:
+            merged.pop(field, None)
+        else:
+            merged[field] = value
+    member.preferences = merged
+    flag_modified(member, "preferences")
+    await session.commit()
+    known = {key: merged[key] for key in ("calendar_theme", "calendar_stickers", "extra") if key in merged}
+    return MemberPreferences(**known)
 
 
 @router.get("/setup-status")

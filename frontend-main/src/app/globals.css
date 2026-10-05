@@ -583,8 +583,9 @@ a {
   align-items: center;
   gap: 20px;
   padding: 0 32px;
-  border-bottom: 1px solid rgb(217 226 219 / 85%);
-  background: rgb(243 246 243 / 91%);
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  color: var(--foreground);
   backdrop-filter: blur(14px);
 }
 
@@ -629,7 +630,7 @@ kbd {
   min-width: 21px;
   min-height: 20px;
   padding: 1px 5px;
-  border: 1px solid rgb(111 130 119 / 28%);
+  border: 1px solid color-mix(in srgb, var(--muted) 28%, transparent);
   border-radius: 4px;
   color: var(--muted);
   font-family: var(--font-mono);
@@ -657,7 +658,8 @@ kbd {
 .icon-button:hover,
 .mobile-menu-button:hover {
   border-color: var(--line);
-  background: var(--surface);color:var(--foreground)}
+  background: var(--surface);
+}
 
 .notification-button {
   position: relative;
@@ -1886,8 +1888,9 @@ h2 {
   min-width: 0;
   min-height: 480px;
   background-color: var(--surface-muted);
-  background-image: radial-gradient(#d9e3dc 0.7px, transparent 0.7px);
-  background-size: 20px 20px;color:var(--foreground)}
+  background-image: radial-gradient(color-mix(in srgb, var(--line) 80%, transparent) 0.7px, transparent 0.7px);
+  background-size: 20px 20px;
+}
 
 .graph-inspector {
   padding: 17px;
@@ -3944,4 +3947,237 @@ html[data-theme="forest"] .brand-mark {
 
 tfoot .table-control-btn {
   background: var(--surface-strong);
+}
+
+
+/* ---------------------------------------------------------------- Utilities */
+
+.utility-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.utility-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--foreground);
+  text-align: left;
+}
+
+.utility-card:hover {
+  border-color: var(--accent);
+  background: var(--surface-muted);
+}
+
+.utility-icon {
+  display: inline-grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.utility-label {
+  font-size: 14px;
+  font-weight: 640;
+}
+
+.utility-desc {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.utility-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 20px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+}
+
+.utility-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.utility-panel-header h2 {
+  font-size: 16px;
+}
+
+.utility-textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-muted);
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  resize: vertical;
+}
+
+.utility-error {
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.utility-output {
+  max-height: 340px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-muted);
+  color: var(--foreground);
+  font-size: 12px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.hash-results {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.hash-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-muted);
+}
+
+.hash-algo {
+  flex: 0 0 68px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 680;
+}
+
+.hash-value {
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+/* ----------------------------------------------------------------- Archify */
+
+.archify-toolbar {
+  justify-content: space-between;
+}
+
+.archify-view-picker {
+  position: relative;
+}
+
+.view-picker-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 220px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-muted);
+  color: var(--foreground);
+  font-size: 13px;
+}
+
+.view-picker-trigger:hover {
+  border-color: var(--accent);
+}
+
+.view-picker-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  width: min(360px, 88vw);
+  max-height: 340px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  overflow: auto;
+}
+
+.view-picker-empty {
+  margin: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.view-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 6px;
+}
+
+.view-picker-row.selected {
+  background: var(--accent-soft);
+}
+
+.view-picker-open {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  color: var(--foreground);
+  text-align: left;
+}
+
+.view-picker-open small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.archify-save-row {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.archify-save-input {
+  width: min(320px, 60vw);
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-muted);
+  color: var(--foreground);
+  font-size: 13px;
+}
+
+.archify-status {
+  margin: 0 0 10px;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.archify-zoom-row {
+  display: flex;
+  gap: 4px;
+  margin-top: 14px;
 }

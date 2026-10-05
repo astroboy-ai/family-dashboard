@@ -61,6 +61,31 @@ export type GraphData = {
   meta: { node_count: number; edge_count: number; truncated: boolean; generated_at: string };
 };
 
+export type GraphView = {
+  id: string;
+  name: string;
+  description: string;
+  kind: string;
+  config: {
+    scope?: string;
+    node_types?: string[];
+    edge_types?: string[];
+    filters?: Record<string, unknown>;
+    layout?: string;
+    colors?: Record<string, string>;
+    cluster_by?: string | null;
+  };
+  is_shared: boolean;
+  order_index: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type GraphViewList = {
+  items: GraphView[];
+  total: number;
+};
+
 export type NoteBlock = {
   id: string;
   note_id: string;
@@ -313,6 +338,25 @@ export function getActor(): Promise<Actor> {
   return apiRequest<Actor>("/auth/me");
 }
 
+export type MemberPreferences = {
+  calendar_theme: string | null;
+  calendar_stickers: string[];
+  extra: Record<string, unknown>;
+};
+
+export function getMyPreferences(): Promise<MemberPreferences> {
+  return apiRequest<MemberPreferences>("/auth/me/preferences");
+}
+
+export function updateMyPreferences(
+  input: Partial<Pick<MemberPreferences, "calendar_theme" | "calendar_stickers" | "extra">>,
+): Promise<MemberPreferences> {
+  return apiRequest<MemberPreferences>("/auth/me/preferences", {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
 export async function listLoginMembers(): Promise<LoginMember[]> {
   const response = await apiRequest<{ items: LoginMember[] }>("/auth/members");
   return response.items;
@@ -496,6 +540,31 @@ export function decideTagProposal(proposalId: string, accepted: boolean): Promis
 export function getGraph(scope = "all", limit = 2000): Promise<GraphData> {
   const params = new URLSearchParams({ scope, limit: String(limit) });
   return apiRequest<GraphData>(`/graph?${params.toString()}`);
+}
+
+export function listGraphViews(): Promise<GraphViewList> {
+  return apiRequest<GraphViewList>("/graph/views");
+}
+
+export function createGraphView(input: {
+  name: string;
+  description?: string;
+  kind?: string;
+  config?: GraphView["config"];
+  is_shared?: boolean;
+}): Promise<GraphView> {
+  return apiRequest<GraphView>("/graph/views", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateGraphView(
+  id: string,
+  input: Partial<Pick<GraphView, "name" | "description" | "kind" | "config" | "is_shared" | "order_index">>,
+): Promise<GraphView> {
+  return apiRequest<GraphView>(`/graph/views/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function deleteGraphView(id: string): Promise<void> {
+  return apiRequest<void>(`/graph/views/${id}`, { method: "DELETE" });
 }
 
 export type AdminSettings = {

@@ -98,7 +98,7 @@ export default function GraphPage() {
   return (
     <div className="page-wrap graph-page">
       <section className="page-heading-row graph-heading">
-        <div><p className="eyebrow">ARCHIFY · FAMILY KNOWLEDGE</p><h1>Knowledge graph</h1><p className="page-subtitle">Explore how notes connect through tags, hierarchy, and explicit links.</p></div>
+        <div><p className="eyebrow">KB VIEWER · FAMILY KNOWLEDGE</p><h1>Knowledge graph</h1><p className="page-subtitle">Explore how notes connect through tags, hierarchy, and explicit links.</p></div>
         <button className="icon-button" onClick={() => void refresh(scope)} aria-label="Refresh graph"><RefreshCw size={17} /></button>
       </section>
       <div className="graph-toolbar">

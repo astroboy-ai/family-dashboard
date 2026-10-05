@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   CalendarDays,
   CheckSquare,
@@ -69,6 +69,19 @@ const groupLabels: Record<Tool["group"], string> = {
   actions: "ACTIONS",
 };
 
+const RECENT_KEY = "familyos-recent-tools";
+const RECENT_LIMIT = 4;
+
+function readRecent(): ToolId[] {
+  try {
+    const raw = window.localStorage.getItem(RECENT_KEY);
+    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+    return Array.isArray(parsed) ? (parsed.filter((id) => typeof id === "string") as ToolId[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 export function ToolsDrawer({
   open,
   onClose,
@@ -79,14 +92,36 @@ export function ToolsDrawer({
   onSelect: (tool: Tool) => void;
 }) {
   const [query, setQuery] = useState("");
+  const [recent, setRecent] = useState<ToolId[]>([]);
+
+  useEffect(() => {
+    if (open) setRecent(readRecent());
+  }, [open]);
 
   if (!open) return null;
+
+  function choose(tool: Tool) {
+    // Remember what gets used so the common tools sit at the top next time and
+    // the user stops scrolling for them.
+    try {
+      const next = [tool.id, ...readRecent().filter((id) => id !== tool.id)].slice(0, RECENT_LIMIT);
+      window.localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+    } catch {
+      // Storage unavailable: the grid still works, just without ordering.
+    }
+    onSelect(tool);
+    onClose();
+  }
 
   const filtered = tools.filter(
     (tool) =>
       tool.label.toLowerCase().includes(query.toLowerCase()) ||
       tool.group.toLowerCase().includes(query.toLowerCase()),
   );
+
+  const recentTools = recent
+    .map((id) => tools.find((tool) => tool.id === id))
+    .filter((tool): tool is Tool => Boolean(tool));
 
   const groups: Tool["group"][] = ["media", "fields", "structure", "actions"];
 
@@ -108,6 +143,22 @@ export function ToolsDrawer({
           />
         </div>
         <div className="drawer-body">
+          {recentTools.length > 0 && !query && (
+            <div className="drawer-group">
+              <p className="drawer-group-label">RECENT</p>
+              <div className="drawer-grid">
+                {recentTools.map((tool) => {
+                  const Icon = tool.icon;
+                  return (
+                    <button key={`recent-${tool.id}`} className="drawer-item" onClick={() => choose(tool)}>
+                      <Icon size={16} />
+                      <span>{tool.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           {groups.map((group) => {
             const groupTools = filtered.filter((t) => t.group === group);
             if (groupTools.length === 0) return null;
@@ -121,12 +172,9 @@ export function ToolsDrawer({
                       <button
                         key={tool.id}
                         className="drawer-item"
-                        onClick={() => {
-                          onSelect(tool);
-                          onClose();
-                        }}
+                        onClick={() => choose(tool)}
                       >
-                        <Icon size={20} />
+                        <Icon size={16} />
                         <span>{tool.label}</span>
                       </button>
                     );

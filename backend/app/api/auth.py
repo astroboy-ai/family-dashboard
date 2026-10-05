@@ -296,7 +296,11 @@ async def refresh_session(
         settings=settings,
     )
     set_access_cookie(response, access_token, settings)
-    set_refresh_cookie(response, issued.refresh_token, settings)
+    # ``issued.refresh_token`` is None when the presented token was a race (the
+    # successor is already in the caller's cookie jar) — don't clobber it with a
+    # duplicate.
+    if issued.refresh_token is not None:
+        set_refresh_cookie(response, issued.refresh_token, settings)
     return {"member_id": str(member.id), "role": member.role}
 
 

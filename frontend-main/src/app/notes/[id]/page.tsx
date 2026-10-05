@@ -1,12 +1,14 @@
 "use client";
 
-import { ArrowLeft, Check, LoaderCircle, Maximize, Minimize, Plus, Save, SquarePen, Trash2, X } from "lucide-react";
+import { ArrowLeft, Check, Expand, GripVertical, LoaderCircle, Maximize, Minimize, Minus, Plus, Save, SquarePen, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
-import { addTagToNote, ApiError, createBlock, createDrawingBlock, createTextBlock, deleteBlock, enqueueMediaEnrich, getNote, patchBlock, patchNote, patchTextBlock, removeTagFromNote, uploadFile, type Note, type NoteBlock } from "@/lib/api";
+import { useEffect, useRef, useState } from "react";
+import { addTagToNote, ApiError, createBlock, createDrawingBlock, createTextBlock, deleteBlock, enqueueMediaEnrich, getNote, patchBlock, patchNote, patchTextBlock, removeTagFromNote, reorderBlocks, uploadFile, type Note, type NoteBlock } from "@/lib/api";
 import { usePanelStore } from "@/lib/panel-store";
 import { BlockMenu } from "@/components/block-menu";
+import { confirmDialog } from "@/components/confirm-dialog";
+import { DrawingThumb, type ThumbStroke } from "@/components/drawing-thumb";
 import { ToolsDrawer, type Tool } from "@/components/tools-drawer";
 
 export default function NoteDetailPage() {
@@ -19,7 +21,13 @@ export default function NoteDetailPage() {
   const [tagInput, setTagInput] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  const [textOverlay, setTextOverlay] = useState<NoteBlock | null>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
   const openPanel = usePanelStore((state) => state.open);
+  // Blocks render in list order, so a drag only needs to splice the array and
+  // persist the resulting ids; order_index is recomputed server-side.
+  const blockIdsRef = useRef<string[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -88,15 +96,51 @@ export default function NoteDetailPage() {
         meta: { stroke_count: 0, shape_count: 0, text_count: 0, size_bytes: 0 },
       }, `Whiteboard ${new Date().toLocaleDateString()}`);
       setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
-      openPanel("whiteboard", note.id);
+      // Hand the panel this block's own id so it edits the new board rather
+      // than re-loading the note's first drawing.
+      openPanel("whiteboard", note.id, block.id);
       setMessage("Drawing block ready");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Couldn’t add a drawing block.");
     }
   }
 
+  /** Move the dragged block to the hovered slot, then persist the new order. */
+  async function moveBlock(fromId: string, toIndex: number) {
+    if (!note) return;
+    const current = note.blocks.map((block) => block.id);
+    const fromIndex = current.indexOf(fromId);
+    if (fromIndex === -1) return;
+    // Removing first then inserting keeps the target index meaningful whether
+    // the block moved up or down.
+    const next = [...current];
+    next.splice(fromIndex, 1);
+    const insertAt = fromIndex < toIndex ? toIndex - 1 : toIndex;
+    next.splice(Math.max(0, Math.min(insertAt, next.length)), 0, fromId);
+    if (next.join(",") === current.join(",")) return;
+
+    const byId = new Map(note.blocks.map((block) => [block.id, block]));
+    const optimistic = next.map((id) => byId.get(id)!).filter(Boolean);
+    setNote((current) => current ? { ...current, blocks: optimistic } : current);
+    try {
+      const updated = await reorderBlocks(note.id, next);
+      setNote((current) => current ? { ...current, blocks: updated } : current);
+      setMessage("Order saved");
+    } catch (reason) {
+      // Roll back so the UI never lies about what is stored.
+      setNote((current) => current ? { ...current, blocks: note.blocks } : current);
+      setError(reason instanceof Error ? reason.message : "Couldn’t reorder blocks.");
+    }
+  }
+
   async function removeBlock(blockId: string) {
     if (!note) return;
+    const ok = await confirmDialog({
+      title: "Delete this block?",
+      message: "This block will be permanently removed from the note.",
+      confirmLabel: "Delete",
+    });
+    if (!ok) return;
     try {
       await deleteBlock(blockId);
       setNote((current) => current ? { ...current, blocks: current.blocks.filter((b) => b.id !== blockId) } : current);
@@ -260,8 +304,9 @@ export default function NoteDetailPage() {
           break;
         }
         case "drawing": {
-          openPanel("whiteboard", note.id);
-          setMessage("Drawing board opened");
+          // Must create a block, not just re-open the panel — otherwise the
+          // toolbox appears to do nothing on a note that already has a drawing.
+          await addDrawingBlock();
           break;
         }
         case "reminder": {
@@ -420,16 +465,48 @@ export default function NoteDetailPage() {
       {note.summary && <p className="note-summary">{note.summary}</p>}
       <section className="block-stack">
         <div className="section-heading"><div><p className="eyebrow">NOTE CONTENT</p><h2>Blocks</h2></div><div className="inline-actions"><button className="text-link" onClick={() => void addTextBlock()}><Plus size={16} /> Add text</button><button className="text-link" onClick={() => void addDrawingBlock()}><SquarePen size={16} /> Add drawing</button></div></div>
-        {note.blocks.length === 0 ? <div className="empty-state compact-empty"><strong>This note has no content blocks.</strong><p>Add a text block or a drawing to start writing.</p></div> : note.blocks.map((block) => (
-          <div className="editable-block" key={block.id}>
-            <div className="block-meta"><span>{block.type}</span><span>{block.order_index.toString().padStart(4, "0")}</span><button className="icon-button small-icon" onClick={() => void removeBlock(block.id)} aria-label="Remove block"><Trash2 size={14} /></button></div>
-            {block.type === "text" ? <textarea defaultValue={block.text_content ?? ""} key={`${block.id}:${block.updated_at}`} onBlur={(event) => event.currentTarget.value !== (block.text_content ?? "") && void saveBlock(block.id, event.currentTarget.value)} aria-label="Text block" placeholder="Write a note…" /> : block.type === "drawing" ? (
-              <button className="drawing-preview" type="button" onClick={() => openPanel("whiteboard", note.id)}>
+        {note.blocks.length === 0 ? <div className="empty-state compact-empty"><strong>This note has no content blocks.</strong><p>Add a text block or a drawing to start writing.</p></div> : note.blocks.map((block, index) => (
+          <div
+            className={`editable-block${dragId === block.id ? " dragging" : ""}${dropIndex === index && dragId && dragId !== block.id ? " drop-target" : ""}`}
+            key={block.id}
+            onDragOver={(event) => {
+              if (!dragId || dragId === block.id) return;
+              event.preventDefault();
+              setDropIndex(index);
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              if (dragId && dragId !== block.id) void moveBlock(dragId, index);
+              setDragId(null);
+              setDropIndex(null);
+            }}
+          >
+            <div className="block-meta">
+              <span className="block-grip" draggable onDragStart={() => setDragId(block.id)} onDragEnd={() => { setDragId(null); setDropIndex(null); }} role="button" tabIndex={0} aria-label="Drag to reorder" title="Drag to reorder"><GripVertical size={13} /></span>
+              <span>{block.type}</span>
+              <span className="block-order">{block.order_index.toString().padStart(4, "0")}</span>
+              <button className="icon-button small-icon" onClick={() => void removeBlock(block.id)} aria-label="Remove block"><Trash2 size={14} /></button>
+            </div>
+            {block.type === "text" ? (
+              <div className="text-block-wrap">
+                <textarea defaultValue={block.text_content ?? ""} key={`${block.id}:${block.updated_at}`} onBlur={(event) => event.currentTarget.value !== (block.text_content ?? "") && void saveBlock(block.id, event.currentTarget.value)} aria-label="Text block" placeholder="Write a note…" />
+                <button className="icon-button small-icon text-expand" type="button" onClick={() => setTextOverlay(block)} aria-label="View full text" title="View full text"><Expand size={14} /></button>
+              </div>
+            ) : block.type === "drawing" ? (
+              <button className="drawing-preview" type="button" onClick={() => openPanel("whiteboard", note.id, block.id)}>
                 <span className="drawing-preview-header">
                   <strong>{String((block.data?.theme ?? "chalkboard_green") as string).replaceAll("_", " ")}</strong>
                   <em>{Array.isArray(block.data?.strokes) ? `${block.data.strokes.length} strokes` : "New drawing"}</em>
                 </span>
-                <span className="drawing-preview-body">{block.text_content ?? "Sketch board"}</span>
+                {Array.isArray(block.data?.strokes) && block.data.strokes.length > 0 ? (
+                  <DrawingThumb
+                    strokes={block.data.strokes as ThumbStroke[]}
+                    theme={String(block.data?.theme ?? "chalkboard_green")}
+                    canvas={(block.data?.canvas as { width: number; height: number } | undefined) ?? { width: 900, height: 640 }}
+                  />
+                ) : (
+                  <span className="drawing-preview-body">{block.text_content ?? "Sketch board"}</span>
+                )}
               </button>
             ) : block.type === "checkbox" ? (
               <div className="block-checkbox">
@@ -593,9 +670,82 @@ export default function NoteDetailPage() {
                             />
                           </td>
                         ))}
+                        <td className="table-row-controls">
+                          <button
+                            type="button"
+                            className="table-control-btn"
+                            aria-label="Add row below"
+                            onClick={async () => {
+                              const rows = (Array.isArray(block.data?.rows) ? (block.data.rows as string[][]) : []).map((r) => [...r]);
+                              const colCount = rows[0]?.length ?? 2;
+                              rows.splice(rowIndex + 1, 0, Array(colCount).fill(""));
+                              try { await updateBlockData(block.id, { ...block.data, rows }); } catch { /* ignore */ }
+                            }}
+                          >
+                            <Plus size={13} />
+                          </button>
+                          <button
+                            type="button"
+                            className="table-control-btn"
+                            aria-label="Delete row"
+                            onClick={async () => {
+                              const rows = (Array.isArray(block.data?.rows) ? (block.data.rows as string[][]) : []);
+                              if (rows.length <= 1) return;
+                              const ok = await confirmDialog({
+                                title: "Delete this row?",
+                                message: "This row and its contents will be removed.",
+                                confirmLabel: "Delete",
+                              });
+                              if (!ok) return;
+                              const next = rows.filter((_, i) => i !== rowIndex);
+                              try { await updateBlockData(block.id, { ...block.data, rows: next }); } catch { /* ignore */ }
+                            }}
+                          >
+                            <Minus size={13} />
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
+                  <tfoot>
+                    <tr>
+                      {(Array.isArray(block.data?.rows) ? (block.data.rows as string[][]) : [])[0]?.map((_, colIndex) => (
+                        <td key={colIndex} className="table-col-controls">
+                          <button
+                            type="button"
+                            className="table-control-btn"
+                            aria-label="Add column"
+                            onClick={async () => {
+                              const rows = (Array.isArray(block.data?.rows) ? (block.data.rows as string[][]) : []).map((r) => [...r, ""]);
+                              try { await updateBlockData(block.id, { ...block.data, rows }); } catch { /* ignore */ }
+                            }}
+                          >
+                            <Plus size={13} />
+                          </button>
+                          <button
+                            type="button"
+                            className="table-control-btn"
+                            aria-label="Delete column"
+                            onClick={async () => {
+                              const rows = (Array.isArray(block.data?.rows) ? (block.data.rows as string[][]) : []);
+                              const colCount = rows[0]?.length ?? 0;
+                              if (colCount <= 1) return;
+                              const ok = await confirmDialog({
+                                title: "Delete this column?",
+                                message: "This column and its contents will be removed.",
+                                confirmLabel: "Delete",
+                              });
+                              if (!ok) return;
+                              const next = rows.map((r) => r.filter((_, i) => i !== colIndex));
+                              try { await updateBlockData(block.id, { ...block.data, rows: next }); } catch { /* ignore */ }
+                            }}
+                          >
+                            <Minus size={13} />
+                          </button>
+                        </td>
+                      ))}
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             ) : block.type === "reminder" ? (
@@ -677,6 +827,34 @@ export default function NoteDetailPage() {
         ))}
       </section>
       {error && <p className="inline-error" role="alert">{error}</p>}
+      {/* Thin layer pinned just above the footer nav; tapping it opens the tool
+          overlay. Kept out of the content flow so it never scrolls away. */}
+      <button className="tool-dock" type="button" onClick={() => setDrawerOpen(true)} aria-label="Add block or tool">
+        <Plus size={15} />
+        <span>Add</span>
+      </button>
+
+      {textOverlay && (
+        <div className="text-overlay" role="dialog" aria-modal="true" aria-label="Full text" onClick={() => setTextOverlay(null)}>
+          <div className="text-overlay-card" onClick={(event) => event.stopPropagation()}>
+            <div className="text-overlay-head">
+              <strong>Text block</strong>
+              <div className="inline-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => void navigator.clipboard.writeText(textOverlay.text_content ?? "").then(() => setMessage("Copied"))}
+                >
+                  Copy
+                </button>
+                <button className="icon-button" onClick={() => setTextOverlay(null)} aria-label="Close"><X size={18} /></button>
+              </div>
+            </div>
+            <pre className="text-overlay-body">{textOverlay.text_content?.trim() ? textOverlay.text_content : "(empty block)"}</pre>
+          </div>
+        </div>
+      )}
+
       <ToolsDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onSelect={handleToolSelect} />
     </div>
   );

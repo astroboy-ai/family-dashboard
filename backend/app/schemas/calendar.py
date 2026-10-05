@@ -72,3 +72,37 @@ class OAuthCallbackRequest(BaseModel):
 
 class OAuthUrlResponse(BaseModel):
     authorize_url: str
+
+
+class CalendarPermissionResponse(BaseModel):
+    id: uuid.UUID
+    calendar_id: uuid.UUID
+    member_id: uuid.UUID
+    level: str
+
+
+class CalendarPermissionRequest(BaseModel):
+    member_id: uuid.UUID
+    level: str = Field(pattern="^(view|edit|manage|admin)$")
+
+
+class CalendarViewResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    calendar_ids: list[uuid.UUID]
+    layout: str
+    is_default: bool
+
+
+class CalendarViewCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    calendar_ids: list[uuid.UUID]
+    layout: str = Field(pattern="^(month|week|day|agenda)$")
+    is_default: bool = False
+
+
+class CalendarViewUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    calendar_ids: list[uuid.UUID] | None = None
+    layout: str | None = Field(default=None, pattern="^(month|week|day|agenda)$")
+    is_default: bool | None = None

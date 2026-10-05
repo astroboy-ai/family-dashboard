@@ -753,3 +753,175 @@ export async function uploadFile(file: File): Promise<string> {
   });
   return presigned.asset_id;
 }
+
+// ── Calendar ──────────────────────────────────────────────────────────────────
+
+export type CalendarAccount = {
+  id: string;
+  email: string;
+  is_active: boolean;
+  created_at: string;
+};
+
+export type Calendar = {
+  id: string;
+  account_id: string;
+  google_calendar_id: string;
+  name: string;
+  description: string | null;
+  color: string | null;
+  is_primary: boolean;
+  is_visible: boolean;
+  last_synced_at: string | null;
+};
+
+export type CalendarEvent = {
+  id: string;
+  calendar_id: string;
+  google_event_id: string;
+  title: string;
+  description: string | null;
+  start_time: string;
+  end_time: string;
+  all_day: boolean;
+  location: string | null;
+  status: string;
+  html_link: string | null;
+};
+
+export type CalendarPermission = {
+  id: string;
+  calendar_id: string;
+  member_id: string;
+  level: "view" | "edit" | "manage" | "admin";
+};
+
+export type CalendarView = {
+  id: string;
+  name: string;
+  calendar_ids: string[];
+  layout: "month" | "week" | "day" | "agenda";
+  is_default: boolean;
+};
+
+export function listCalendarAccounts(): Promise<CalendarAccount[]> {
+  return apiRequest<CalendarAccount[]>("/calendar/accounts");
+}
+
+export function listCalendars(): Promise<Calendar[]> {
+  return apiRequest<Calendar[]>("/calendar/calendars");
+}
+
+export function listCalendarEvents(params?: {
+  calendar_id?: string;
+  start?: string;
+  end?: string;
+  limit?: number;
+}): Promise<CalendarEvent[]> {
+  const query = new URLSearchParams();
+  if (params?.calendar_id) query.set("calendar_id", params.calendar_id);
+  if (params?.start) query.set("start", params.start);
+  if (params?.end) query.set("end", params.end);
+  if (params?.limit) query.set("limit", String(params.limit));
+  const qs = query.toString();
+  return apiRequest<CalendarEvent[]>(`/calendar/events${qs ? `?${qs}` : ""}`);
+}
+
+export function createCalendarEvent(input: {
+  calendar_id: string;
+  title: string;
+  description?: string;
+  start_time: string;
+  end_time: string;
+  all_day?: boolean;
+  location?: string;
+}): Promise<CalendarEvent> {
+  return apiRequest<CalendarEvent>("/calendar/events", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateCalendarEvent(
+  eventId: string,
+  input: Partial<{
+    title: string;
+    description: string;
+    start_time: string;
+    end_time: string;
+    all_day: boolean;
+    location: string;
+  }>,
+): Promise<CalendarEvent> {
+  return apiRequest<CalendarEvent>(`/calendar/events/${encodeURIComponent(eventId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteCalendarEvent(eventId: string): Promise<void> {
+  return apiRequest<void>(`/calendar/events/${encodeURIComponent(eventId)}`, { method: "DELETE" });
+}
+
+export function syncCalendars(accountId?: string): Promise<{ calendars: number; events: number }> {
+  const query = accountId ? `?account_id=${encodeURIComponent(accountId)}` : "";
+  return apiRequest<{ calendars: number; events: number }>(`/calendar/sync${query}`, { method: "POST" });
+}
+
+export function getCalendarOAuthUrl(): Promise<{ authorize_url: string }> {
+  return apiRequest<{ authorize_url: string }>("/calendar/oauth/url");
+}
+
+export function calendarOAuthCallback(code: string, state: string): Promise<CalendarAccount> {
+  return apiRequest<CalendarAccount>("/calendar/oauth/callback", {
+    method: "POST",
+    body: JSON.stringify({ code, state }),
+  });
+}
+
+export function listCalendarPermissions(calendarId?: string): Promise<CalendarPermission[]> {
+  const query = calendarId ? `?calendar_id=${encodeURIComponent(calendarId)}` : "";
+  return apiRequest<CalendarPermission[]>(`/calendar/permissions${query}`);
+}
+
+export function createCalendarPermission(
+  calendarId: string,
+  memberId: string,
+  level: "view" | "edit" | "manage" | "admin",
+): Promise<CalendarPermission> {
+  return apiRequest<CalendarPermission>(
+    `/calendar/permissions?calendar_id=${encodeURIComponent(calendarId)}`,
+    { method: "POST", body: JSON.stringify({ member_id: memberId, level }) },
+  );
+}
+
+export function deleteCalendarPermission(permissionId: string): Promise<void> {
+  return apiRequest<void>(`/calendar/permissions/${encodeURIComponent(permissionId)}`, { method: "DELETE" });
+}
+
+export function listCalendarViews(): Promise<CalendarView[]> {
+  return apiRequest<CalendarView[]>("/calendar/views");
+}
+
+export function createCalendarView(input: {
+  name: string;
+  calendar_ids: string[];
+  layout: "month" | "week" | "day" | "agenda";
+  is_default?: boolean;
+}): Promise<CalendarView> {
+  return apiRequest<CalendarView>("/calendar/views", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateCalendarView(
+  viewId: string,
+  input: Partial<{ name: string; calendar_ids: string[]; layout: string; is_default: boolean }>,
+): Promise<CalendarView> {
+  return apiRequest<CalendarView>(`/calendar/views/${encodeURIComponent(viewId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteCalendarView(viewId: string): Promise<void> {
+  return apiRequest<void>(`/calendar/views/${encodeURIComponent(viewId)}`, { method: "DELETE" });
+}

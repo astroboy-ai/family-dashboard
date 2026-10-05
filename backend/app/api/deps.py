@@ -19,6 +19,8 @@ ROLE_SCOPES: dict[str, set[str]] = {
         "notes.write",
         "calendar.read",
         "calendar.write",
+        "calendar.manage",
+        "calendar.admin",
         "admin.members",
         "admin.devices",
     },

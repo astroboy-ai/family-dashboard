@@ -25,7 +25,7 @@ import { useNewNote } from "@/lib/new-note";
 import { usePanelStore } from "@/lib/panel-store";
 
 const notifications = [
-  { id: 1, label: "Emma added a school reminder", time: "2m ago" },
+  { id: 1, label: "Phoebe added a school reminder", time: "2m ago" },
   { id: 2, label: "Weekly chores are ready for review", time: "18m ago" },
   { id: 3, label: "A new transit update is available", time: "1h ago" },
 ];

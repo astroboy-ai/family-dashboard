@@ -836,8 +836,12 @@ async def remove_tag(
 
 
 async def list_tags(*, session: AsyncSession, actor: Actor) -> list[TagResponse]:
+    # Mirrors `note_access_clause`: an agent reads at household level with
+    # `notes.read`, the same as a parent, but sees no private notes because the
+    # tag list is household-scoped metadata rather than per-member content.
     can_read_tags = (
         (actor.role == "parent" and "notes.read" in actor.scopes)
+        or (actor.role == "agent" and "notes.read" in actor.scopes)
         or (actor.role == "child" and "notes.read.own" in actor.scopes)
         or (actor.role == "guest" and "notes.read.shared" in actor.scopes)
     )

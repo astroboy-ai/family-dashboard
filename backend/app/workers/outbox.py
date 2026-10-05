@@ -75,23 +75,31 @@ async def claim_jobs(session: AsyncSession, *, limit: int = BATCH_SIZE) -> list[
     return list(rows.scalars().all())
 
 
-async def finish_job(session: AsyncSession, job: JobOutbox) -> None:
+async def finish_job(session: AsyncSession, job_id: uuid.UUID) -> None:
     await session.execute(
         update(JobOutbox)
-        .where(JobOutbox.id == job.id)
+        .where(JobOutbox.id == job_id)
         .values(status="complete", processed_at=datetime.now(UTC))
     )
     await session.commit()
 
 
-async def fail_job(session: AsyncSession, job: JobOutbox, error: str) -> None:
-    """Retry with backoff, or park the job as ``dead`` after MAX_ATTEMPTS."""
+async def fail_job(
+    session: AsyncSession,
+    *,
+    job_id: uuid.UUID,
+    job_topic: str,
+    job_attempts: int,
+    job_payload: dict[str, Any],
+    error: str,
+) -> None:
+    """Retry with backoff, or park the job as ``dead`` after MAX_ATTEMPTS.
 
-    # Capture values before any rollback expires the ORM instance.
-    job_id = job.id
-    job_topic = job.topic
-    job_attempts = job.attempts
-    job_payload = dict(job.payload or {})
+    Takes primitives rather than the ORM instance: the caller has usually just
+    rolled back, which expires the instance, and reading an attribute off it
+    would trigger a lazy load — impossible under async SQLAlchemy
+    (MissingGreenlet), which would leave the job stuck in ``running`` forever.
+    """
 
     if job_attempts >= MAX_ATTEMPTS:
         status = "dead"
@@ -103,12 +111,13 @@ async def fail_job(session: AsyncSession, job: JobOutbox, error: str) -> None:
         available_at = datetime.now(UTC) + timedelta(seconds=delay)
         logger.warning("job_retry", job_id=str(job_id), topic=job_topic, delay=delay, error=error)
 
-    job_payload["last_error"] = error[:1000]
+    payload = dict(job_payload)
+    payload["last_error"] = error[:1000]
 
     await session.execute(
         update(JobOutbox)
         .where(JobOutbox.id == job_id)
-        .values(status=status, available_at=available_at, payload=job_payload)
+        .values(status=status, available_at=available_at, payload=payload)
     )
     await session.commit()
 
@@ -362,24 +371,40 @@ async def process_once() -> int:
     async with session_factory() as session:
         jobs = await claim_jobs(session)
         for job in jobs:
-            handler = HANDLERS.get(job.topic)
+            # Snapshot the primitives up front. A handler that commits or rolls
+            # back expires the ORM instance, and reading an attribute off it
+            # afterwards triggers a lazy load — impossible under async
+            # SQLAlchemy (MissingGreenlet).
+            job_id = job.id
+            job_topic = job.topic
+            job_attempts = job.attempts
+            job_payload = dict(job.payload or {})
+
+            handler = HANDLERS.get(job_topic)
             if handler is None:
-                await fail_job(session, job, f"no handler registered for topic {job.topic!r}")
+                await fail_job(
+                    session,
+                    job_id=job_id,
+                    job_topic=job_topic,
+                    job_attempts=job_attempts,
+                    job_payload=job_payload,
+                    error=f"no handler registered for topic {job_topic!r}",
+                )
                 continue
             try:
-                await handler(session, job.payload or {})
+                await handler(session, job_payload)
             except Exception as error:  # noqa: BLE001 - the outbox must not die
                 await session.rollback()
-                await fail_job(session, job, f"{type(error).__name__}: {error}")
+                await fail_job(
+                    session,
+                    job_id=job_id,
+                    job_topic=job_topic,
+                    job_attempts=job_attempts,
+                    job_payload=job_payload,
+                    error=f"{type(error).__name__}: {error}",
+                )
             else:
-                # Re-query the job: the handler committed, which expires the
-                # instance. Reading job.id off the stale object would trigger a
-                # lazy load — impossible under async SQLAlchemy (MissingGreenlet).
-                fresh = (
-                    await session.execute(select(JobOutbox).where(JobOutbox.id == job.id))
-                ).scalar_one_or_none()
-                if fresh is not None:
-                    await finish_job(session, fresh)
+                await finish_job(session, job_id)
         return len(jobs)
 
 

@@ -71,7 +71,7 @@ async def main() -> None:
             locale="en",
             scopes=frozenset({"notes.read", "notes.write"}),
         )
-        print(f"Using member: {member.name} ({member.id})")
+        print(f"Using member: {member.display_name} ({member.id})")
         print(f"Household: {member.household_id}")
 
         # ── Step 1: Create a recipe note ──────────────────────────────

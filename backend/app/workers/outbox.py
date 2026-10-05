@@ -358,10 +358,21 @@ async def handle_tag_propose(session: AsyncSession, payload: dict[str, Any]) -> 
     )
 
 
+async def handle_calendar_sync(session: AsyncSession, payload: dict[str, Any]) -> None:
+    """Sync Google Calendar data for one account."""
+    from app.services.calendar_sync import sync_account
+
+    account_id = payload.get("account_id")
+    if not account_id:
+        raise ValueError("calendar.sync job requires account_id in payload")
+    await sync_account(session, uuid.UUID(account_id))
+
+
 HANDLERS = {
     "embed.note": handle_embed_note,
     "media.enrich": handle_media_enrich,
     "tag.propose": handle_tag_propose,
+    "calendar.sync": handle_calendar_sync,
 }
 
 

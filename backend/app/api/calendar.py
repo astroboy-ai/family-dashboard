@@ -211,6 +211,47 @@ async def list_calendars(
     ]
 
 
+def _google_time_range(
+    start: datetime,
+    end: datetime,
+    all_day: bool,
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Build Google's start/end objects for an event.
+
+    Google distinguishes timed events (``dateTime``) from all-day events
+    (``date``). Sending ``dateTime`` for an all-day event silently turns it into
+    a timed one, so the choice has to follow the ``all_day`` flag on both the
+    create and the update path.
+    """
+
+    if all_day:
+        # Google treats an all-day event's end date as exclusive, so a
+        # single-day event must end on the following day. Passing the same date
+        # for both is rejected outright.
+        last_day = end.date() if end.date() > start.date() else start.date() + timedelta(days=1)
+        return {"date": start.date().isoformat()}, {"date": last_day.isoformat()}
+    return {"dateTime": start.isoformat()}, {"dateTime": end.isoformat()}
+
+
+def _event_response(event: CalendarEvent) -> CalendarEventResponse:
+    """Serialise an event row. One place, so no field is dropped on one path."""
+
+    return CalendarEventResponse(
+        id=event.id,
+        calendar_id=event.calendar_id,
+        google_event_id=event.google_event_id,
+        title=event.title,
+        description=event.description,
+        start_time=event.start_time,
+        end_time=event.end_time,
+        all_day=event.all_day,
+        location=event.location,
+        recurrence=event.recurrence,
+        status=event.status,
+        html_link=event.html_link,
+    )
+
+
 @router.get("/events", response_model=list[CalendarEventResponse])
 async def list_events(
     actor: Annotated[Actor, Depends(require_scope("calendar.read"))],
@@ -239,22 +280,7 @@ async def list_events(
     stmt = stmt.order_by(CalendarEvent.start_time).limit(limit)
 
     rows = (await session.execute(stmt)).scalars().all()
-    return [
-        CalendarEventResponse(
-            id=r.id,
-            calendar_id=r.calendar_id,
-            google_event_id=r.google_event_id,
-            title=r.title,
-            description=r.description,
-            start_time=r.start_time,
-            end_time=r.end_time,
-            all_day=r.all_day,
-            location=r.location,
-            status=r.status,
-            html_link=r.html_link,
-        )
-        for r in rows
-    ]
+    return [_event_response(r) for r in rows]
 
 
 @router.post("/events", response_model=CalendarEventResponse, status_code=status.HTTP_201_CREATED)
@@ -276,9 +302,10 @@ async def create_event(
         id="",
         summary=payload.title,
         description=payload.description,
-        start={"dateTime": payload.start_time.isoformat()} if not payload.all_day else {"date": payload.start_time.date().isoformat()},
-        end={"dateTime": payload.end_time.isoformat()} if not payload.all_day else {"date": payload.end_time.date().isoformat()},
+        start=_google_time_range(payload.start_time, payload.end_time, payload.all_day)[0],
+        end=_google_time_range(payload.start_time, payload.end_time, payload.all_day)[1],
         location=payload.location,
+        recurrence=payload.recurrence,
     )
     created = await google_create_event(session, account.id, calendar.google_calendar_id, google_evt)
 
@@ -291,6 +318,7 @@ async def create_event(
         end_time=payload.end_time,
         all_day=payload.all_day,
         location=created.location,
+        recurrence=created.recurrence,
         status=created.status,
         html_link=created.htmlLink,
     )
@@ -298,19 +326,7 @@ async def create_event(
     await session.commit()
     await session.refresh(event)
 
-    return CalendarEventResponse(
-        id=event.id,
-        calendar_id=event.calendar_id,
-        google_event_id=event.google_event_id,
-        title=event.title,
-        description=event.description,
-        start_time=event.start_time,
-        end_time=event.end_time,
-        all_day=event.all_day,
-        location=event.location,
-        status=event.status,
-        html_link=event.html_link,
-    )
+    return _event_response(event)
 
 
 @router.patch("/events/{event_id}", response_model=CalendarEventResponse)
@@ -330,38 +346,45 @@ async def update_event(
     if not account or account.household_id != actor.household_id:
         raise HTTPException(status_code=403, detail="Access denied")
 
+    # Resolve the effective values once: a PATCH may omit any field, and the
+    # time-range shape depends on the resulting all_day, not on what was sent.
+    effective_all_day = event.all_day if payload.all_day is None else payload.all_day
+    effective_start = payload.start_time or event.start_time
+    effective_end = payload.end_time or event.end_time
+    start_obj, end_obj = _google_time_range(effective_start, effective_end, effective_all_day)
+
+    # recurrence is tri-state: omitted keeps the current rule; an empty list
+    # clears it. Google only clears when the key is present and empty, and
+    # ``model_dump(exclude_none=True)`` keeps ``[]`` while dropping ``None``,
+    # so the empty list must be passed through rather than collapsed to None.
+    if payload.recurrence is None:
+        effective_recurrence = event.recurrence
+    else:
+        effective_recurrence = payload.recurrence
+
     google_evt = GoogleEvent(
         id=event.google_event_id,
         summary=payload.title or event.title,
         description=payload.description if payload.description is not None else event.description,
-        start={"dateTime": (payload.start_time or event.start_time).isoformat()},
-        end={"dateTime": (payload.end_time or event.end_time).isoformat()},
+        start=start_obj,
+        end=end_obj,
         location=payload.location if payload.location is not None else event.location,
+        recurrence=effective_recurrence,
     )
     updated = await google_update_event(session, account.id, calendar.google_calendar_id, google_evt)
 
     event.title = updated.summary
     event.description = updated.description
-    event.start_time = payload.start_time or event.start_time
-    event.end_time = payload.end_time or event.end_time
+    event.start_time = effective_start
+    event.end_time = effective_end
+    event.all_day = effective_all_day
     event.location = updated.location
+    event.recurrence = updated.recurrence
     event.html_link = updated.htmlLink
     await session.commit()
     await session.refresh(event)
 
-    return CalendarEventResponse(
-        id=event.id,
-        calendar_id=event.calendar_id,
-        google_event_id=event.google_event_id,
-        title=event.title,
-        description=event.description,
-        start_time=event.start_time,
-        end_time=event.end_time,
-        all_day=event.all_day,
-        location=event.location,
-        status=event.status,
-        html_link=event.html_link,
-    )
+    return _event_response(event)
 
 
 @router.delete("/events/{event_id}", status_code=status.HTTP_204_NO_CONTENT)

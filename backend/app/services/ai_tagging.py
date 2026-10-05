@@ -130,7 +130,7 @@ async def _call_llm(
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        "max_tokens": 1200,
+        "max_tokens": 3000,
         "temperature": 0.1,
         "response_format": {"type": "json_object"},
     }
@@ -152,20 +152,102 @@ async def _call_llm(
     if not choices:
         raise RuntimeError("LLM returned no choices")
 
-    content = choices[0].get("message", {}).get("content", "")
+    choice = choices[0]
+    content = choice.get("message", {}).get("content", "")
     if not content:
         raise RuntimeError("LLM returned empty content")
 
-    # Strip markdown fences if present
+    finish_reason = choice.get("finish_reason")
+    if finish_reason == "length":
+        logger.warning("ai_tagging_response_truncated", model=settings.llm_model)
+
+    return _parse_json(content)
+
+
+def _parse_json(content: str) -> dict[str, Any]:
+    """Parse the LLM's JSON, tolerating markdown fences and truncation."""
+
     content = content.strip()
     if content.startswith("```"):
         lines = content.split("\n")
-        content = "\n".join(lines[1:-1])
+        # Drop the opening fence (and optional language tag) and closing fence
+        lines = lines[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        content = "\n".join(lines).strip()
 
     try:
         return json.loads(content)
     except json.JSONDecodeError as error:
-        raise RuntimeError(f"LLM returned invalid JSON: {error}. Content: {content[:300]}") from error
+        logger.warning("ai_tagging_json_retry", error=str(error))
+
+    # A truncated response cannot be parsed as-is. Salvage what we can: find the
+    # last complete element and close the structures so metadata still lands.
+    repaired = _repair_truncated_json(content)
+    if repaired is not None:
+        return repaired
+
+    raise RuntimeError(f"LLM returned invalid JSON. Content: {content[:300]}")
+
+
+def _repair_truncated_json(content: str) -> dict[str, Any] | None:
+    """Close an object/array cut off mid-stream, dropping the partial tail."""
+
+    # A truncated response is missing its tail. Walk backwards from each `}` and
+    # try to close the still-open brackets at that point; the first attempt that
+    # parses wins, which yields the largest complete prefix.
+    for end in range(len(content), 0, -1):
+        if content[end - 1] != "}":
+            continue
+
+        prefix = content[:end].rstrip().rstrip(",")
+        closers = _unclosed_brackets(prefix)
+        if closers is None:
+            continue
+
+        try:
+            parsed = json.loads(prefix + closers)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            logger.info("ai_tagging_json_repaired", keys=list(parsed.keys()))
+            return parsed
+
+    return None
+
+
+def _unclosed_brackets(text: str) -> str | None:
+    """Return the closing brackets needed to balance *text*, or None if malformed."""
+
+    stack: list[str] = []
+    in_string = False
+    escaped = False
+
+    for ch in text:
+        if escaped:
+            escaped = False
+            continue
+        if in_string:
+            if ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch in "{[":
+            stack.append(ch)
+        elif ch in "}]":
+            if not stack:
+                return None
+            opener = stack.pop()
+            if (opener, ch) not in {("{", "}"), ("[", "]")}:
+                return None
+
+    if in_string:
+        return None
+
+    return "".join("}" if opener == "{" else "]" for opener in reversed(stack))
 
 
 # ── Main entry point ────────────────────────────────────────────────

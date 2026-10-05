@@ -90,7 +90,7 @@ def create_app(
             MCP_MOUNT_PATH,
             app=mcp_server.streamable_http_app(
                 streamable_http_path="/",
-                stateless_http=True,
+                stateless_http=False,
                 json_response=True,
             ),
         )

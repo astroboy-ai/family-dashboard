@@ -67,10 +67,11 @@ async def mint(session, household_id, *, label: str, scopes: list[str]):
 async def call_with_token(token: str, body: dict) -> tuple[int, dict]:
     """One raw MCP JSON-RPC call, so we can assert on the HTTP status."""
     headers = {
-        "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
         "Accept": "application/json, text/event-stream",
     }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(MCP_URL, headers=headers, json=body)
         try:

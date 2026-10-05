@@ -2,6 +2,17 @@
 
 This file provides guidance for AI agents (Hermes, Kururu, etc.) on how to interact with the FamilyOS system.
 
+**This file is the single source of truth.** It is served live — edit it, deploy, and every agent sees the new instructions on its next call.
+
+## How to Read These Instructions
+
+Two equivalent ways, both requiring a valid agent token:
+
+- **MCP tool**: `get_agent_instructions` — returns this file as text
+- **HTTP**: `GET /internal/agent/instructions` — returns `{"instructions": "..."}`
+
+Call one of these at session start instead of relying on cached copies.
+
 ## Authentication
 
 - **MCP Endpoint**: `http://familyos-backend:8000/mcp`

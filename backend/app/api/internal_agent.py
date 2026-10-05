@@ -13,14 +13,13 @@ Every invocation is written to ``agent_tool_calls`` for audit.
 import uuid
 from typing import Annotated, Any
 
-from pathlib import Path
-
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.executor import execute_tool
+from app.agent.instructions import load_agent_instructions
 from app.agent.registry import ToolContext, ToolResult, registry
 from app.agent import tools as registered_tools
 from app.api.deps import Actor
@@ -105,15 +104,11 @@ async def list_agent_tools() -> list[dict[str, Any]]:
 async def get_agent_instructions() -> dict[str, str]:
     """Return the AGENTS.md content for agent reference.
 
-    Agents call this endpoint to discover how to use the system.
-    The instructions file is the single source of truth — when it is
-    updated, all agents immediately see the change on next call.
+    Agents call this endpoint to discover how to use the system. The
+    instructions file is the single source of truth — when it is updated,
+    every agent sees the change on its next call, no redeploy needed.
     """
-    agents_md = Path(__file__).resolve().parents[3] / "AGENTS.md"
-    try:
-        return {"instructions": agents_md.read_text(encoding="utf-8")}
-    except FileNotFoundError:
-        return {"instructions": "AGENTS.md not found. Contact the system administrator."}
+    return {"instructions": load_agent_instructions()}
 
 
 @router.get("/tools/{name}/schema", dependencies=[Depends(require_agent)])

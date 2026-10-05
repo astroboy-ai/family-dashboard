@@ -30,6 +30,7 @@ from mcp.server.mcpserver import MCPServer
 
 import app.agent.tools  # noqa: F401 — populates the registry via @register
 from app.agent.executor import execute_tool
+from app.agent.instructions import load_agent_instructions
 from app.agent.registry import ToolContext, registry
 from app.api.deps import Actor
 from app.core.db import session_factory
@@ -92,12 +93,7 @@ def _register_tools(server: MCPServer) -> None:
     # discover how to use the system without hardcoding instructions.
     async def get_agent_instructions() -> str:
         """Return the AGENTS.md content for agent reference."""
-        from pathlib import Path
-        agents_md = Path(__file__).resolve().parents[3] / "AGENTS.md"
-        try:
-            return agents_md.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            return "AGENTS.md not found. Contact the system administrator."
+        return load_agent_instructions()
 
     get_agent_instructions.__name__ = "get_agent_instructions"
     server.add_tool(

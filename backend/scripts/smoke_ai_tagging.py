@@ -87,9 +87,7 @@ async def main() -> None:
                 blocks=[
                     NoteBlockInput(
                         type="text",
-                        data={
-                            "text": "Ingredients: 2 cups flour, 1 cup sugar, 3 apples, 1 tsp cinnamon. Mix flour and sugar, add sliced apples, sprinkle cinnamon. Bake at 180C for 45 minutes. Best served warm with vanilla ice cream."
-                        }
+                        text_content="Ingredients: 2 cups flour, 1 cup sugar, 3 apples, 1 tsp cinnamon. Mix flour and sugar, add sliced apples, sprinkle cinnamon. Bake at 180C for 45 minutes. Best served warm with vanilla ice cream."
                     )
                 ],
             ),

@@ -214,11 +214,11 @@ async def classify_note(
 
     # Family members
     members_result = await session.execute(
-        select(FamilyMember.id, FamilyMember.name).where(
+        select(FamilyMember.id, FamilyMember.display_name).where(
             FamilyMember.household_id == actor_household_id
         )
     )
-    members = [{"id": str(m.id), "name": m.name} for m in members_result.all()]
+    members = [{"id": str(m.id), "name": m.display_name} for m in members_result.all()]
 
     # Excluded tags — construct a minimal actor for the governance check
     from app.api.deps import Actor

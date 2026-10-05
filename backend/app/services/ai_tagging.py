@@ -203,10 +203,12 @@ async def classify_note(
         })
 
     # Existing tags on this note
+    from app.models import note_tags
+
     existing_tags_result = await session.execute(
         select(Tag.slug)
-        .join(Note.__table__.c.note_tags)
-        .where(Note.__table__.c.note_tags.c.note_id == note.id)
+        .join(note_tags, note_tags.c.tag_id == Tag.id)
+        .where(note_tags.c.note_id == note.id)
     )
     existing_tags = list(existing_tags_result.scalars().all())
 

@@ -160,10 +160,9 @@ async def main() -> None:
 
             # Verify tag applied to note
             await session.refresh(note)
+            from app.models import note_tags as nt
             note_tags_result = await session.execute(
-                select(Tag).join(Note.__table__.c.note_tags).where(
-                    Note.__table__.c.note_tags.c.note_id == note.id
-                )
+                select(Tag).join(nt, nt.c.tag_id == Tag.id).where(nt.c.note_id == note.id)
             )
             applied_tags = list(note_tags_result.scalars().all())
             print(f"  Tags on note: {[t.slug for t in applied_tags]}")

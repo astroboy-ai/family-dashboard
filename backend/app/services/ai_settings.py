@@ -26,6 +26,7 @@ DEFAULTS: dict[str, object] = {
     "embedding_batch_size": 16,
     "llm_model": "gemini/gemini-3.5-flash",
     "vision_model": "",
+    "tagging_model": "",
 }
 
 # Environment fallbacks, keyed by the Settings attribute that holds them.
@@ -50,6 +51,15 @@ class AiSettings:
     embedding_batch_size: int
     llm_model: str
     vision_model: str
+    tagging_model: str = ""
+
+    @property
+    def effective_tagging_model(self) -> str:
+        """Model for note classification.
+
+        Falls back to the chat model so an unset field keeps working.
+        """
+        return self.tagging_model or self.llm_model
 
 
 def _coerce_bool(value: object, default: bool) -> bool:
@@ -98,6 +108,7 @@ def resolve_ai_settings(household_settings: dict | None) -> AiSettings:
         embedding_batch_size=max(1, _coerce_int(pick("embedding_batch_size"), int(DEFAULTS["embedding_batch_size"]))),
         llm_model=str(pick("llm_model") or DEFAULTS["llm_model"]),
         vision_model=str(pick("vision_model") or DEFAULTS["vision_model"]),
+        tagging_model=str(pick("tagging_model") or DEFAULTS["tagging_model"]),
     )
 
 
@@ -113,4 +124,6 @@ def mask_ai_settings(settings: AiSettings) -> dict[str, object]:
         "embedding_batch_size": settings.embedding_batch_size,
         "llm_model": settings.llm_model,
         "vision_model": settings.vision_model,
+        "tagging_model": settings.tagging_model,
+        "effective_tagging_model": settings.effective_tagging_model,
     }

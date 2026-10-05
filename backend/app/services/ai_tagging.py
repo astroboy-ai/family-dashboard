@@ -125,7 +125,7 @@ async def _call_llm(
         headers["Authorization"] = f"Bearer {settings.api_key}"
 
     payload = {
-        "model": settings.llm_model,
+        "model": settings.effective_tagging_model,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -159,7 +159,7 @@ async def _call_llm(
 
     finish_reason = choice.get("finish_reason")
     if finish_reason == "length":
-        logger.warning("ai_tagging_response_truncated", model=settings.llm_model)
+        logger.warning("ai_tagging_response_truncated", model=settings.effective_tagging_model)
 
     return _parse_json(content)
 
@@ -385,7 +385,7 @@ async def classify_note(
                 slug=slug,
                 confidence=confidence,
                 evidence={"reason": reason, "prompt_version": PROMPT_VERSION},
-                model=settings.llm_model,
+                model=settings.effective_tagging_model,
                 kind=kind,
             )
         )
@@ -393,7 +393,7 @@ async def classify_note(
     return {
         "metadata": parsed_metadata,
         "tags": tag_inputs,
-        "model": settings.llm_model,
+        "model": settings.effective_tagging_model,
     }
 
 

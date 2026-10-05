@@ -30,6 +30,7 @@ from mcp.server.mcpserver import MCPServer
 
 import app.agent.tools  # noqa: F401 — populates the registry via @register
 from app.agent.executor import execute_tool
+from app.agent.instructions import load_agent_instructions
 from app.agent.registry import ToolContext, registry
 from app.api.deps import Actor
 from app.core.db import session_factory
@@ -87,6 +88,19 @@ def _register_tools(server: MCPServer) -> None:
         handler.__name__ = name
         handler.__signature__ = _signature_from_model(definition.params_model)
         server.add_tool(handler, name=name, description=definition.description)
+
+    # get_agent_instructions: returns the AGENTS.md content so agents can
+    # discover how to use the system without hardcoding instructions.
+    async def get_agent_instructions() -> str:
+        """Return the AGENTS.md content for agent reference."""
+        return load_agent_instructions()
+
+    get_agent_instructions.__name__ = "get_agent_instructions"
+    server.add_tool(
+        get_agent_instructions,
+        name="get_agent_instructions",
+        description="Get the AGENTS.md instructions for how to use the FamilyOS system.",
+    )
 
 
 def _signature_from_model(params_model: type) -> inspect.Signature:

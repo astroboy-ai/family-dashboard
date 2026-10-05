@@ -96,6 +96,11 @@ services:
     ports:
       - "${BACKEND_PORT:-8001}:8000"
     environment: *backend-env
+    # Agent instructions are served from this file. Mounted rather than baked
+    # into the image so editing AGENTS.md takes effect on the next tool call —
+    # no rebuild, no restart. Read-only: the app must never write it.
+    volumes:
+      - ./AGENTS.md:/app/AGENTS.md:ro
     depends_on:
       postgres:
         condition: service_healthy

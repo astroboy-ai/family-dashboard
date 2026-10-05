@@ -194,9 +194,9 @@ export default function SettingsPage() {
         vision_model: visionModel.trim() || undefined,
         tagging_model: taggingModel.trim() || undefined,
         storage: {
-          public_endpoint: publicEndpoint.trim(),
-          bucket: bucket.trim(),
-          region: region.trim(),
+          public_endpoint: publicEndpoint.trim() || undefined,
+          bucket: bucket.trim() || undefined,
+          region: region.trim() || undefined,
         },
       });
       setSaved(true);
@@ -297,7 +297,7 @@ export default function SettingsPage() {
       {error && <div className="form-error">{error}</div>}
       {saved && <div className="form-success">Settings saved.</div>}
 
-      <form onSubmit={submit} className="settings-form">
+      <form onSubmit={submit} className="settings-form" noValidate>
         <section className="settings-section">
           <h2>Gateway</h2>
           <label className="field">

@@ -169,23 +169,92 @@ function notifySessionExpired(): void {
   sessionExpiredListeners.forEach((listener) => listener());
 }
 
+/**
+ * Endpoints that must never trigger a silent refresh.
+ *
+ * These are the ones that *establish* or *destroy* a session: retrying them
+ * after a 401 would either loop (refresh calling itself) or mask a genuine bad
+ * credential behind a pointless round-trip. Everything else — including
+ * `/auth/me`, which is what the app shell calls on every page load — must be
+ * retried, otherwise an access token that simply aged out (15 min) looks like a
+ * dead session and the user gets bounced to the login screen mid-task.
+ */
+const NO_REFRESH_PATHS = [
+  "/auth/refresh",
+  "/auth/logout",
+  "/auth/pin-login",
+  "/auth/login",
+  "/auth/setup",
+  "/auth/setup-status",
+];
+
+function shouldAttemptRefresh(path: string): boolean {
+  return !NO_REFRESH_PATHS.some((prefix) => path.startsWith(prefix));
+}
+
 /** One refresh in flight at a time: a burst of 401s must not fire N rotations,
- * which would look like token replay and revoke the chain. */
+ * which would look like token replay and revoke the chain.
+ *
+ * The promise is also kept for a short grace period after it settles, because a
+ * cross-tab broadcast arrives asynchronously: without the grace window a second
+ * tab can fire its own rotation microseconds after the first and have the whole
+ * chain revoked as a replay. */
 let refreshInFlight: Promise<boolean> | null = null;
+let refreshSettledAt = 0;
+const REFRESH_GRACE_MS = 2000;
+
+const REFRESH_BROADCAST_KEY = "familyos-refresh";
+
+function broadcastRefresh(success: boolean): void {
+  try {
+    window.localStorage.setItem(
+      REFRESH_BROADCAST_KEY,
+      JSON.stringify({ at: Date.now(), success }),
+    );
+  } catch {
+    // Private-mode / storage-disabled: single-tab behaviour still works.
+  }
+}
+
+/** Did another tab refresh the session moments ago? Then reuse that result. */
+function recentlyRefreshedElsewhere(): boolean | null {
+  try {
+    const raw = window.localStorage.getItem(REFRESH_BROADCAST_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { at?: number; success?: boolean };
+    if (typeof parsed.at !== "number") return null;
+    if (Date.now() - parsed.at > REFRESH_GRACE_MS) return null;
+    return parsed.success === true;
+  } catch {
+    return null;
+  }
+}
 
 async function refreshSession(): Promise<boolean> {
+  const fromOtherTab = recentlyRefreshedElsewhere();
+  if (fromOtherTab !== null) return fromOtherTab;
+
   if (!refreshInFlight) {
     refreshInFlight = fetch("/api/auth/refresh", {
       method: "POST",
       credentials: "include",
     })
-      .then((response) => response.ok)
+      .then((response) => {
+        broadcastRefresh(response.ok);
+        return response.ok;
+      })
       .catch(() => false)
       .finally(() => {
+        refreshSettledAt = Date.now();
         refreshInFlight = null;
       });
   }
   return refreshInFlight;
+}
+
+/** True while a refresh is happening, or finished within the grace window. */
+function refreshJustHappened(): boolean {
+  return refreshInFlight !== null || Date.now() - refreshSettledAt < REFRESH_GRACE_MS;
 }
 
 async function decodeResponse<T>(response: Response): Promise<T> {
@@ -210,6 +279,10 @@ async function decodeResponse<T>(response: Response): Promise<T> {
  * that also fails the session is gone and a SessionExpiredError is thrown after
  * notifying listeners, so the UI can offer to copy unsaved work before the user
  * navigates to login.
+ *
+ * A 401 whose body says the session was *reused* is never retried: the backend
+ * has already revoked the whole chain, so a retry is guaranteed to fail and
+ * would only add noise. We surface it as a dead session immediately.
  */
 export async function apiRequest<T>(
   path: string,
@@ -229,18 +302,36 @@ export async function apiRequest<T>(
 
   let response = await send();
 
-  if (response.status === 401 && !path.startsWith("/auth/")) {
+  if (response.status === 401 && shouldAttemptRefresh(path)) {
     const refreshed = await refreshSession();
     if (refreshed) {
       response = await send();
     }
     if (!response.ok && response.status === 401) {
-      notifySessionExpired();
-      throw new SessionExpiredError();
+      const dead = await isSessionDead(response);
+      // A second 401 right after a *successful* refresh is not a dead session:
+      // the refreshed cookies may not have landed yet (proxy/CDN buffering) or
+      // the request raced the rotation. Give it one more beat before giving up.
+      if (!dead && refreshed && refreshJustHappened()) {
+        response = await send();
+      }
+      if (!response.ok && response.status === 401) {
+        notifySessionExpired();
+        throw new SessionExpiredError();
+      }
     }
   }
 
   return decodeResponse<T>(response);
+}
+
+/** Does this 401 body indicate the refresh chain is gone for good? */
+async function isSessionDead(response: Response): Promise<boolean> {
+  const body = (await response.clone().json().catch(() => null)) as
+    | { error?: { code?: string } }
+    | null;
+  const code = body?.error?.code;
+  return code === "session_reused" || code === "session_revoked" || code === "invalid_session";
 }
 
 export function getActor(): Promise<Actor> {
@@ -383,6 +474,14 @@ export function updateDrawingBlock(
       data,
       text_content: textContent,
     }),
+  });
+}
+
+/** Persist a new block order. ``blockIds`` must list every block exactly once. */
+export function reorderBlocks(noteId: string, blockIds: string[]): Promise<NoteBlock[]> {
+  return apiRequest<NoteBlock[]>(`/notes/${encodeURIComponent(noteId)}/reorder`, {
+    method: "POST",
+    body: JSON.stringify({ block_ids: blockIds }),
   });
 }
 

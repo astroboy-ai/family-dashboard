@@ -286,9 +286,73 @@ async def handle_media_enrich(session: AsyncSession, payload: dict[str, Any]) ->
     )
 
 
+async def handle_tag_propose(session: AsyncSession, payload: dict[str, Any]) -> None:
+    """Classify a note with AI: extract metadata + propose tags.
+
+    Idempotent: skips if the note is missing or AI is disabled.
+    """
+
+    from app.models import Note
+    from app.services.ai_tagging import (
+        apply_metadata,
+        classify_note,
+        create_tag_proposals_from_classification,
+    )
+
+    note_id = payload.get("note_id")
+    if not note_id:
+        raise ValueError("tag.propose job requires note_id")
+
+    note = (
+        await session.execute(select(Note).where(Note.id == uuid.UUID(str(note_id))))
+    ).scalar_one_or_none()
+    if note is None:
+        logger.info("tag_propose_skipped_missing", note_id=note_id)
+        return
+
+    household = (
+        await session.execute(select(Household).where(Household.id == note.household_id))
+    ).scalar_one_or_none()
+    settings = resolve_ai_settings(household.settings if household else None)
+    if not settings.enabled:
+        logger.info("tag_propose_skipped_disabled", note_id=note_id)
+        return
+
+    result = await classify_note(
+        session,
+        note,
+        actor_household_id=note.household_id,
+    )
+
+    # Apply metadata (occurred_at, owner_member_id, location, type)
+    metadata = result.get("metadata", {})
+    if metadata:
+        await apply_metadata(session, note, metadata)
+
+    # Create tag proposals
+    tag_inputs = result.get("tags", [])
+    if tag_inputs:
+        await create_tag_proposals_from_classification(
+            session,
+            note,
+            actor_household_id=note.household_id,
+            tag_inputs=tag_inputs,
+            model=result.get("model", settings.llm_model),
+        )
+
+    await session.commit()
+    logger.info(
+        "tag_propose_done",
+        note_id=note_id,
+        metadata_fields=list(metadata.keys()),
+        tags_proposed=len(tag_inputs),
+    )
+
+
 HANDLERS = {
     "embed.note": handle_embed_note,
     "media.enrich": handle_media_enrich,
+    "tag.propose": handle_tag_propose,
 }
 
 

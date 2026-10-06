@@ -86,6 +86,31 @@ export type GraphViewList = {
   total: number;
 };
 
+/**
+ * An imported Archify artifact — a self-contained HTML/PNG/SVG/JSON produced
+ * outside FamilyOS and displayed in a sandboxed iframe. Distinct from a
+ * GraphView: a view is a config FamilyOS renders itself, an artifact is opaque
+ * content it only shows.
+ */
+export type GraphArtifact = {
+  id: string;
+  name: string;
+  description: string;
+  kind: string;
+  media_asset_id: string | null;
+  source: string;
+  size_bytes: number;
+  meta: Record<string, unknown>;
+  order_index: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type GraphArtifactList = {
+  items: GraphArtifact[];
+  total: number;
+};
+
 export type NoteBlock = {
   id: string;
   note_id: string;
@@ -289,7 +314,10 @@ export async function apiRequest<T>(
   init: RequestInit = {},
 ): Promise<T> {
   const headers = new Headers(init.headers);
-  if (init.body && !headers.has("Content-Type")) {
+  // Only default to JSON for a plain body. A FormData body must keep the
+  // browser-generated multipart Content-Type (it carries the boundary), so
+  // setting application/json here would make the server fail to parse it.
+  if (init.body && !headers.has("Content-Type") && !(init.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
   }
 
@@ -568,6 +596,55 @@ export function updateGraphView(
 
 export function deleteGraphView(id: string): Promise<void> {
   return apiRequest<void>(`/graph/views/${id}`, { method: "DELETE" });
+}
+
+// ── Archify artifacts (imported files) ────────────────────────────────────────
+
+export function listGraphArtifacts(): Promise<GraphArtifactList> {
+  return apiRequest<GraphArtifactList>("/graph/artifacts");
+}
+
+/**
+ * Import an Archify file.
+ *
+ * Multipart, not JSON: an interactive Archify HTML can run to several MB and
+ * base64 in a JSON body would inflate it by a third. The endpoint streams the
+ * file straight to storage.
+ */
+export function uploadGraphArtifact(input: {
+  file: File;
+  name?: string;
+  description?: string;
+  kind?: string;
+  source?: string;
+}): Promise<GraphArtifact> {
+  const form = new FormData();
+  form.set("file", input.file);
+  if (input.name) form.set("name", input.name);
+  if (input.description) form.set("description", input.description);
+  if (input.kind) form.set("kind", input.kind);
+  if (input.source) form.set("source", input.source);
+  // No Content-Type header: the browser must set the multipart boundary itself.
+  return apiRequest<GraphArtifact>("/graph/artifacts", { method: "POST", body: form });
+}
+
+export function updateGraphArtifact(
+  id: string,
+  input: { name?: string; description?: string; order_index?: number },
+): Promise<GraphArtifact> {
+  return apiRequest<GraphArtifact>(`/graph/artifacts/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteGraphArtifact(id: string): Promise<void> {
+  return apiRequest<void>(`/graph/artifacts/${id}`, { method: "DELETE" });
+}
+
+/** The URL the sandboxed viewer loads an artifact's bytes from. */
+export function graphArtifactFileUrl(artifact: GraphArtifact): string {
+  return `/api/media/${encodeURIComponent(String(artifact.media_asset_id ?? ""))}/download`;
 }
 
 export type AdminSettings = {

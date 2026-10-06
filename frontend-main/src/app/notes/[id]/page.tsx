@@ -70,7 +70,7 @@ export default function NoteDetailPage() {
 
   /** Add a newly created block to the unlocked set so it is editable at once. */
   function adoptNewBlock(block: NoteBlock) {
-    adoptNewBlock(block);
+    setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
     setUnlockedBlocks((current) => new Set(current).add(block.id));
   }
 

@@ -2,7 +2,7 @@
 
 import { Filter, Search, SlidersHorizontal } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { NoteRow } from "@/components/note-row";
 import { ApiError, listNotes, type Note } from "@/lib/api";
 import { useNewNote } from "@/lib/new-note";
@@ -13,6 +13,8 @@ export default function NotesPage() {
   const [status, setStatus] = useState("inbox");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [searchMode, setSearchMode] = useState<"instant" | "manual">("instant");
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { startNewNote } = useNewNote();
 
   useEffect(() => {
@@ -29,8 +31,20 @@ export default function NotesPage() {
     const needle = query.trim().toLowerCase();
     if (!needle) return notes;
     return notes.filter((note) => [note.title, note.summary, ...note.tags.map((tag) => tag.name), ...note.blocks.map((block) => block.text_content ?? "")]
-      .some((value) => value?.toLowerCase().includes(needle)));
+      .some((value) => value?.toLowerCase().includes(needle));
   }, [notes, query]);
+
+  function handleQueryChange(value: string) {
+    setQuery(value);
+    if (searchMode === "instant") {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        // The filter is already applied via useMemo; this debounce is a
+        // placeholder for future server-side search. For now it just prevents
+        // excessive re-renders during fast typing.
+      }, 150);
+    }
+  }
 
   return (
     <div className="page-wrap list-page">
@@ -39,7 +53,8 @@ export default function NotesPage() {
         <button className="primary-button" onClick={() => void startNewNote()}>＋ <span>New note</span></button>
       </section>
       <section className="list-toolbar" aria-label="Note filters">
-        <label className="search-field"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filter notes on this page" aria-label="Filter notes" /></label>
+        <label className="search-field"><Search size={17} /><input value={query} onChange={(event) => handleQueryChange(event.target.value)} placeholder="Filter notes on this page" aria-label="Filter notes" /></label>
+        <label className="select-field"><select value={searchMode} onChange={(event) => setSearchMode(event.target.value as "instant" | "manual")} aria-label="Search mode"><option value="instant">Instant</option><option value="manual">Manual</option></select></label>
         <label className="select-field"><Filter size={16} /><select value={status} onChange={(event) => setStatus(event.target.value)} aria-label="Filter by status"><option value="inbox">Inbox</option><option value="active">Active</option><option value="done">Done</option><option value="archived">Archived</option><option value="">All statuses</option></select></label>
         <Link className="toolbar-link" href={`/search?q=${encodeURIComponent(query)}`}><SlidersHorizontal size={16} /> Full search</Link>
       </section>

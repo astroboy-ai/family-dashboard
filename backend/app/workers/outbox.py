@@ -18,6 +18,7 @@ the work and the status update.
 from __future__ import annotations
 
 import asyncio
+import io
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -358,6 +359,88 @@ async def handle_tag_propose(session: AsyncSession, payload: dict[str, Any]) -> 
     )
 
 
+async def handle_media_thumbnail(session: AsyncSession, payload: dict[str, Any]) -> None:
+    """Generate a web-sized thumbnail for an uploaded image.
+
+    Queued by ``complete_upload`` for every asset. This handler did not exist,
+    so the job failed the moment it was claimed and no thumbnail was ever
+    produced — ``media_assets.thumb_key`` stayed null for every row.
+
+    Idempotent: an asset that already has a thumbnail is skipped, so a retry
+    after a partial failure does not re-upload. Non-images are skipped rather
+    than failed, because the upload path queues this unconditionally.
+    """
+
+    raw_id = payload.get("asset_id")
+    if not raw_id:
+        raise ValueError("media.thumbnail job requires asset_id")
+    try:
+        asset_id = uuid.UUID(str(raw_id))
+    except ValueError as error:
+        raise ValueError(f"media.thumbnail job has an invalid asset_id: {raw_id!r}") from error
+
+    asset = await session.get(MediaAsset, asset_id)
+    if asset is None or asset.deleted_at is not None:
+        logger.info("media_thumbnail_skipped_missing", asset_id=str(asset_id))
+        return
+    if asset.kind != "image":
+        logger.info("media_thumbnail_skipped_not_image", asset_id=str(asset_id), kind=asset.kind)
+        return
+    if asset.thumb_key:
+        logger.info("media_thumbnail_skipped_done", asset_id=str(asset_id))
+        return
+
+    from app.core.config import get_settings as _get_settings
+    from app.core.storage import S3CompatibleStorage
+    from app.services.imaging import generate_thumbnail
+
+    app_settings = _get_settings()
+    storage = S3CompatibleStorage(
+        internal_endpoint=app_settings.s3_endpoint,
+        public_endpoint=app_settings.s3_public_endpoint,
+        access_key=app_settings.s3_access_key,
+        secret_key=app_settings.s3_secret_key,
+        bucket=app_settings.s3_bucket,
+    )
+    try:
+        data = await storage.get(asset.storage_key)
+    except Exception as error:  # noqa: BLE001 - storage failure is a retryable job failure
+        raise RuntimeError(f"could not read asset from storage: {error}") from error
+
+    result = generate_thumbnail(data, asset.mime or "image/jpeg")
+    if result is None:
+        # Pillow could not decode it. Mark complete rather than retrying
+        # forever on a file that will never produce a thumbnail.
+        meta = dict(asset.meta or {})
+        meta["thumbnail_status"] = "unavailable"
+        asset.meta = meta
+        await session.commit()
+        logger.info("media_thumbnail_unavailable", asset_id=str(asset_id))
+        return
+
+    thumb_bytes, thumb_mime = result
+    # Sits beside the original so a bucket listing stays readable, and keeps the
+    # original's suffix out of it — the thumbnail is always JPEG.
+    thumb_key = f"{asset.storage_key.rsplit('/', 1)[0]}/thumb.jpg"
+    try:
+        await storage.put(
+            thumb_key,
+            io.BytesIO(thumb_bytes),
+            size=len(thumb_bytes),
+            content_type=thumb_mime,
+        )
+    except Exception as error:  # noqa: BLE001 - retryable
+        raise RuntimeError(f"could not write thumbnail to storage: {error}") from error
+
+    asset.thumb_key = thumb_key
+    meta = dict(asset.meta or {})
+    meta["thumbnail_status"] = "complete"
+    meta["thumbnail_bytes"] = len(thumb_bytes)
+    asset.meta = meta
+    await session.commit()
+    logger.info("media_thumbnail_created", asset_id=str(asset_id), key=thumb_key)
+
+
 async def handle_calendar_sync(session: AsyncSession, payload: dict[str, Any]) -> None:
     """Sync Google Calendar data for one account."""
     from app.services.calendar_sync import sync_account
@@ -371,6 +454,7 @@ async def handle_calendar_sync(session: AsyncSession, payload: dict[str, Any]) -
 HANDLERS = {
     "embed.note": handle_embed_note,
     "media.enrich": handle_media_enrich,
+    "media.thumbnail": handle_media_thumbnail,
     "tag.propose": handle_tag_propose,
     "calendar.sync": handle_calendar_sync,
 }
@@ -419,8 +503,65 @@ async def process_once() -> int:
         return len(jobs)
 
 
+REMINDER_SCAN_INTERVAL_SECONDS = 300  # 5 minutes
+
+
+async def reminder_scan() -> int:
+    """Scan for notes expiring soon and create notifications.
+
+    Runs every 5 minutes alongside the outbox poll. Uses ``dedupe_key`` to
+    avoid creating duplicate notifications for the same note.
+    """
+
+    from datetime import timedelta
+
+    from app.models import Note
+    from app.services.notifications import create_notification
+
+    now = datetime.now(UTC)
+    window_end = now + timedelta(days=7)
+
+    async with session_factory() as session:
+        result = await session.execute(
+            select(Note).where(
+                Note.deleted_at.is_(None),
+                Note.expires_at.is_not(None),
+                Note.expires_at.between(now, window_end),
+            )
+        )
+        notes = result.scalars().all()
+
+        created = 0
+        for note in notes:
+            try:
+                await create_notification(
+                    session=session,
+                    household_id=note.household_id,
+                    kind="note_expiring",
+                    title=f"Expiring: {note.title or 'Untitled'}",
+                    body=f"Note expires {note.expires_at.isoformat()}",
+                    ref_type="note",
+                    ref_id=note.id,
+                    priority=2,
+                    scheduled_for=note.expires_at,
+                    channel="inapp",
+                    dedupe_key=f"note:{note.id}:expiring",
+                )
+                created += 1
+            except Exception as error:  # noqa: BLE001
+                logger.warning(
+                    "reminder_scan_failed",
+                    note_id=str(note.id),
+                    error=f"{type(error).__name__}: {error}",
+                )
+
+        logger.info("reminder_scan_complete", notes_found=len(notes), notifications_created=created)
+        return created
+
+
 async def run_forever() -> None:
     logger.info("worker_started", topics=sorted(HANDLERS))
+    last_reminder_scan = datetime.now(UTC)
     while True:
         try:
             handled = await process_once()
@@ -432,6 +573,19 @@ async def run_forever() -> None:
                 traceback=traceback.format_exc(),
             )
             handled = 0
+
+        # Run reminder scan every 5 minutes
+        now = datetime.now(UTC)
+        if (now - last_reminder_scan).total_seconds() >= REMINDER_SCAN_INTERVAL_SECONDS:
+            try:
+                await reminder_scan()
+            except Exception as error:  # noqa: BLE001
+                logger.warning(
+                    "reminder_scan_error",
+                    error=f"{type(error).__name__}: {error}",
+                )
+            last_reminder_scan = now
+
         if handled == 0:
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
 

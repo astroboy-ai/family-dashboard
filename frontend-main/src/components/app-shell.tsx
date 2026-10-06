@@ -19,16 +19,23 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { CommandPalette } from "@/components/command-palette";
 import { PanelHost } from "@/components/panel-host";
 import { SessionExpiredNotice } from "@/components/session-expired-notice";
-import { SessionExpiredError, getActor, getMyPreferences, signOut, updateMyPreferences, type Actor } from "@/lib/api";
+import { SessionExpiredError, getActor, getMyPreferences, signOut, updateMyPreferences, listNotifications, getUnreadCount, markAllNotificationsRead, type Actor, type Notification } from "@/lib/api";
 import { navigation } from "@/lib/navigation";
 import { useNewNote } from "@/lib/new-note";
 import { usePanelStore } from "@/lib/panel-store";
 
-const notifications = [
-  { id: 1, label: "Phoebe added a school reminder", time: "2m ago" },
-  { id: 2, label: "Weekly chores are ready for review", time: "18m ago" },
-  { id: 3, label: "A new transit update is available", time: "1h ago" },
-];
+function timeAgo(iso: string): string {
+  const then = new Date(iso).getTime();
+  const now = Date.now();
+  const diff = Math.max(0, now - then);
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
 
 function isActive(pathname: string, href: string) {
   return href === "/" ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
@@ -43,6 +50,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [theme, setTheme] = useState<"light" | "dark" | "midnight" | "forest" | "unicorn" | "pixel" | "system">("dark");
   // Calendar theme is deliberately independent of the system theme: a child can
   // theme the calendar without changing the whole app.
@@ -122,6 +131,22 @@ export function AppShell({ children }: { children: ReactNode }) {
       active = false;
     };
   }, [pathname, router]);
+
+  useEffect(() => {
+    if (!actor) return;
+    let active = true;
+    const fetchNotifications = () => {
+      listNotifications(false, 20)
+        .then((items) => active && setNotifications(items))
+        .catch(() => { /* ignore */ });
+      getUnreadCount()
+        .then(({ count }) => active && setUnreadCount(count))
+        .catch(() => { /* ignore */ });
+    };
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 60000);
+    return () => { active = false; clearInterval(interval); };
+  }, [actor]);
 
   useEffect(() => {
     // Track the real browser state rather than our own flag, so exiting with
@@ -306,20 +331,25 @@ export function AppShell({ children }: { children: ReactNode }) {
             <div className="notification-wrap">
               <button className="icon-button notification-button" aria-label="Notifications" onClick={() => setNotificationsOpen((value) => !value)}>
                 <Bell size={19} />
-                <span className="notification-dot" />
+                {unreadCount > 0 && <span className="notification-badge">{unreadCount > 99 ? "99+" : unreadCount}</span>}
               </button>
               {notificationsOpen && (
                 <div className="notification-popover" role="menu" aria-label="Notifications">
                   <div className="notification-header">
                     <strong>Notifications</strong>
-                    <button className="text-button" onClick={() => setNotificationsOpen(false)}>Close</button>
+                    <div className="inline-actions">
+                      {unreadCount > 0 && (
+                        <button className="text-button" onClick={() => void markAllNotificationsRead().then(() => { setUnreadCount(0); setNotifications((prev) => prev.map((n) => ({ ...n, read_at: new Date().toISOString() }))); })}>Mark all read</button>
+                      )}
+                      <button className="text-button" onClick={() => setNotificationsOpen(false)}>Close</button>
+                    </div>
                   </div>
                   {notifications.map((item) => (
                     <div className="notification-item" key={item.id}>
                       <span className="notification-bullet" />
                       <div>
-                        <strong>{item.label}</strong>
-                        <small>{item.time}</small>
+                        <strong>{item.title}</strong>
+                        <small>{timeAgo(item.created_at)}</small>
                       </div>
                     </div>
                   ))}

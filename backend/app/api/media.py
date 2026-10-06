@@ -1,5 +1,5 @@
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -96,6 +96,39 @@ async def download_media(
         media_type=asset.mime or "application/octet-stream",
         headers={"Content-Disposition": f'inline; filename="{filename}"'},
     )
+
+
+@router.get("/{asset_id}/thumbnail")
+async def download_media_thumbnail(
+    asset_id: uuid.UUID,
+    actor: Annotated[Actor, Depends(get_current_actor)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    storage: Annotated[StorageBackend, Depends(get_storage)],
+) -> Response:
+    asset = await load_asset_for_download(session=session, actor=actor, asset_id=asset_id)
+    if not asset.thumb_key:
+        raise HTTPException(status_code=404, detail="No thumbnail for this asset")
+    data = await storage.get(asset.thumb_key)
+    return Response(
+        content=data,
+        media_type="image/jpeg",
+        headers={"Content-Disposition": 'inline; filename="thumb.jpg"'},
+    )
+
+
+@router.get("/{asset_id}/exif")
+async def get_media_exif(
+    asset_id: uuid.UUID,
+    actor: Annotated[Actor, Depends(get_current_actor)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    storage: Annotated[StorageBackend, Depends(get_storage)],
+) -> dict[str, Any]:
+    asset = await load_asset_for_download(session=session, actor=actor, asset_id=asset_id)
+    data = await storage.get(asset.storage_key)
+    from app.services.imaging import read_exif
+
+    exif = read_exif(data)
+    return {"exif": exif or {}}
 
 
 @router.post("/{asset_id}/enrich")

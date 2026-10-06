@@ -980,3 +980,43 @@ export function revokeAgentToken(tokenId: string): Promise<{ id: string; revoked
     { method: "DELETE" },
   );
 }
+
+// ── Notifications ────────────────────────────────────────────────────────────
+
+export type Notification = {
+  id: string;
+  kind: string;
+  title: string;
+  body: string | null;
+  ref_type: string | null;
+  ref_id: string | null;
+  priority: number;
+  scheduled_for: string | null;
+  sent_at: string | null;
+  read_at: string | null;
+  channel: string;
+  created_at: string;
+};
+
+export function listNotifications(unreadOnly = false, limit = 50): Promise<Notification[]> {
+  const params = new URLSearchParams();
+  if (unreadOnly) params.set("unread_only", "true");
+  params.set("limit", String(limit));
+  return apiRequest<Notification[]>(`/notifications?${params.toString()}`);
+}
+
+export function getUnreadCount(): Promise<{ count: number }> {
+  return apiRequest<{ count: number }>("/notifications/unread-count");
+}
+
+export function markNotificationRead(notificationId: string): Promise<Notification> {
+  return apiRequest<Notification>(`/notifications/${encodeURIComponent(notificationId)}/read`, {
+    method: "PATCH",
+  });
+}
+
+export function markAllNotificationsRead(): Promise<{ marked: number }> {
+  return apiRequest<{ marked: number }>("/notifications/mark-all-read", {
+    method: "POST"
+  });
+}

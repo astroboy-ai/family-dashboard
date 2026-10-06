@@ -3844,6 +3844,266 @@ html[data-theme="forest"] .brand-mark {
   word-break: break-word;
 }
 
+.text-overlay-editor {
+  width: 100%;
+  min-height: 40vh;
+  margin: 0;
+  padding: 16px;
+  border: 0;
+  background: var(--surface);
+  color: var(--foreground);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.7;
+  resize: none;
+}
+
+.text-overlay-editor:focus {
+  outline: none;
+}
+
+.text-block-toolbar {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.text-rows-toggle {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.text-rows-toggle button {
+  min-width: 28px;
+  height: 26px;
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.text-rows-toggle button.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.block-password-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.block-password-row {
+  display: flex;
+  gap: 4px;
+}
+
+.block-password-row input {
+  flex: 1;
+}
+
+.block-password-error {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--danger, #e5534b);
+}
+
+.block-password-hint {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.block-password-label-row {
+  margin-top: 6px;
+}
+
+.block-password-label-row input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: 13px;
+}
+
+.block-image-clickable {
+  cursor: zoom-in;
+}
+
+.image-lightbox {
+  position: fixed;
+  z-index: 70;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: var(--overlay);
+}
+
+.image-lightbox-content {
+  display: flex;
+  width: min(900px, 100%);
+  max-height: 90vh;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--foreground);
+  box-shadow: var(--shadow);
+}
+
+.image-lightbox-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.image-lightbox-body {
+  position: relative;
+  overflow: auto;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.image-lightbox-img {
+  max-width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+}
+
+.image-exif-overlay {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  max-width: 320px;
+  max-height: 40vh;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  padding: 10px 12px;
+  font-size: 12px;
+  backdrop-filter: blur(6px);
+}
+
+.image-exif-row {
+  display: flex;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.image-exif-key {
+  min-width: 110px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.image-exif-value {
+  word-break: break-word;
+}
+
+/* === Vault page === */
+.vault-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.vault-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--foreground);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.vault-card:hover {
+  border-color: var(--accent);
+  box-shadow: var(--shadow);
+}
+
+.vault-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.vault-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.vault-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.vault-badge-encrypted {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+}
+
+.vault-badge-plaintext {
+  background: color-mix(in srgb, #e5534b 15%, transparent);
+  color: #e5534b;
+}
+
+.vault-detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+.vault-detail-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.vault-detail-label {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.vault-detail-value {
+  font-family: var(--font-mono, monospace);
+  word-break: break-all;
+}
+
 /* === CR-4b: sticky tool dock above the footer === */
 .tool-dock {
   position: fixed;

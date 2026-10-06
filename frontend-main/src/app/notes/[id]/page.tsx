@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Check, Expand, GripVertical, LoaderCircle, Maximize, Minimize, Minus, Plus, Save, SquarePen, Trash2, X } from "lucide-react";
+import { ArrowLeft, Check, Copy, Eye, EyeOff, Expand, GripVertical, LoaderCircle, Lock, Maximize, Minimize, Minus, Plus, Save, SquarePen, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -488,10 +488,7 @@ export default function NoteDetailPage() {
               <button className="icon-button small-icon" onClick={() => void removeBlock(block.id)} aria-label="Remove block"><Trash2 size={14} /></button>
             </div>
             {block.type === "text" ? (
-              <div className="text-block-wrap">
-                <textarea defaultValue={block.text_content ?? ""} key={`${block.id}:${block.updated_at}`} onBlur={(event) => event.currentTarget.value !== (block.text_content ?? "") && void saveBlock(block.id, event.currentTarget.value)} aria-label="Text block" placeholder="Write a note…" />
-                <button className="icon-button small-icon text-expand" type="button" onClick={() => setTextOverlay(block)} aria-label="View full text" title="View full text"><Expand size={14} /></button>
-              </div>
+              <TextBlockView block={block} onSave={saveBlock} onExpand={() => setTextOverlay(block)} />
             ) : block.type === "drawing" ? (
               <button className="drawing-preview" type="button" onClick={() => openPanel("whiteboard", note.id, block.id)}>
                 <span className="drawing-preview-header">
@@ -580,42 +577,9 @@ export default function NoteDetailPage() {
                 />
               </div>
             ) : block.type === "password" ? (
-              <div className="block-field block-password">
-                <input
-                  type="password"
-                  placeholder="Enter secret…"
-                  value={String(block.data?.value ?? "")}
-                  onChange={async (e) => {
-                    try {
-                      await updateBlockData(block.id, { ...block.data, value: e.target.value });
-                    } catch { /* ignore */ }
-                  }}
-                />
-              </div>
+              <PasswordBlockView block={block} onUpdate={updateBlockData} />
             ) : block.type === "image" ? (
-              <div className="block-media">
-                <div className="block-media-head">
-                  <span className="block-media-name">{block.text_content || "Image"}</span>
-                  <BlockMenu
-                    items={[
-                      ...(block.ai_description
-                        ? [{ label: "Re-analyse with AI", action: () => void analyseImage(block) }]
-                        : [{ label: "Analyse with AI", action: () => void analyseImage(block) }]),
-                      { label: "Remove block", action: () => void removeBlock(block.id), danger: true },
-                    ]}
-                  />
-                </div>
-                <img
-                  src={`/api/media/${encodeURIComponent(String(block.data?.media_asset_id ?? ""))}/download`}
-                  alt={block.text_content ?? "Image"}
-                  className="block-image"
-                />
-                {block.ai_description ? (
-                  <p className="block-ai-description">{block.ai_description}</p>
-                ) : block.data?.ai_pending ? (
-                  <p className="block-ai-pending">AI analysis queued…</p>
-                ) : null}
-              </div>
+              <ImageBlockView block={block} onAnalyse={() => void analyseImage(block)} onRemove={() => void removeBlock(block.id)} />
             ) : block.type === "file" ? (
               <div className="block-media block-file">
                 <a
@@ -835,27 +799,369 @@ export default function NoteDetailPage() {
       </button>
 
       {textOverlay && (
-        <div className="text-overlay" role="dialog" aria-modal="true" aria-label="Full text" onClick={() => setTextOverlay(null)}>
-          <div className="text-overlay-card" onClick={(event) => event.stopPropagation()}>
-            <div className="text-overlay-head">
-              <strong>Text block</strong>
-              <div className="inline-actions">
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={() => void navigator.clipboard.writeText(textOverlay.text_content ?? "").then(() => setMessage("Copied"))}
-                >
-                  Copy
-                </button>
-                <button className="icon-button" onClick={() => setTextOverlay(null)} aria-label="Close"><X size={18} /></button>
-              </div>
-            </div>
-            <pre className="text-overlay-body">{textOverlay.text_content?.trim() ? textOverlay.text_content : "(empty block)"}</pre>
-          </div>
-        </div>
+        <TextOverlayView
+          block={textOverlay}
+          onClose={() => setTextOverlay(null)}
+          onSave={saveBlock}
+        />
       )}
 
       <ToolsDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onSelect={handleToolSelect} />
+    </div>
+  );
+}
+
+/**
+ * Password block with reveal toggle, copy, and label.
+ *
+ * The backend stores `data.value` as AES-GCM ciphertext and only returns the
+ * plaintext when the caller holds `notes.read.secrets`. Without that scope the
+ * value arrives as "••••••••" with `data.masked: true` — the UI must not try to
+ * edit a masked value, or it would overwrite the real secret with the dots.
+ *
+ * A legacy plaintext row (written before encryption existed) comes back with
+ * `data.encrypted: false`; the UI offers to re-save it, which encrypts it.
+ */
+function PasswordBlockView({
+  block,
+  onUpdate,
+}: {
+  block: NoteBlock;
+  onUpdate: (blockId: string, data: Record<string, unknown>) => Promise<void>;
+}) {
+  const [revealed, setRevealed] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [label, setLabel] = useState(String(block.data?.label ?? ""));
+  const masked = Boolean(block.data?.masked);
+  const decryptError = Boolean(block.data?.decrypt_error);
+  const encrypted = block.data?.encrypted !== false;
+  const value = String(block.data?.value ?? "");
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch { /* clipboard unavailable */ }
+  }
+
+  return (
+    <div className="block-field block-password">
+      {label && <label className="block-password-label">{label}</label>}
+      <div className="block-password-row">
+        <input
+          type={revealed && !masked ? "text" : "password"}
+          placeholder="Enter secret…"
+          value={masked ? "" : value}
+          readOnly={masked}
+          onChange={async (e) => {
+            try {
+              await onUpdate(block.id, { ...block.data, value: e.target.value });
+            } catch { /* ignore */ }
+          }}
+        />
+        <button
+          type="button"
+          className="icon-button small-icon"
+          onClick={() => setRevealed((v) => !v)}
+          aria-label={revealed ? "Hide secret" : "Reveal secret"}
+          title={revealed ? "Hide" : "Reveal"}
+        >
+          {revealed ? <EyeOff size={14} /> : <Eye size={14} />}
+        </button>
+        <button
+          type="button"
+          className="icon-button small-icon"
+          onClick={() => void copy()}
+          aria-label="Copy secret"
+          title="Copy"
+        >
+          {copied ? <Check size={14} /> : <Copy size={14} />}
+        </button>
+      </div>
+      {decryptError && <p className="block-password-error">Could not decrypt — wrong key or corrupted data.</p>}
+      {!encrypted && !masked && (
+        <p className="block-password-hint">
+          <Lock size={12} /> Stored in plaintext. Re-enter and save to encrypt.
+        </p>
+      )}
+      <div className="block-password-label-row">
+        <input
+          type="text"
+          placeholder="Label (optional)"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          onBlur={() => {
+            if (label !== String(block.data?.label ?? "")) {
+              void onUpdate(block.id, { ...block.data, label });
+            }
+          }}
+          aria-label="Password label"
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Text block with row-count toggle (3/10/20) and expand-to-overlay.
+ *
+ * The row count is stored in `data.rows` so it survives a reload. The overlay
+ * opens the same text in a larger editable area — the inline textarea is for
+ * quick edits, the overlay for serious writing.
+ */
+function TextBlockView({
+  block,
+  onSave,
+  onExpand,
+}: {
+  block: NoteBlock;
+  onSave: (blockId: string, text: string) => Promise<void>;
+  onExpand: () => void;
+}) {
+  const rows = Number(block.data?.rows ?? 3);
+  const [draft, setDraft] = useState<string | null>(null);
+  const value = draft ?? block.text_content ?? "";
+
+  function setRows(next: number) {
+    void onSave(block.id, value).then(() => {
+      // Persist the row preference separately — it is block metadata, not text.
+      void fetch(`/api/notes/${block.note_id}/blocks/${block.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: { ...block.data, rows: next } }),
+      });
+    });
+  }
+
+  return (
+    <div className="text-block-wrap">
+      <textarea
+        rows={rows}
+        value={value}
+        key={`${block.id}:${block.updated_at}`}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          if (value !== (block.text_content ?? "")) {
+            void onSave(block.id, value);
+          }
+          setDraft(null);
+        }}
+        aria-label="Text block"
+        placeholder="Write a note…"
+      />
+      <div className="text-block-toolbar">
+        <button
+          type="button"
+          className="icon-button small-icon"
+          onClick={onExpand}
+          aria-label="View full text"
+          title="View full text"
+        >
+          <Expand size={14} />
+        </button>
+        <div className="text-rows-toggle">
+          {[3, 10, 20].map((n) => (
+            <button
+              key={n}
+              type="button"
+              className={rows === n ? "active" : ""}
+              onClick={() => setRows(n)}
+              aria-label={`${n} rows`}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Full-screen text editor overlay.
+ *
+ * Opens a text block in a larger editable area. Saves on blur and on close.
+ * Copy button puts the text on the clipboard.
+ */
+function TextOverlayView({
+  block,
+  onClose,
+  onSave,
+}: {
+  block: NoteBlock;
+  onClose: () => void;
+  onSave: (blockId: string, text: string) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState(block.text_content ?? "");
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(draft);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch { /* clipboard unavailable */ }
+  }
+
+  return (
+    <div className="text-overlay" role="dialog" aria-modal="true" aria-label="Full text" onClick={onClose}>
+      <div className="text-overlay-card" onClick={(event) => event.stopPropagation()}>
+        <div className="text-overlay-head">
+          <strong>Text block</strong>
+          <div className="inline-actions">
+            <button type="button" className="secondary-button" onClick={() => void copy()}>
+              {copied ? "Copied" : "Copy"}
+            </button>
+            <button className="icon-button" onClick={onClose} aria-label="Close"><X size={18} /></button>
+          </div>
+        </div>
+        <textarea
+          className="text-overlay-editor"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => {
+            if (draft !== (block.text_content ?? "")) {
+              void onSave(block.id, draft);
+            }
+          }}
+          autoFocus
+          aria-label="Text editor"
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Image block with thumbnail, click-to-enlarge, and EXIF overlay.
+ *
+ * The thumbnail is served by the backend worker (Pillow). Clicking opens a
+ * lightbox that shows the full image. EXIF is fetched on demand and shown as a
+ * read-only overlay — it is never written back to the block or note.
+ */
+function ImageBlockView({
+  block,
+  onAnalyse,
+  onRemove,
+}: {
+  block: NoteBlock;
+  onAnalyse: () => void;
+  onRemove: () => void;
+}) {
+  const assetId = String(block.data?.media_asset_id ?? "");
+  const [lightbox, setLightbox] = useState(false);
+  const [exif, setExif] = useState<Record<string, unknown> | null>(null);
+  const [showExif, setShowExif] = useState(false);
+
+  async function toggleExif() {
+    if (showExif) {
+      setShowExif(false);
+      return;
+    }
+    if (!exif) {
+      try {
+        const res = await fetch(`/api/media/${encodeURIComponent(assetId)}/exif`);
+        if (res.ok) {
+          const data = (await res.json()) as { exif: Record<string, unknown> };
+          setExif(data.exif);
+        }
+      } catch { /* ignore */ }
+    }
+    setShowExif(true);
+  }
+
+  return (
+    <>
+      <div className="block-media">
+        <div className="block-media-head">
+          <span className="block-media-name">{block.text_content || "Image"}</span>
+          <BlockMenu
+            items={[
+              ...(block.ai_description
+                ? [{ label: "Re-analyse with AI", action: onAnalyse }]
+                : [{ label: "Analyse with AI", action: onAnalyse }]),
+              { label: "View EXIF", action: () => void toggleExif() },
+              { label: "Remove block", action: onRemove, danger: true },
+            ]}
+          />
+        </div>
+        <img
+          src={`/api/media/${encodeURIComponent(assetId)}/thumbnail`}
+          alt={block.text_content ?? "Image"}
+          className="block-image block-image-clickable"
+          onClick={() => setLightbox(true)}
+        />
+        {block.ai_description ? (
+          <p className="block-ai-description">{block.ai_description}</p>
+        ) : block.data?.ai_pending ? (
+          <p className="block-ai-pending">AI analysis queued…</p>
+        ) : null}
+      </div>
+      {lightbox && (
+        <ImageLightbox
+          block={block}
+          onClose={() => setLightbox(false)}
+          exif={exif}
+          showExif={showExif}
+          onToggleExif={() => void toggleExif()}
+        />
+      )}
+    </>
+  );
+}
+
+/**
+ * Lightbox for viewing an image at full size.
+ *
+ * Shows the full-resolution image with optional EXIF overlay. The overlay is
+ * read-only — EXIF data is never written back to the block or note.
+ */
+function ImageLightbox({
+  block,
+  onClose,
+  exif,
+  showExif,
+  onToggleExif,
+}: {
+  block: NoteBlock;
+  onClose: () => void;
+  exif: Record<string, unknown> | null;
+  showExif: boolean;
+  onToggleExif: () => void;
+}) {
+  const assetId = String(block.data?.media_asset_id ?? "");
+
+  return (
+    <div className="image-lightbox" role="dialog" aria-modal="true" aria-label="Image viewer" onClick={onClose}>
+      <div className="image-lightbox-content" onClick={(event) => event.stopPropagation()}>
+        <div className="image-lightbox-head">
+          <strong>{block.text_content || "Image"}</strong>
+          <div className="inline-actions">
+            <button type="button" className="secondary-button" onClick={onToggleExif}>
+              {showExif ? "Hide EXIF" : "EXIF"}
+            </button>
+            <button className="icon-button" onClick={onClose} aria-label="Close"><X size={18} /></button>
+          </div>
+        </div>
+        <div className="image-lightbox-body">
+          <img
+            src={`/api/media/${encodeURIComponent(assetId)}/download`}
+            alt={block.text_content ?? "Image"}
+            className="image-lightbox-img"
+          />
+          {showExif && exif && (
+            <div className="image-exif-overlay">
+              {Object.entries(exif).map(([key, value]) => (
+                <div key={key} className="image-exif-row">
+                  <span className="image-exif-key">{key}</span>
+                  <span className="image-exif-value">{String(value)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

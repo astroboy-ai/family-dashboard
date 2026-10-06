@@ -3,6 +3,7 @@
 import Graph from "graphology";
 import {
   ChevronDown,
+  FileUp,
   LoaderCircle,
   Maximize2,
   Plus,
@@ -16,10 +17,15 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createGraphView,
+  deleteGraphArtifact,
   deleteGraphView,
   getGraph,
+  graphArtifactFileUrl,
+  listGraphArtifacts,
   listGraphViews,
   updateGraphView,
+  uploadGraphArtifact,
+  type GraphArtifact,
   type GraphData,
   type GraphNode,
   type GraphView,
@@ -65,10 +71,39 @@ export default function ArchifyPage() {
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
 
+  // ── Imported artifacts ────────────────────────────────────────────────────
+  // A second mode beside the native graph: this one displays files produced
+  // elsewhere (萬事屋 / Kururu emit a self-contained interactive HTML) inside a
+  // sandboxed iframe, so their own viewer — motion, search, trace — is kept.
+  const [mode, setMode] = useState<"graph" | "imports">("graph");
+  const [artifacts, setArtifacts] = useState<GraphArtifact[]>([]);
+  const [activeArtifactId, setActiveArtifactId] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importName, setImportName] = useState("");
+  const [importSource, setImportSource] = useState("萬事屋");
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const activeArtifact = useMemo(
+    () => artifacts.find((item) => item.id === activeArtifactId) ?? artifacts[0] ?? null,
+    [artifacts, activeArtifactId],
+  );
+
   const activeView = useMemo(
     () => views.find((view) => view.id === activeViewId) ?? views[0] ?? null,
     [views, activeViewId],
   );
+
+  const loadArtifacts = useCallback(async () => {
+    try {
+      const result = await listGraphArtifacts();
+      setArtifacts(result.items);
+      setActiveArtifactId((current) => current ?? result.items[0]?.id ?? null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to load imported graphs.");
+    }
+  }, []);
 
   const loadViews = useCallback(async () => {
     try {
@@ -102,7 +137,8 @@ export default function ArchifyPage() {
       const first = items[0];
       await loadGraph(first?.config.scope ?? "all");
     })();
-  }, [loadViews, loadGraph]);
+    void loadArtifacts();
+  }, [loadViews, loadGraph, loadArtifacts]);
 
   // Render with sigma whenever the graph data changes.
   useEffect(() => {
@@ -220,6 +256,47 @@ export default function ArchifyPage() {
     }
   }
 
+  async function handleImport() {
+    if (!importFile) return;
+    setUploading(true);
+    setError("");
+    try {
+      const created = await uploadGraphArtifact({
+        file: importFile,
+        name: importName.trim() || importFile.name,
+        source: importSource.trim() || "manual",
+      });
+      setArtifacts((current) => [...current, created]);
+      setActiveArtifactId(created.id);
+      setMode("imports");
+      setImportOpen(false);
+      setImportFile(null);
+      setImportName("");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      setStatus(`Imported “${created.name}”.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to import this file.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleDeleteArtifact(artifact: GraphArtifact) {
+    if (!window.confirm(`Remove “${artifact.name}” from the imported list?`)) return;
+    setBusy(true);
+    try {
+      await deleteGraphArtifact(artifact.id);
+      const remaining = artifacts.filter((item) => item.id !== artifact.id);
+      setArtifacts(remaining);
+      if (activeArtifactId === artifact.id) setActiveArtifactId(remaining[0]?.id ?? null);
+      setStatus("Imported graph removed.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to remove this graph.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="page-wrap graph-page archify-page">
       <section className="page-heading-row graph-heading">
@@ -231,15 +308,162 @@ export default function ArchifyPage() {
           </p>
         </div>
         <div className="inline-actions">
-          <button className="secondary-button" onClick={() => void loadGraph(activeView?.config.scope ?? "all")} disabled={loading}>
+          <button
+            className={mode === "imports" ? "primary-button" : "secondary-button"}
+            onClick={() => setMode(mode === "imports" ? "graph" : "imports")}
+          >
+            <FileUp size={16} /> Imported graphs
+          </button>
+          <button className="secondary-button" onClick={() => void loadGraph(activeView?.config.scope ?? "all")} disabled={loading || mode === "imports"}>
             <RefreshCw className={loading ? "spin" : undefined} size={16} /> Refresh
           </button>
-          <button className="secondary-button" onClick={() => setSaveOpen((value) => !value)} disabled={busy}>
+          <button className="secondary-button" onClick={() => setSaveOpen((value) => !value)} disabled={busy || mode === "imports"}>
             <Save size={16} /> Save view
           </button>
         </div>
       </section>
 
+      {mode === "imports" ? (
+        <section className="archify-imports">
+          <div className="archify-imports-head">
+            <div>
+              <p className="eyebrow">IMPORTED · EXTERNAL OUTPUT</p>
+              <p className="page-subtitle">
+                Self-contained files produced elsewhere (萬事屋, agents). Shown in a sandboxed frame, so their own viewer keeps working.
+              </p>
+            </div>
+            <button className="primary-button" onClick={() => setImportOpen((value) => !value)} disabled={uploading}>
+              <Plus size={15} /> Import file
+            </button>
+          </div>
+
+          {importOpen && (
+            <div className="archify-import-form">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".html,.htm,.svg,.png,.json,text/html,image/svg+xml,image/png,application/json"
+                onChange={(event) => {
+                  const file = event.target.files?.[0] ?? null;
+                  setImportFile(file);
+                  if (file && !importName.trim()) setImportName(file.name.replace(/\.[^.]+$/, ""));
+                }}
+                aria-label="Archify file to import"
+              />
+              <input
+                className="archify-save-input"
+                value={importName}
+                onChange={(event) => setImportName(event.target.value)}
+                placeholder="Name this graph"
+                aria-label="Imported graph name"
+              />
+              <input
+                className="archify-save-input"
+                value={importSource}
+                onChange={(event) => setImportSource(event.target.value)}
+                placeholder="Source (e.g. 萬事屋)"
+                aria-label="Artifact source"
+              />
+              <button className="primary-button" onClick={() => void handleImport()} disabled={!importFile || uploading}>
+                {uploading ? <LoaderCircle className="spin" size={15} /> : <FileUp size={15} />} Import
+              </button>
+            </div>
+          )}
+
+          <div className="archify-imports-body">
+            <aside className="archify-artifact-list" aria-label="Imported graphs">
+              {artifacts.length === 0 ? (
+                <p className="view-picker-empty">Nothing imported yet.</p>
+              ) : (
+                artifacts.map((artifact) => (
+                  <div
+                    key={artifact.id}
+                    className={`artifact-row${artifact.id === activeArtifact?.id ? " selected" : ""}`}
+                  >
+                    <button
+                      className="artifact-open"
+                      onClick={() => setActiveArtifactId(artifact.id)}
+                      aria-current={artifact.id === activeArtifact?.id}
+                    >
+                      <strong>{artifact.name}</strong>
+                      <small>
+                        {artifact.kind} · {artifact.source} · {(artifact.size_bytes / 1024).toFixed(0)} KB
+                      </small>
+                    </button>
+                    <button
+                      className="icon-button"
+                      onClick={() => void handleDeleteArtifact(artifact)}
+                      aria-label={`Remove ${artifact.name}`}
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                ))
+              )}
+            </aside>
+
+            <div className="archify-artifact-view">
+              {activeArtifact ? (
+                <>
+                  <div className="artifact-view-head">
+                    <div>
+                      <strong>{activeArtifact.name}</strong>
+                      <small>
+                        {activeArtifact.kind} · {activeArtifact.source}
+                      </small>
+                    </div>
+                    {activeArtifact.kind === "html" && (
+                      <a
+                        className="text-link"
+                        href={graphArtifactFileUrl(activeArtifact)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Open in a new tab
+                      </a>
+                    )}
+                  </div>
+                  {activeArtifact.kind === "html" ? (
+                    /*
+                     * sandbox with no allow-same-origin: the file runs in an
+                     * opaque origin. It cannot read cookies, touch storage, or
+                     * call the API as the signed-in member — it can only run its
+                     * own viewer. allow-scripts is required for the interactive
+                     * Archify output to render at all.
+                     */
+                    <iframe
+                      className="artifact-frame"
+                      src={graphArtifactFileUrl(activeArtifact)}
+                      sandbox="allow-scripts allow-popups allow-forms"
+                      referrerPolicy="no-referrer"
+                      title={activeArtifact.name}
+                    />
+                  ) : activeArtifact.kind === "png" || activeArtifact.kind === "svg" ? (
+                    <img
+                      className="artifact-image"
+                      src={graphArtifactFileUrl(activeArtifact)}
+                      alt={activeArtifact.name}
+                    />
+                  ) : (
+                    <div className="graph-state">
+                      <Waypoints size={22} />
+                      <strong>Preview unavailable</strong>
+                      <span>This file type has no inline preview. Open it from the list to download.</span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="graph-state">
+                  <FileUp size={22} />
+                  <strong>No imported graph selected</strong>
+                  <span>Import an Archify HTML file to display it here.</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      ) : (
+        <>
       <div className="graph-toolbar archify-toolbar">
         <div className="archify-view-picker">
           <button
@@ -348,6 +572,8 @@ export default function ArchifyPage() {
           </div>
         </aside>
       </div>
+        </>
+      )}
     </div>
   );
 }

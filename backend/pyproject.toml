@@ -14,6 +14,8 @@ dependencies = [
     "mcp>=2.3",
     "pgvector>=0.3.6",
     "pillow>=11.0",
+    # Required by FastAPI for multipart form/file uploads (Archify artifact import).
+    "python-multipart>=0.0.20",
     "pyjwt[crypto]>=2.10",
     "pydantic-settings>=2.7",
     "pwdlib[argon2]>=0.2",

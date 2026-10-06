@@ -27,6 +27,7 @@ import structlog
 from mcp.server.auth.provider import AccessToken
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
 
 import app.agent.tools  # noqa: F401 — populates the registry via @register
 from app.agent.executor import execute_tool
@@ -41,7 +42,10 @@ logger = structlog.get_logger(__name__)
 
 MCP_SERVER_NAME = "familyos"
 MCP_MOUNT_PATH = "/mcp"
-MCP_PUBLIC_BASE_URL = "https://familyos.logeebox.com"
+# Agents reach the server through the tunnel hostname, not the compose service
+# name, so this is the origin the Host header will carry.
+MCP_PUBLIC_HOSTNAME = "familyos-mcp.logeebox.com"
+MCP_PUBLIC_BASE_URL = f"https://{MCP_PUBLIC_HOSTNAME}"
 
 
 class DeviceTokenVerifier:
@@ -214,8 +218,10 @@ def build_mcp_server(*, public_base_url: str) -> MCPServer:
         name=MCP_SERVER_NAME,
         title="FamilyOS",
         instructions=(
-            "Household notes and tags. Read-only: these tools never change data. "
-            "Notes marked private to another member are not visible."
+            "Household notes and tags. Read tools are open to any valid token; "
+            "write tools (create_note, append_block, upload_media) require the "
+            "notes.write scope. Notes private to another member are not visible. "
+            "Call get_agent_instructions for the full guide."
         ),
         token_verifier=DeviceTokenVerifier(),
         auth=AuthSettings(

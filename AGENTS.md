@@ -15,14 +15,60 @@ Call one of these at session start instead of relying on cached copies.
 
 ## Authentication
 
-- **MCP Endpoint**: `http://familyos-backend:8000/mcp`
+- **MCP Endpoint (external)**: `https://familyos-mcp.logeebox.com/mcp`
+- **MCP Endpoint (internal, compose network)**: `http://familyos-backend:8000/mcp`
 - **Protocol**: Model Context Protocol (MCP) over Streamable HTTP
-- **Auth**: Bearer token from `device_tokens` table
+- **Auth**: `Authorization: Bearer <token>`, from the `device_tokens` table
 - Each agent has its own token with specific scopes
+
+Use the external endpoint. The internal hostname only resolves inside the Docker
+compose network and will not work from your own machine.
 
 ### Getting a Token
 
-Tokens are minted by the system administrator. Contact 子樂 (Lok) to obtain an agent token.
+Tokens are minted by the system administrator. Contact 子樂 (Lok) to obtain one.
+
+An administrator mints a token inside the backend container — note that
+`scripts/` is **not** copied into the image, so run the logic directly:
+
+```bash
+docker exec -w /app -e PYTHONPATH=/app familyos-backend-1 /app/.venv/bin/python -c "
+import asyncio
+from datetime import UTC, datetime, timedelta
+from sqlalchemy import select
+from app.core.db import session_factory
+from app.models import DeviceToken, Household
+from app.services.agent_tokens import generate_token, hash_token
+
+async def main():
+    async with session_factory() as s:
+        hh = (await s.execute(select(Household).limit(1))).scalars().first()
+        token = generate_token()
+        s.add(DeviceToken(
+            household_id=hh.id, member_id=None, label='Kururu',
+            token_hash=hash_token(token), scopes=['notes.read', 'notes.write'],
+            expires_at=datetime.now(UTC) + timedelta(days=365),
+        ))
+        await s.commit()
+        print(token)
+
+asyncio.run(main())
+"
+```
+
+The raw token is printed **once** and never stored — only its SHA-256 hash is
+kept, so it cannot be recovered later. Revoke by deleting the row.
+
+### Scopes
+
+| Scope | Grants |
+| --- | --- |
+| `notes.read` | Search and read family-visible notes |
+| `notes.write` | Create notes, append blocks, upload media |
+
+A token without `notes.write` can still see the write tools listed, but calling
+one returns `permission_denied` and the attempt is recorded in `agent_tool_calls`.
+Publishing a tool is not the same as granting it.
 
 ## Available Tools
 

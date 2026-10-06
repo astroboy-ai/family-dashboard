@@ -4461,3 +4461,203 @@ tfoot .table-control-btn {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ---------------------------------------------------------------------------
+   Agents page (agent token management)
+   --------------------------------------------------------------------------- */
+
+.endpoint-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.endpoint-card {
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--surface-muted);
+}
+
+.endpoint-label {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.endpoint-url {
+  display: block;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--surface-strong);
+  color: var(--on-strong);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.endpoint-card .muted {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.scope-fieldset {
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.scope-fieldset legend {
+  padding: 0 6px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--foreground);
+}
+
+.scope-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.scope-option input {
+  margin-top: 2px;
+}
+
+.scope-option span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.scope-option code {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.scope-option em {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.token-minted {
+  border-color: var(--gold);
+  background: var(--gold-surface);
+}
+
+.token-minted h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--on-gold);
+}
+
+.token-value-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.token-value {
+  flex: 1;
+  min-width: 240px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.token-table-wrap {
+  overflow-x: auto;
+}
+
+.token-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.token-table th {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.token-table td {
+  padding: 10px;
+  border-bottom: 1px solid var(--line-soft);
+  vertical-align: middle;
+}
+
+.token-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.token-inactive td {
+  opacity: 0.55;
+}
+
+.token-scopes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.scope-chip {
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.status-pill {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.status-ok {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.status-warn {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.status-danger {
+  background: var(--coral-soft);
+  color: var(--coral);
+}
+
+.icon-button.danger:hover {
+  color: var(--coral);
+  border-color: var(--coral);
+}

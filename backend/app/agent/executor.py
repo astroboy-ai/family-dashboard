@@ -2,10 +2,13 @@ import time
 import uuid
 from typing import Any
 
+import structlog
 from pydantic import ValidationError
 
 from app.agent.registry import ToolContext, ToolResult, registry
 from app.models import AgentToolCall
+
+logger = structlog.get_logger(__name__)
 
 
 async def execute_tool(
@@ -27,23 +30,33 @@ async def execute_tool(
         result = ToolResult(ok=False, error="Invalid tool parameters", error_code="invalid_params")
         status = "invalid_params"
     else:
-        if not set(tool.permissions).issubset(context.actor.scopes):
-            result = ToolResult(ok=False, error="Permission denied", error_code="permission_denied")
-            status = "permission_denied"
-        elif tool.mutates:
+        # Scopes are the consent mechanism for writes. A mutating tool requires
+        # an explicit write scope on the token; minting the token with that
+        # scope is the operator's approval, so there is no per-call prompt.
+        # ``tool.mutates`` marks a tool as write-capable, it does not itself
+        # block one — the scope check below is what actually gates it.
+        required = set(tool.permissions)
+        if tool.mutates and not any(scope.endswith(".write") for scope in required):
+            # A write tool with no write scope is a wiring mistake: it would be
+            # gated by nothing but the read scope it happens to declare.
+            logger.error("mutating_tool_without_write_scope", tool=name)
             result = ToolResult(
                 ok=False,
-                error="This action requires explicit user confirmation",
-                error_code="confirmation_required",
-                meta={"preview": validated.model_dump(mode="json")},
+                error="Tool is misconfigured",
+                error_code="internal_error",
             )
-            status = "confirmation_required"
+            status = "internal_error"
+            error = "mutating tool declares no write scope"
+        elif not required.issubset(context.actor.scopes):
+            result = ToolResult(ok=False, error="Permission denied", error_code="permission_denied")
+            status = "permission_denied"
         else:
             try:
                 result = await tool.handler(validated, context)
                 status = "success" if result.ok else result.error_code or "error"
                 error = result.error
             except Exception:
+                logger.exception("tool_execution_failed", tool=name)
                 result = ToolResult(ok=False, error="Tool execution failed", error_code="internal_error")
                 status = "internal_error"
                 error = "Tool execution failed"

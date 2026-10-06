@@ -21,6 +21,11 @@ from app.core.config import get_settings
 SETTINGS_KEY = "storage"
 
 DEFAULTS: dict[str, object] = {
+    # Only a fallback: the real public origin lives in
+    # ``households.settings["storage"]["public_endpoint"]``. Loopback is the
+    # safe placeholder because it fails loudly (presigned URLs to it are
+    # rejected by ``browser_reachable``) instead of silently pointing a browser
+    # at some unrelated host.
     "public_endpoint": "http://localhost:8333",
     "bucket": "familyos-media",
     "region": "us-east-1",

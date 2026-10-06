@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import socket
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
 
@@ -12,6 +13,7 @@ from starlette.routing import Mount
 from mcp.server.transport_security import TransportSecuritySettings
 
 from app.agent.mcp_server import (
+    MCP_INTERNAL_HOSTNAME,
     MCP_MOUNT_PATH,
     MCP_PUBLIC_BASE_URL,
     MCP_PUBLIC_HOSTNAME,
@@ -38,6 +40,32 @@ from app.core.storage import get_storage
 
 ReadinessProbe = Callable[[], Awaitable[None]]
 logger = structlog.get_logger(__name__)
+
+
+def _local_ipv4_addresses() -> set[str]:
+    """Every IPv4 address this container answers on.
+
+    Needed for the MCP transport's allowed-hosts list: co-located agents may
+    connect by service name *or* by the container's address, and the SDK matches
+    the host exactly (only the port may be wildcarded). Resolved at startup so
+    the list follows the container rather than hard-coding a subnet.
+    """
+
+    addresses: set[str] = set()
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            addresses.add(str(info[4][0]))
+    except OSError:
+        pass
+    # A UDP connect() to a routable address reports the interface address without
+    # sending a packet — a fallback for when the hostname does not resolve.
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            probe.connect(("172.18.0.1", 1))
+            addresses.add(probe.getsockname()[0])
+    except OSError:
+        pass
+    return {address for address in addresses if address and not address.startswith("127.")}
 
 
 def create_app(
@@ -115,13 +143,25 @@ def create_app(
                 transport_security=TransportSecuritySettings(
                     enable_dns_rebinding_protection=True,
                     allowed_hosts=[
+                        # External agents arrive through the tunnel.
                         MCP_PUBLIC_HOSTNAME,
                         f"{MCP_PUBLIC_HOSTNAME}:*",
+                        # Co-located agents arrive over the compose service name.
+                        # Without this the tunnel works and every internal caller
+                        # gets 421 Invalid Host header.
+                        MCP_INTERNAL_HOSTNAME,
+                        f"{MCP_INTERNAL_HOSTNAME}:*",
+                        # …or by the container's own address. Resolved at startup
+                        # because the SDK matches the host exactly: only the port
+                        # may be wildcarded, so "172.18.0.*" would be read as a
+                        # literal and match nothing.
+                        *[f"{ip}:*" for ip in _local_ipv4_addresses()],
                         "localhost:*",
                         "127.0.0.1:*",
                     ],
                     allowed_origins=[
                         MCP_PUBLIC_BASE_URL,
+                        f"http://{MCP_INTERNAL_HOSTNAME}:*",
                         "http://localhost:*",
                         "http://127.0.0.1:*",
                     ],

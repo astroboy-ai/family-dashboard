@@ -5063,3 +5063,50 @@ tfoot .table-control-btn {
   border-radius: 12px;
   background: #fff;
 }
+
+/* ── Per-block edit lock ──────────────────────────────────────────────────────
+   A locked block is inert because it sits inside a disabled <fieldset>; these
+   rules only make that state legible, never enforce it.
+   ────────────────────────────────────────────────────────────────────────── */
+.block-fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.block-fieldset[disabled] {
+  opacity: 0.72;
+}
+
+/* A disabled fieldset would otherwise grey out its own banner text. */
+.block-locked-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  color: var(--muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+}
+
+.block-fieldset[disabled] .block-locked-banner {
+  color: var(--muted);
+}
+
+.block-lock-toggle {
+  color: var(--muted);
+}
+
+.block-lock-toggle.unlocked {
+  color: var(--accent);
+}
+
+.block-fieldset[disabled] .block-grip {
+  opacity: 0.35;
+  cursor: not-allowed;
+}

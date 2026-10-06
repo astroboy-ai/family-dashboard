@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Check, Copy, Eye, EyeOff, Expand, GripVertical, LoaderCircle, Lock, Maximize, Minimize, Minus, Plus, Save, SquarePen, Trash2, X } from "lucide-react";
+import { ArrowLeft, Check, Copy, Eye, EyeOff, Expand, GripVertical, LoaderCircle, Lock, LockOpen, Maximize, Minimize, Minus, Plus, Save, SquarePen, Trash2, Unlock, X } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -24,6 +24,16 @@ export default function NoteDetailPage() {
   const [textOverlay, setTextOverlay] = useState<NoteBlock | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
+  // Per-block edit lock — a UI guard only, never persisted.
+  //
+  // Every block renders read-only when the note opens, so a stray click cannot
+  // change anything, and unlocking is a deliberate per-block action. It is a
+  // safety habit for the human, not a property of the data: keeping it out of
+  // the API means no migration, no scope and no effect on any agent.
+  //
+  // Holds the ids that are currently UNLOCKED; a new block is added on creation
+  // so a block you just made is immediately editable.
+  const [unlockedBlocks, setUnlockedBlocks] = useState<Set<string>>(new Set());
   const openPanel = usePanelStore((state) => state.open);
   // Blocks render in list order, so a drag only needs to splice the array and
   // persist the resulting ids; order_index is recomputed server-side.
@@ -37,6 +47,32 @@ export default function NoteDetailPage() {
       .finally(() => active && setLoading(false));
     return () => { active = false; };
   }, [params.id]);
+
+  // A fresh load starts fully locked: nothing is unlocked until the user says so.
+  // Keyed on params.id so navigating to another note re-locks everything.
+  useEffect(() => {
+    setUnlockedBlocks(new Set());
+  }, [params.id]);
+
+  function isUnlocked(blockId: string) {
+    return unlockedBlocks.has(blockId);
+  }
+
+  /** Mark a block unlocked, or drop it back to locked. */
+  function toggleBlockLock(blockId: string) {
+    setUnlockedBlocks((current) => {
+      const next = new Set(current);
+      if (next.has(blockId)) next.delete(blockId);
+      else next.add(blockId);
+      return next;
+    });
+  }
+
+  /** Add a newly created block to the unlocked set so it is editable at once. */
+  function adoptNewBlock(block: NoteBlock) {
+    adoptNewBlock(block);
+    setUnlockedBlocks((current) => new Set(current).add(block.id));
+  }
 
   async function saveTitle() {
     if (!note) return;
@@ -68,7 +104,7 @@ export default function NoteDetailPage() {
     if (!note) return;
     try {
       const block = await createTextBlock(note.id, "");
-      setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
+      adoptNewBlock(block);
       setMessage("Text block added");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Couldn’t add a block.");
@@ -95,7 +131,7 @@ export default function NoteDetailPage() {
         bookmarks: [],
         meta: { stroke_count: 0, shape_count: 0, text_count: 0, size_bytes: 0 },
       }, `Whiteboard ${new Date().toLocaleDateString()}`);
-      setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
+      adoptNewBlock(block);
       // Hand the panel this block's own id so it edits the new board rather
       // than re-loading the note's first drawing.
       openPanel("whiteboard", note.id, block.id);
@@ -193,7 +229,7 @@ export default function NoteDetailPage() {
             text_content: "",
             data: { checked: false },
           });
-          setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
+          adoptNewBlock(block);
           setMessage("Checkbox added");
           break;
         }
@@ -203,7 +239,7 @@ export default function NoteDetailPage() {
             text_content: "",
             data: { value: new Date().toISOString().slice(0, 10) },
           });
-          setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
+          adoptNewBlock(block);
           setMessage("Date field added");
           break;
         }
@@ -213,7 +249,7 @@ export default function NoteDetailPage() {
             text_content: "",
             data: { value: "", currency: "HKD" },
           });
-          setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
+          adoptNewBlock(block);
           setMessage("Currency field added");
           break;
         }
@@ -223,7 +259,7 @@ export default function NoteDetailPage() {
             text_content: "",
             data: { value: "", masked: true },
           });
-          setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
+          adoptNewBlock(block);
           setMessage("Password field added");
           break;
         }
@@ -247,7 +283,7 @@ export default function NoteDetailPage() {
                   text_content: file.name,
                   data: { media_asset_id: assetId },
                 });
-                setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
+                adoptNewBlock(block);
               } catch (reason) {
                 setError(reason instanceof Error ? reason.message : "Couldn't upload photo.");
               }
@@ -273,7 +309,7 @@ export default function NoteDetailPage() {
                   text_content: file.name,
                   data: { media_asset_id: assetId },
                 });
-                setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
+                adoptNewBlock(block);
               } catch (reason) {
                 setError(reason instanceof Error ? reason.message : "Couldn't upload file.");
               }
@@ -289,7 +325,7 @@ export default function NoteDetailPage() {
             text_content: "",
             data: { rows: [["", ""], ["", ""]], columns: 2 },
           });
-          setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
+          adoptNewBlock(block);
           setMessage("Table added");
           break;
         }
@@ -299,7 +335,7 @@ export default function NoteDetailPage() {
             text_content: "",
             data: { value: "", duration_min: 0 },
           });
-          setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
+          adoptNewBlock(block);
           setMessage("Time field added");
           break;
         }
@@ -317,7 +353,7 @@ export default function NoteDetailPage() {
             text_content: "",
             data: { remind_at: when, done: false },
           });
-          setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
+          adoptNewBlock(block);
           setMessage("Reminder added");
           break;
         }
@@ -327,7 +363,7 @@ export default function NoteDetailPage() {
             text_content: "",
             data: { locked: true },
           });
-          setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
+          adoptNewBlock(block);
           setMessage("Note locked");
           break;
         }
@@ -339,7 +375,7 @@ export default function NoteDetailPage() {
             text_content: target,
             data: { target },
           });
-          setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
+          adoptNewBlock(block);
           setMessage("Link added");
           break;
         }
@@ -366,7 +402,7 @@ export default function NoteDetailPage() {
               text_content: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
               data: { latitude, longitude },
             });
-            setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
+            adoptNewBlock(block);
             setMessage("Location added");
           } catch (reason) {
             setError(reason instanceof Error ? reason.message : "Couldn't get location.");
@@ -390,7 +426,7 @@ export default function NoteDetailPage() {
                   text_content: "Voice note",
                   data: { media_asset_id: assetId },
                 });
-                setNote((current) => current ? { ...current, blocks: [...current.blocks, block] } : current);
+                adoptNewBlock(block);
                 setMessage("Voice note added");
               } catch (reason) {
                 setError(reason instanceof Error ? reason.message : "Couldn't upload voice note.");
@@ -464,7 +500,14 @@ export default function NoteDetailPage() {
       </div>
       {note.summary && <p className="note-summary">{note.summary}</p>}
       <section className="block-stack">
-        <div className="section-heading"><div><p className="eyebrow">NOTE CONTENT</p><h2>Blocks</h2></div><div className="inline-actions"><button className="text-link" onClick={() => void addTextBlock()}><Plus size={16} /> Add text</button><button className="text-link" onClick={() => void addDrawingBlock()}><SquarePen size={16} /> Add drawing</button></div></div>
+        <div className="section-heading"><div><p className="eyebrow">NOTE CONTENT</p><h2>Blocks</h2></div><div className="inline-actions">
+          {note.blocks.length > 0 && (unlockedBlocks.size < note.blocks.length ? (
+            <button className="text-link" onClick={() => setUnlockedBlocks(new Set(note.blocks.map((b) => b.id)))} title="Unlock every block in this note"><Unlock size={16} /> Unlock all</button>
+          ) : (
+            <button className="text-link" onClick={() => setUnlockedBlocks(new Set())} title="Lock every block again"><Lock size={16} /> Lock all</button>
+          ))}
+          <button className="text-link" onClick={() => void addTextBlock()}><Plus size={16} /> Add text</button><button className="text-link" onClick={() => void addDrawingBlock()}><SquarePen size={16} /> Add drawing</button>
+        </div></div>
         {note.blocks.length === 0 ? <div className="empty-state compact-empty"><strong>This note has no content blocks.</strong><p>Add a text block or a drawing to start writing.</p></div> : note.blocks.map((block, index) => (
           <div
             className={`editable-block${dragId === block.id ? " dragging" : ""}${dropIndex === index && dragId && dragId !== block.id ? " drop-target" : ""}`}
@@ -482,11 +525,34 @@ export default function NoteDetailPage() {
             }}
           >
             <div className="block-meta">
-              <span className="block-grip" draggable onDragStart={() => setDragId(block.id)} onDragEnd={() => { setDragId(null); setDropIndex(null); }} role="button" tabIndex={0} aria-label="Drag to reorder" title="Drag to reorder"><GripVertical size={13} /></span>
+              <span className="block-grip" draggable={isUnlocked(block.id)} onDragStart={() => isUnlocked(block.id) && setDragId(block.id)} onDragEnd={() => { setDragId(null); setDropIndex(null); }} role="button" tabIndex={0} aria-label={isUnlocked(block.id) ? "Drag to reorder" : "Unlock to reorder"} title={isUnlocked(block.id) ? "Drag to reorder" : "Unlock to reorder"} aria-disabled={!isUnlocked(block.id)}><GripVertical size={13} /></span>
               <span>{block.type}</span>
               <span className="block-order">{block.order_index.toString().padStart(4, "0")}</span>
-              <button className="icon-button small-icon" onClick={() => void removeBlock(block.id)} aria-label="Remove block"><Trash2 size={14} /></button>
+              <button
+                type="button"
+                className={`icon-button small-icon block-lock-toggle${isUnlocked(block.id) ? " unlocked" : ""}`}
+                onClick={() => toggleBlockLock(block.id)}
+                aria-pressed={!isUnlocked(block.id)}
+                aria-label={isUnlocked(block.id) ? `Lock this ${block.type} block` : `Unlock this ${block.type} block`}
+                title={isUnlocked(block.id) ? "Lock — make read-only again" : "Unlock — allow editing"}
+              >
+                {isUnlocked(block.id) ? <LockOpen size={14} /> : <Lock size={14} />}
+              </button>
+              <button className="icon-button small-icon" onClick={() => void removeBlock(block.id)} disabled={!isUnlocked(block.id)} aria-label={isUnlocked(block.id) ? "Remove block" : "Unlock to remove this block"} title={isUnlocked(block.id) ? "Remove block" : "Unlock to remove this block"}><Trash2 size={14} /></button>
             </div>
+            {/*
+              A locked block is wrapped in a disabled <fieldset>, which is the one
+              thing that reliably makes every control inside it inert — inputs,
+              textareas, selects, buttons and anything a future block type adds.
+              Styling alone would not stop a click, and per-type handling would
+              have to be repeated for every new block type.
+            */}
+            <fieldset className="block-fieldset" disabled={!isUnlocked(block.id)}>
+              {isUnlocked(block.id) ? null : (
+                <div className="block-locked-banner">
+                  <Lock size={13} /> Locked — unlock this block to edit
+                </div>
+              )}
             {block.type === "text" ? (
               <TextBlockView block={block} onSave={saveBlock} onExpand={() => setTextOverlay(block)} />
             ) : block.type === "drawing" ? (
@@ -787,6 +853,7 @@ export default function NoteDetailPage() {
               </div>
             ) : <pre>{JSON.stringify(block.data, null, 2)}</pre>}
             {block.caption && <p className="block-caption">{block.caption}</p>}
+            </fieldset>
           </div>
         ))}
       </section>

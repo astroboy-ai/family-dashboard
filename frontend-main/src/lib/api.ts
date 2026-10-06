@@ -929,3 +929,54 @@ export function updateCalendarView(
 export function deleteCalendarView(viewId: string): Promise<void> {
   return apiRequest<void>(`/calendar/views/${encodeURIComponent(viewId)}`, { method: "DELETE" });
 }
+// ---------------------------------------------------------------------------
+// Agent tokens (admin)
+// ---------------------------------------------------------------------------
+
+export type AgentToken = {
+  id: string;
+  label: string;
+  scopes: string[];
+  member_id: string | null;
+  created_at: string;
+  expires_at: string | null;
+  last_seen_at: string | null;
+  revoked_at: string | null;
+  is_active: boolean;
+  is_expired: boolean;
+};
+
+/** The mint response. `token` is present here and never returned again. */
+export type AgentTokenCreated = AgentToken & {
+  token: string;
+  warning: string;
+};
+
+export type AgentTokenCreateInput = {
+  label: string;
+  scopes: string[];
+  expires_in_days: number | null;
+  member_id?: string | null;
+};
+
+export function getAgentTokenScopes(): Promise<Record<string, string>> {
+  return apiRequest<Record<string, string>>("/admin/agent-tokens/scopes");
+}
+
+export function listAgentTokens(): Promise<AgentToken[]> {
+  return apiRequest<AgentToken[]>("/admin/agent-tokens");
+}
+
+export function createAgentToken(input: AgentTokenCreateInput): Promise<AgentTokenCreated> {
+  return apiRequest<AgentTokenCreated>("/admin/agent-tokens", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function revokeAgentToken(tokenId: string): Promise<{ id: string; revoked: boolean }> {
+  return apiRequest<{ id: string; revoked: boolean }>(
+    `/admin/agent-tokens/${encodeURIComponent(tokenId)}`,
+    { method: "DELETE" },
+  );
+}

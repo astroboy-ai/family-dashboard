@@ -1,5 +1,6 @@
 import {
   BookOpen,
+  Bot,
   CalendarDays,
   CheckSquare,
   Gift,
@@ -30,7 +31,7 @@ export const navigation = [
   { label: "KB Viewer", href: "/graph", icon: Network },
   { label: "Archify", href: "/archify", icon: Waypoints },
   { label: "Utilities", href: "/utilities", icon: Toolbox },
-  { label: "Hermes", href: "/hermes", icon: Sparkles },
+  { label: "Agents", href: "/agents", icon: Bot },
   { label: "Tag review", href: "/tags/review", icon: Tags },
   { label: "Settings", href: "/settings", icon: Settings },
 ];

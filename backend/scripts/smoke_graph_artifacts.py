@@ -17,13 +17,32 @@ import uuid
 from sqlalchemy import select
 
 from app.api.deps import Actor
+from app.core.config import get_settings
 from app.core.db import session_factory
 from app.core.errors import AppError
-from app.core.storage import get_storage
+from app.core.storage import S3CompatibleStorage
 from app.models import FamilyMember, GraphArtifact
 from app.services import graph_artifacts as artifacts_service
 
 PASS, FAIL = [], []
+
+
+def _storage() -> S3CompatibleStorage:
+    """Build storage the way the worker does.
+
+    ``get_storage`` is a FastAPI dependency, so it cannot be called directly
+    outside a request. The worker constructs the client itself for exactly this
+    reason; this smoke runs the same way.
+    """
+
+    settings = get_settings()
+    return S3CompatibleStorage(
+        internal_endpoint=settings.s3_endpoint,
+        public_endpoint=settings.s3_public_endpoint,
+        access_key=settings.s3_access_key,
+        secret_key=settings.s3_secret_key,
+        bucket=settings.s3_bucket,
+    )
 
 
 def check(name: str, ok: bool, detail: str = "") -> None:
@@ -53,7 +72,7 @@ async def expect_error(coro, error_code: str) -> str:
 
 
 async def main() -> None:
-    storage = get_storage()
+    storage = _storage()
 
     async with session_factory() as session:
         member = (await session.execute(select(FamilyMember).limit(1))).scalar_one()

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import contextlib
 import inspect
+import json
 import uuid
 from collections.abc import AsyncIterator
 from typing import Any
@@ -27,6 +28,7 @@ import structlog
 from mcp.server.auth.provider import AccessToken
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
 
 import app.agent.tools  # noqa: F401 — populates the registry via @register
 from app.agent.executor import execute_tool
@@ -41,7 +43,10 @@ logger = structlog.get_logger(__name__)
 
 MCP_SERVER_NAME = "familyos"
 MCP_MOUNT_PATH = "/mcp"
-MCP_PUBLIC_BASE_URL = "https://familyos.logeebox.com"
+# Agents reach the server through the tunnel hostname, not the compose service
+# name, so this is the origin the Host header will carry.
+MCP_PUBLIC_HOSTNAME = "familyos-mcp.logeebox.com"
+MCP_PUBLIC_BASE_URL = f"https://{MCP_PUBLIC_HOSTNAME}"
 
 
 class DeviceTokenVerifier:
@@ -132,14 +137,26 @@ def _make_handler(name: str, definition):
     The handler receives only validated keyword arguments — no request object —
     so the calling agent's identity is read from the access token the MCP layer
     verified for this request.
+
+    Failures raise ``ToolError`` rather than returning a dict. A returned dict is
+    a *successful* tool result as far as the protocol is concerned, so a refusal
+    used to come back as ``isError: false`` with the denial buried in the body —
+    an agent checking the flag would read a denied write as a completed one.
+    ``ToolError`` is the SDK's channel for an anticipated failure: it sets
+    ``is_error=True``, logs at INFO without a traceback, and leaves the message
+    for the model to read.
     """
 
     async def handler(**kwargs: Any) -> Any:
         from mcp.server.auth.middleware.auth_context import get_access_token
+        from mcp.server.mcpserver.exceptions import ToolError
+
+        def failure(error: str, code: str) -> ToolError:
+            return ToolError(json.dumps({"ok": False, "error": error, "error_code": code}))
 
         access_token = get_access_token()
         if access_token is None:
-            return {"ok": False, "error": "Not authenticated", "error_code": "unauthenticated"}
+            raise failure("Not authenticated", "unauthenticated")
 
         # Re-resolve the token on every call rather than trusting the claims
         # cached at session start: a token revoked mid-session must stop working
@@ -147,11 +164,11 @@ def _make_handler(name: str, definition):
         async with session_factory() as session:
             identity = await resolve_agent_token(session, access_token.token)
             if identity is None:
-                return {"ok": False, "error": "Invalid agent token", "error_code": "unauthenticated"}
+                raise failure("Invalid agent token", "unauthenticated")
 
             actor = await _build_actor(session, identity)
             if actor is None:
-                return {"ok": False, "error": "Invalid agent token", "error_code": "unauthenticated"}
+                raise failure("Invalid agent token", "unauthenticated")
 
             context = ToolContext(
                 actor=actor,
@@ -161,11 +178,12 @@ def _make_handler(name: str, definition):
             )
             result = await execute_tool(name=name, params=kwargs, context=context)
 
-        # Return plain JSON: MCP serialises dicts into structured content, and a
+        if not result.ok:
+            raise failure(result.error or "Tool failed", result.error_code or "error")
+
+        # Plain JSON: MCP serialises dicts into structured content, and a
         # ToolResult is not itself JSON-serialisable.
-        if result.ok:
-            return {"ok": True, "data": _jsonable(result.data), "meta": result.meta}
-        return {"ok": False, "error": result.error, "error_code": result.error_code}
+        return {"ok": True, "data": _jsonable(result.data), "meta": result.meta}
 
     return handler
 
@@ -214,8 +232,10 @@ def build_mcp_server(*, public_base_url: str) -> MCPServer:
         name=MCP_SERVER_NAME,
         title="FamilyOS",
         instructions=(
-            "Household notes and tags. Read-only: these tools never change data. "
-            "Notes marked private to another member are not visible."
+            "Household notes and tags. Read tools are open to any valid token; "
+            "write tools (create_note, append_block, upload_media) require the "
+            "notes.write scope. Notes private to another member are not visible. "
+            "Call get_agent_instructions for the full guide."
         ),
         token_verifier=DeviceTokenVerifier(),
         auth=AuthSettings(

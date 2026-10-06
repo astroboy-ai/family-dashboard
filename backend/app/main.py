@@ -9,7 +9,15 @@ from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
 from starlette.routing import Mount
 
-from app.agent.mcp_server import MCP_MOUNT_PATH, mcp_lifespan, mcp_server
+from mcp.server.transport_security import TransportSecuritySettings
+
+from app.agent.mcp_server import (
+    MCP_MOUNT_PATH,
+    MCP_PUBLIC_BASE_URL,
+    MCP_PUBLIC_HOSTNAME,
+    mcp_lifespan,
+    mcp_server,
+)
 from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
 from app.api.calendar import router as calendar_router
@@ -87,6 +95,13 @@ def create_app(
 
     # MCP for agents (Hermes, Kururu). Mounted with the endpoint at the mount
     # point itself, so clients connect to /mcp rather than /mcp/mcp.
+    #
+    # The transport security settings are passed explicitly. Left to itself the
+    # SDK sees the default ``host="127.0.0.1"`` and turns on DNS-rebinding
+    # protection with only loopback hostnames allowed, so every request through
+    # the tunnel is rejected with 421 Invalid Host header. Passing ``host``
+    # suppresses that default, and the explicit settings below keep the
+    # protection on with our own hostnames allowed instead of switching it off.
     app.router.routes.append(
         Mount(
             MCP_MOUNT_PATH,
@@ -94,6 +109,21 @@ def create_app(
                 streamable_http_path="/",
                 stateless_http=False,
                 json_response=True,
+                host=MCP_PUBLIC_HOSTNAME,
+                transport_security=TransportSecuritySettings(
+                    enable_dns_rebinding_protection=True,
+                    allowed_hosts=[
+                        MCP_PUBLIC_HOSTNAME,
+                        f"{MCP_PUBLIC_HOSTNAME}:*",
+                        "localhost:*",
+                        "127.0.0.1:*",
+                    ],
+                    allowed_origins=[
+                        MCP_PUBLIC_BASE_URL,
+                        "http://localhost:*",
+                        "http://127.0.0.1:*",
+                    ],
+                ),
             ),
         )
     )

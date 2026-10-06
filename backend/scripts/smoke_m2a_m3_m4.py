@@ -161,6 +161,57 @@ async def main() -> None:
         )
         check("mark_all_as_read runs", allread >= 0, f"marked={allread}")
 
+        print("\n== regression: inline password block via create_note ==")
+        # A password block passed inline to create_note must be encrypted too —
+        # it used to skip _encrypt_password_data and land as plaintext.
+        inline_note = await notes_service.create_note(
+            session=session,
+            actor=parent,
+            payload=NoteCreateRequest(
+                title="R2 smoke inline password",
+                type="freeform",
+                blocks=[
+                    NoteBlockInput(type="password", data={"value": "inline-secret", "label": "router"})
+                ],
+            ),
+        )
+        check("create_note with inline password block succeeds", inline_note is not None)
+        inline_block = (
+            await session.execute(
+                select(NoteBlock).where(NoteBlock.note_id == inline_note.id)
+            )
+        ).scalars().one()
+        inline_stored = (inline_block.data or {}).get("value", "")
+        check("inline password encrypted at rest", inline_stored != "inline-secret",
+              f"stored={inline_stored[:24]}…")
+        check("inline password is our ciphertext", secrets.is_encrypted(inline_stored))
+        check("inline password decrypts back", secrets.decrypt(inline_stored) == "inline-secret")
+
+        # get_note must mask for a non-secret scope, exactly like list_blocks.
+        got_parent = await notes_service.get_note(session=session, actor=parent, note_id=inline_note.id)
+        pv = next(b for b in got_parent.blocks if b.type == "password")
+        check("get_note reveals to secrets scope", pv.data.get("value") == "inline-secret")
+
+        got_plain = await notes_service.get_note(session=session, actor=plain, note_id=inline_note.id)
+        cv = next(b for b in got_plain.blocks if b.type == "password")
+        check("get_note masks without secrets scope", cv.data.get("value") != "inline-secret",
+              f"value={cv.data.get('value')!r}")
+
+        # list_notes must mask too — it shares _note_response.
+        listed_plain = await notes_service.list_notes(session=session, actor=plain, limit=200)
+        row = next((n for n in listed_plain.items if n.id == inline_note.id), None)
+        if row:
+            lv = next((b for b in row.blocks if b.type == "password"), None)
+            check("list_notes masks without secrets scope",
+                  lv is not None and lv.data.get("value") != "inline-secret",
+                  f"value={lv.data.get('value') if lv else None!r}")
+
+        inline_row = (
+            await session.execute(select(Note).where(Note.id == inline_note.id))
+        ).scalar_one()
+        from datetime import UTC as _UTC, datetime as _dt
+        inline_row.deleted_at = _dt.now(_UTC)
+
         print("\n== M4: vault ==")
         from app.api.vault import list_password_blocks, get_password_block
 

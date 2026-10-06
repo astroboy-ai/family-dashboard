@@ -330,10 +330,22 @@ async def _load_tags(session: AsyncSession, note_id: uuid.UUID) -> list[Tag]:
     return list(result.scalars().all())
 
 
-def _note_response(note: Note, blocks: list[NoteBlock], tags: list[Tag]) -> NoteResponse:
+def _note_response(
+    note: Note, blocks: list[NoteBlock], tags: list[Tag], *, can_read_secrets: bool = False
+) -> NoteResponse:
+    """Build the note response, masking password values the caller may not see.
+
+    Blocks go through :func:`_serialize_block` rather than a bare
+    ``model_validate`` so that a password block is encrypted-at-rest but handed
+    back decrypted (with the scope) or masked (without it) — a note fetched
+    through this path must not leak a secret that ``list_blocks`` would hide.
+    """
+
     return NoteResponse.model_validate(note).model_copy(
         update={
-            "blocks": [NoteBlockResponse.model_validate(block) for block in blocks],
+            "blocks": [
+                _serialize_block(block, can_read_secrets=can_read_secrets) for block in blocks
+            ],
             "tags": [TagResponse.model_validate(tag) for tag in tags],
         }
     )
@@ -389,7 +401,12 @@ async def list_notes(
     result = await session.execute(statement)
     notes = list(result.scalars().all())
     items = [
-        _note_response(note, await _load_blocks(session, note.id), await _load_tags(session, note.id))
+        _note_response(
+            note,
+            await _load_blocks(session, note.id),
+            await _load_tags(session, note.id),
+            can_read_secrets="notes.read.secrets" in actor.scopes,
+        )
         for note in notes
     ]
     return NoteListResponse(items=items, limit=limit, offset=offset)
@@ -403,6 +420,7 @@ async def get_note(
         note,
         await _load_blocks(session, note.id),
         await _load_tags(session, note.id),
+        can_read_secrets="notes.read.secrets" in actor.scopes,
     )
 
 
@@ -482,7 +500,17 @@ async def create_note(
             id=uuid.uuid4(),
             note_id=note.id,
             order_index=index * 1000,
-            **block_payload.model_dump(),
+            **{
+                **block_payload.model_dump(),
+                # A password block created inline must be encrypted like one
+                # created through create_block — otherwise the value lands in
+                # the row as plaintext and never gets wrapped.
+                "data": (
+                    _encrypt_password_data(block_payload.data or {})
+                    if block_payload.type == "password"
+                    else block_payload.data
+                ),
+            },
             created_at=now,
             updated_at=now,
         )
@@ -525,7 +553,9 @@ async def create_note(
         after={"type": note.type, "visibility": note.visibility},
     )
     await session.commit()
-    return _note_response(note, blocks, tags)
+    return _note_response(
+        note, blocks, tags, can_read_secrets="notes.read.secrets" in actor.scopes
+    )
 
 
 async def update_note(
@@ -711,7 +741,13 @@ def _serialize_block(block: NoteBlock, *, can_read_secrets: bool) -> NoteBlockRe
             if not can_read_secrets:
                 data["value"] = "••••••••"
                 data["masked"] = True
-    return NoteBlockResponse.model_validate({**block.__dict__, "data": data})
+    # Validate from the ORM object, not ``block.__dict__``: a freshly
+    # constructed instance only has the attributes that were set on it, so
+    # ``__dict__`` is missing any column left at its default (ai_description,
+    # ocr_text, transcript) and validation fails with "Field required".
+    # ``from_attributes=True`` reads through the instrumented descriptors and
+    # fills those in. ``data`` is then overridden with the masked/decrypted copy.
+    return NoteBlockResponse.model_validate(block).model_copy(update={"data": data})
 
 
 async def update_block(

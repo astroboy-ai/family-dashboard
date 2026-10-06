@@ -67,23 +67,21 @@ class DeviceTokenVerifier:
 
 
 def _register_tools(server: MCPServer) -> None:
-    """Mirror every read-only registry entry as an MCP tool.
+    """Mirror every registry entry as an MCP tool.
 
     The MCP SDK derives a tool's JSON schema from the handler's signature, so the
     signature is synthesised from the registry's params model. Passing
     ``Annotated`` types through preserves the model's constraints (``ge``,
     ``max_length``, …) in the published schema rather than flattening them to
     bare types.
+
+    Write tools are published too. Access is decided by the scope on the calling
+    token (see ``execute_tool``): a token without ``notes.write`` gets
+    ``permission_denied``, and the call is still recorded in ``agent_tool_calls``.
+    Publishing a tool therefore does not grant it — the token does.
     """
 
     for name, definition in registry.items():
-        if definition.mutates:
-            # Write tools are deliberately not exposed over MCP yet. A remote
-            # agent should not be able to change household data without an
-            # explicit confirmation flow, which does not exist here.
-            logger.info("mcp_tool_skipped_mutating", tool=name)
-            continue
-
         handler = _make_handler(name, definition)
         handler.__name__ = name
         handler.__signature__ = _signature_from_model(definition.params_model)

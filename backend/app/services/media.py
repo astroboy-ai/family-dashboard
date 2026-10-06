@@ -1,3 +1,5 @@
+import hashlib
+import io
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -257,6 +259,76 @@ async def load_asset_for_download(
     asset = result.scalar_one_or_none()
     if asset is None:
         raise AppError("Media asset not found", status_code=404, error_code="not_found")
+    return asset
+
+
+async def store_agent_upload(
+    *,
+    session: AsyncSession,
+    storage: StorageBackend,
+    actor: Actor,
+    filename: str,
+    mime: str,
+    data: bytes,
+    description: str | None = None,
+) -> MediaAsset:
+    """Store bytes an agent sent inline, ready to attach to a note block.
+
+    An agent cannot use the presigned-URL path: that needs a browser to PUT to
+    object storage. It hands over the bytes instead, so this writes them
+    straight through and marks the asset complete in one step.
+
+    ``description`` is the agent's own analysis of the file. When present it is
+    stored as the AI description and no local vision call is queued — the caller
+    has already done that work, and re-running it would burn tokens for nothing.
+    A description always marks enrichment complete, otherwise the worker would
+    still pick the asset up.
+    """
+
+    asset_id = uuid.uuid4()
+    key = _storage_key(actor.household_id, asset_id, filename)
+
+    try:
+        await storage.put(
+            key,
+            io.BytesIO(data),
+            size=len(data),
+            content_type=mime or "application/octet-stream",
+        )
+    except Exception as error:  # noqa: BLE001 - surface as a clean 503
+        raise AppError(
+            "Media storage is unavailable",
+            status_code=503,
+            error_code="storage_unavailable",
+        ) from error
+
+    meta: dict[str, object] = {"original_filename": Path(filename).name}
+    if description:
+        meta["ai_description"] = description
+        meta["ai_model"] = "agent-supplied"
+
+    asset = MediaAsset(
+        id=asset_id,
+        household_id=actor.household_id,
+        kind=_media_kind(mime),
+        storage_key=key,
+        mime=mime,
+        size_bytes=len(data),
+        sha256=hashlib.sha256(data).hexdigest(),
+        uploaded_by=actor.member_id,
+        # An agent-supplied description means there is nothing left to enrich.
+        enrichment_status="complete" if description else "pending",
+        meta=meta,
+    )
+    session.add(asset)
+
+    if not description:
+        # No description: let the local vision worker do it, same as a browser
+        # upload would. Skip for non-images, which the worker ignores anyway.
+        if asset.kind == "image":
+            session.add(JobOutbox(topic="media.enrich", payload={"asset_id": str(asset.id)}))
+
+    await session.commit()
     return asset
 
 

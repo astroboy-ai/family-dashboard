@@ -135,10 +135,18 @@ def note_access_clause(actor: Actor, *, write: bool = False) -> Any:
     if actor.role == "agent":
         # Agents act for the household, not as a person. Read access follows the
         # same rule as a guest (shared notes only) so an agent token can never
-        # reach another member's private notes. Writes are refused outright:
-        # `execute_tool` already blocks mutating tools, and this closes the
-        # clause for any future caller that forgets to check.
-        if write or "notes.read" not in actor.scopes:
+        # reach another member's private notes.
+        #
+        # Write access is granted by an explicit ``notes.write`` scope on the
+        # token, and is still limited to family-visible notes: an agent may add
+        # to the shared record but cannot create or edit a note the family
+        # cannot see. Minting a token with that scope is the operator's consent
+        # — there is no per-call confirmation prompt.
+        if write:
+            if "notes.write" not in actor.scopes:
+                return false()
+            return Note.visibility == "family"
+        if "notes.read" not in actor.scopes:
             return false()
         return Note.visibility == "family"
     if actor.role == "child":
@@ -405,6 +413,18 @@ async def create_note(
         if payload.owner_member_id not in (None, actor.member_id):
             raise AppError("Children can only own their own notes", status_code=403, error_code="permission_denied")
         owner_member_id = actor.member_id
+    elif actor.role == "agent" and "notes.write" in actor.scopes:
+        # An agent writes on behalf of a member when the caller names one (e.g.
+        # "Lok's voucher"), otherwise it writes for the household. Family
+        # visibility is enforced by note_access_clause and re-checked here so a
+        # private note is refused with a clear message rather than a 404.
+        if payload.visibility != "family":
+            raise AppError(
+                "Agents can only create family-visible notes",
+                status_code=403,
+                error_code="permission_denied",
+            )
+        owner_member_id = payload.owner_member_id
     else:
         raise AppError("Permission denied", status_code=403, error_code="permission_denied")
 

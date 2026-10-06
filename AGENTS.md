@@ -26,7 +26,7 @@ Tokens are minted by the system administrator. Contact 子樂 (Lok) to obtain an
 
 ## Available Tools
 
-### Notes
+### Notes (read)
 
 - **search_notes** — Search household notes by keyword or semantic query
   - Parameters: `query` (string), `limit` (int, default 10)
@@ -48,6 +48,36 @@ Tokens are minted by the system administrator. Contact 子樂 (Lok) to obtain an
   - Parameters: `days` (int, default 7)
   - Returns: List of expiring items
 
+### Writing (requires `notes.write` scope)
+
+These tools change household data. They only work if your token carries the
+`notes.write` scope — a token without it gets `permission_denied`, and the
+attempt is recorded in the audit log either way.
+
+- **upload_media** — Upload a file and get an `asset_id` to attach to a block
+  - Parameters: `filename`, `mime`, `content_base64`, `description` (optional)
+  - **Pass `description` when you have already analysed the file.** The system
+    will then store your text and skip its own vision call entirely — do not
+    upload a file you have described and let the system analyse it again.
+  - Without a `description`, the local vision worker analyses images only.
+  - Limit: keep uploads under ~64 MB (base64 inflates by ~33%).
+
+- **create_note** — Create a note, optionally with blocks and tags in one call
+  - Parameters: `title`, `type`, `summary`, `owner_member_id` (optional),
+    `expires_at` (optional), `occurred_at` (optional), `blocks` (array),
+    `tags` (array)
+  - `owner_member_id` names the member the note is for. Omit it for the
+    household in general. Get member IDs from the household admin page.
+  - Agents can only create **family-visible** notes. A request for
+    `visibility: "parents"` is refused.
+
+- **append_block** — Append one block to an existing note
+  - Parameters: `note_id`, `type`, `text_content`, `media_asset_id` (optional),
+    `data` (object), `caption`, `expires_at` (optional), `importance` (0–5)
+  - Block types: `text`, `image`, `file`, `audio`, `date`, `time`, `currency`,
+    `checkbox`, `table`, `password`, `location`, `drawing`, `reminder`
+  - Attach an uploaded file by passing its `asset_id` as `media_asset_id`.
+
 ### Calendar (Coming Soon)
 
 - **list_events** — List calendar events
@@ -62,15 +92,35 @@ Agents are assigned scopes that determine what they can do:
 | Scope | Description |
 |-------|-------------|
 | `notes.read` | Read notes and search |
-| `notes.write` | Create and modify notes |
+| `notes.write` | Create notes, upload files, append blocks |
 | `calendar.read` | Read calendar events |
 | `calendar.write` | Create and modify calendar events |
+
+### How write access works
+
+There is no per-call confirmation prompt. **The scope on your token is the
+consent**: the operator granted `notes.write` when the token was minted. Every
+write is recorded in `agent_tool_calls` with your agent name, the tool, the
+parameters (secrets redacted) and the result.
+
+Because of that, write carefully:
+
+1. **Confirm the intent with the user before writing** unless they asked for it
+   in the same conversation. You have the permission; that is not the same as
+   having the instruction.
+2. **Do not create duplicates.** Search first — `search_notes` — before creating
+   a note that may already exist.
+3. **Write family-visible content only.** Private and parent-only notes are not
+   available to you, by design.
+4. **Name the owner when it matters.** A voucher for 子樂 goes to 子樂, not to
+   the household in general.
 
 ## Guidelines
 
 ### Read-Only Tools
 
-Currently, all agent tools are **read-only**. Agents cannot modify household data. This is intentional — a remote agent should not change data without an explicit confirmation flow.
+Tools in the *Notes (read)* section never change data. The *Writing* tools do,
+and require the `notes.write` scope — see "How write access works" above.
 
 ### Rate Limits
 

@@ -47,6 +47,10 @@ MCP_MOUNT_PATH = "/mcp"
 # name, so this is the origin the Host header will carry.
 MCP_PUBLIC_HOSTNAME = "familyos-mcp.logeebox.com"
 MCP_PUBLIC_BASE_URL = f"https://{MCP_PUBLIC_HOSTNAME}"
+# Agents co-located with the backend (same Docker network) connect over the
+# compose service name. The Host header then carries this name, so it has to be
+# allowed too — otherwise those callers get 421 while the tunnel works.
+MCP_INTERNAL_HOSTNAME = "familyos-backend"
 
 
 class DeviceTokenVerifier:

@@ -111,7 +111,15 @@ services:
     command:
       - /bin/sh
       - -ec
-      - uv run alembic upgrade head && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+      # --proxy-headers makes uvicorn honour X-Forwarded-Proto, so a redirect
+      # generated behind the tunnel keeps the https scheme instead of degrading
+      # to http. --forwarded-allow-ips is required alongside it: uvicorn only
+      # trusts the header from 127.0.0.1 by default, and the Cloudflare tunnel
+      # reaches us from its own container on link01 (172.18.0.9). Scoped to the
+      # compose subnet rather than "*" so a direct connection cannot forge the
+      # header. A caller that sends no X-Forwarded-Proto (e.g. an agent using
+      # http://familyos-backend:8000 internally) is unaffected.
+      - uv run alembic upgrade head && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips 172.18.0.0/16
     healthcheck:
       test:
         - CMD

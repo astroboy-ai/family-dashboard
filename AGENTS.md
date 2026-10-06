@@ -15,14 +15,19 @@ Call one of these at session start instead of relying on cached copies.
 
 ## Authentication
 
-- **MCP Endpoint (external)**: `https://familyos-mcp.logeebox.com/mcp`
-- **MCP Endpoint (internal, compose network)**: `http://familyos-backend:8000/mcp`
+- **MCP Endpoint (external)**: `https://familyos-mcp.logeebox.com/mcp/`
+- **MCP Endpoint (internal, compose network)**: `http://familyos-backend:8000/mcp/`
 - **Protocol**: Model Context Protocol (MCP) over Streamable HTTP
 - **Auth**: `Authorization: Bearer <token>`, from the `device_tokens` table
 - Each agent has its own token with specific scopes
 
 Use the external endpoint. The internal hostname only resolves inside the Docker
 compose network and will not work from your own machine.
+
+**Keep the trailing slash.** The path without it (`/mcp`) answers with a 307
+redirect to the canonical `/mcp/`. Some MCP clients do not follow redirects on
+POST, and a redirect can drop the `Authorization` header — so connect to the
+trailing-slash form directly.
 
 ### Getting a Token
 
@@ -106,7 +111,12 @@ attempt is recorded in the audit log either way.
     will then store your text and skip its own vision call entirely — do not
     upload a file you have described and let the system analyse it again.
   - Without a `description`, the local vision worker analyses images only.
-  - Limit: keep uploads under ~64 MB (base64 inflates by ~33%).
+  - **Size limit: about 3 MB per file.** The MCP transport caps a request body at
+    4 MB and base64 inflates by ~33%, so a file above ~3 MB is rejected with HTTP
+    413 before any tool code runs. This is a transport limit, not a storage one —
+    a larger file needs an upload path outside `tools/call`.
+  - Video and audio are stored but never analysed: the vision worker skips any
+    asset whose kind is not `image`.
 
 - **create_note** — Create a note, optionally with blocks and tags in one call
   - Parameters: `title`, `type`, `summary`, `owner_member_id` (optional),

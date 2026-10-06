@@ -4,11 +4,15 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+import structlog
 from sqlalchemy import and_, delete, false, func, or_, select, true
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+logger = structlog.get_logger(__name__)
+
 from app.api.deps import Actor
+from app.core import secrets
 from app.core.errors import AppError
 from app.core.text import build_search_text
 from app.models import AuditLog, FamilyMember, JobOutbox, MediaAsset, Note, NoteBlock, Tag, TagAuditLog, TagExclusion, note_tags
@@ -606,6 +610,19 @@ async def delete_note(
     await session.commit()
 
 
+def _encrypt_password_data(data: dict[str, Any]) -> dict[str, Any]:
+    """Encrypt ``data.value`` in place if it is plaintext.
+
+    Idempotent: an already-encrypted value is left alone, so re-saving a block
+    does not double-encrypt. Other keys (``label``, ``masked``) are preserved.
+    """
+
+    value = data.get("value")
+    if value and not secrets.is_encrypted(value):
+        data = {**data, "value": secrets.encrypt(value), "encrypted": True}
+    return data
+
+
 async def create_block(
     *, session: AsyncSession, actor: Actor, note_id: uuid.UUID, payload: NoteBlockInput
 ) -> NoteBlockResponse:
@@ -620,11 +637,14 @@ async def create_block(
     )
     max_order = result.scalar_one_or_none() or 0
     now = datetime.now(UTC)
+    fields = payload.model_dump()
+    if fields.get("type") == "password":
+        fields["data"] = _encrypt_password_data(fields.get("data") or {})
     block = NoteBlock(
         id=uuid.uuid4(),
         note_id=note.id,
         order_index=max_order + 1000,
-        **payload.model_dump(),
+        **fields,
         created_at=now,
         updated_at=now,
     )
@@ -640,17 +660,58 @@ async def create_block(
         after={"type": block.type, "order_index": block.order_index},
     )
     await session.commit()
-    return NoteBlockResponse.model_validate(block)
+    return _serialize_block(block, can_read_secrets="notes.read.secrets" in actor.scopes)
 
 
 async def list_blocks(
     *, session: AsyncSession, actor: Actor, note_id: uuid.UUID
 ) -> list[NoteBlockResponse]:
     note = await _get_note(session=session, actor=actor, note_id=note_id)
+    blocks = await _load_blocks(session, note.id)
+    can_read_secrets = "notes.read.secrets" in actor.scopes
     return [
-        NoteBlockResponse.model_validate(block)
-        for block in await _load_blocks(session, note.id)
+        _serialize_block(block, can_read_secrets=can_read_secrets) for block in blocks
     ]
+
+
+def _serialize_block(block: NoteBlock, *, can_read_secrets: bool) -> NoteBlockResponse:
+    """Build the response, masking password values the caller may not see.
+
+    A password block stores ``data.value`` as AES-GCM ciphertext. Without the
+    ``notes.read.secrets`` scope the caller gets a masked placeholder and a flag
+    saying a secret is present — enough to render the block, not enough to read
+    it. With the scope, the plaintext is decrypted into ``data.value``.
+
+    A legacy plaintext value (written before encryption existed) is treated as
+    readable only with the scope, and is reported via ``data.encrypted=False``
+    so the UI can offer to re-save it encrypted.
+    """
+
+    data = dict(block.data or {})
+    if block.type == "password" and "value" in data:
+        stored = data["value"]
+        if secrets.is_encrypted(stored):
+            if can_read_secrets:
+                try:
+                    data["value"] = secrets.decrypt(stored)
+                except ValueError as error:
+                    # Wrong key or tampered ciphertext. Show a distinct marker
+                    # rather than a wrong password — the user must be able to tell
+                    # "this is broken" from "this is not the password".
+                    logger.warning("secret_decrypt_failed", block_id=str(block.id), error=str(error))
+                    data["value"] = None
+                    data["decrypt_error"] = True
+            else:
+                data["value"] = "••••••••"
+                data["masked"] = True
+            data["encrypted"] = True
+        else:
+            # Legacy plaintext row. Never hand it out without the scope.
+            data["encrypted"] = False
+            if not can_read_secrets:
+                data["value"] = "••••••••"
+                data["masked"] = True
+    return NoteBlockResponse.model_validate({**block.__dict__, "data": data})
 
 
 async def update_block(
@@ -663,6 +724,10 @@ async def update_block(
     )
     changes = payload.model_dump(exclude_unset=True)
     before = {"type": block.type, "order_index": block.order_index}
+    if changes.get("type") == "password" or block.type == "password":
+        new_data = changes.get("data")
+        if new_data is not None:
+            changes["data"] = _encrypt_password_data(new_data)
     if "media_asset_id" in changes:
         await _validate_media(
             session=session,
@@ -689,7 +754,7 @@ async def update_block(
         after={"updated_fields": sorted(changes)},
     )
     await session.commit()
-    return NoteBlockResponse.model_validate(block)
+    return _serialize_block(block, can_read_secrets="notes.read.secrets" in actor.scopes)
 
 
 async def delete_block(

@@ -17,6 +17,7 @@ ROLE_SCOPES: dict[str, set[str]] = {
     "parent": {
         "notes.read",
         "notes.write",
+        "notes.read.secrets",
         "calendar.read",
         "calendar.write",
         "calendar.manage",

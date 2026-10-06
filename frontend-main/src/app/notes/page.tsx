@@ -31,7 +31,7 @@ export default function NotesPage() {
     const needle = query.trim().toLowerCase();
     if (!needle) return notes;
     return notes.filter((note) => [note.title, note.summary, ...note.tags.map((tag) => tag.name), ...note.blocks.map((block) => block.text_content ?? "")]
-      .some((value) => value?.toLowerCase().includes(needle));
+      .some((value) => value?.toLowerCase().includes(needle)));
   }, [notes, query]);
 
   function handleQueryChange(value: string) {

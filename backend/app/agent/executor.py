@@ -1,5 +1,7 @@
 import time
 import uuid
+from datetime import date, datetime
+from datetime import time as time_type
 from typing import Any
 
 import structlog
@@ -75,13 +77,43 @@ async def execute_tool(
             latency_ms=int((time.perf_counter() - started_at) * 1000),
         )
     )
-    await context.session.commit()
+    # The audit row must never decide the outcome of the call it records. By the
+    # time we get here the tool has already run and committed, so a failure to
+    # write the audit row would report a successful write as an error — the
+    # caller would retry and duplicate the work.
+    try:
+        await context.session.commit()
+    except Exception:
+        logger.exception("agent_tool_call_audit_failed", tool=name)
+        await context.session.rollback()
     return result
+
+
+def _jsonable(value: Any) -> Any:
+    """Coerce a value into something JSONB can store.
+
+    Tool params arrive here already validated, which means the MCP layer has
+    converted ISO strings into ``datetime``/``UUID``/``Decimal`` objects. JSONB
+    cannot serialise those, and an unserialisable audit row used to fail the
+    whole tool call.
+    """
+
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_jsonable(item) for item in value]
+    if isinstance(value, (datetime, date, time_type)):
+        return value.isoformat()
+    if isinstance(value, uuid.UUID):
+        return str(value)
+    return str(value)
 
 
 def _redact_params(params: dict[str, Any]) -> dict[str, Any]:
     secret_keys = {"password", "pin", "token", "secret", "authorization"}
     return {
-        key: "[redacted]" if key.casefold() in secret_keys else value
+        key: "[redacted]" if key.casefold() in secret_keys else _jsonable(value)
         for key, value in params.items()
     }

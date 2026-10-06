@@ -503,8 +503,65 @@ async def process_once() -> int:
         return len(jobs)
 
 
+REMINDER_SCAN_INTERVAL_SECONDS = 300  # 5 minutes
+
+
+async def reminder_scan() -> int:
+    """Scan for notes expiring soon and create notifications.
+
+    Runs every 5 minutes alongside the outbox poll. Uses ``dedupe_key`` to
+    avoid creating duplicate notifications for the same note.
+    """
+
+    from datetime import timedelta
+
+    from app.models import Note
+    from app.services.notifications import create_notification
+
+    now = datetime.now(UTC)
+    window_end = now + timedelta(days=7)
+
+    async with session_factory() as session:
+        result = await session.execute(
+            select(Note).where(
+                Note.deleted_at.is_(None),
+                Note.expires_at.is_not(None),
+                Note.expires_at.between(now, window_end),
+            )
+        )
+        notes = result.scalars().all()
+
+        created = 0
+        for note in notes:
+            try:
+                await create_notification(
+                    session=session,
+                    household_id=note.household_id,
+                    kind="note_expiring",
+                    title=f"Expiring: {note.title or 'Untitled'}",
+                    body=f"Note expires {note.expires_at.isoformat()}",
+                    ref_type="note",
+                    ref_id=note.id,
+                    priority=2,
+                    scheduled_for=note.expires_at,
+                    channel="inapp",
+                    dedupe_key=f"note:{note.id}:expiring",
+                )
+                created += 1
+            except Exception as error:  # noqa: BLE001
+                logger.warning(
+                    "reminder_scan_failed",
+                    note_id=str(note.id),
+                    error=f"{type(error).__name__}: {error}",
+                )
+
+        logger.info("reminder_scan_complete", notes_found=len(notes), notifications_created=created)
+        return created
+
+
 async def run_forever() -> None:
     logger.info("worker_started", topics=sorted(HANDLERS))
+    last_reminder_scan = datetime.now(UTC)
     while True:
         try:
             handled = await process_once()
@@ -516,6 +573,19 @@ async def run_forever() -> None:
                 traceback=traceback.format_exc(),
             )
             handled = 0
+
+        # Run reminder scan every 5 minutes
+        now = datetime.now(UTC)
+        if (now - last_reminder_scan).total_seconds() >= REMINDER_SCAN_INTERVAL_SECONDS:
+            try:
+                await reminder_scan()
+            except Exception as error:  # noqa: BLE001
+                logger.warning(
+                    "reminder_scan_error",
+                    error=f"{type(error).__name__}: {error}",
+                )
+            last_reminder_scan = now
+
         if handled == 0:
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
 

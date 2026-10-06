@@ -22,6 +22,7 @@ from app.agent.mcp_server import (
 )
 from app.api.admin import router as admin_router
 from app.api.agent_tokens import router as agent_tokens_router
+from app.api.notifications import router as notifications_router
 from app.api.auth import router as auth_router
 from app.api.calendar import router as calendar_router
 from app.api.internal_agent import router as internal_agent_router
@@ -121,6 +122,7 @@ def create_app(
     app.include_router(transit_router, prefix="/api")
     app.include_router(admin_router, prefix="/api")
     app.include_router(agent_tokens_router, prefix="/api")
+    app.include_router(notifications_router, prefix="/api")
     app.include_router(calendar_router, prefix="/api")
 
     # MCP for agents (Hermes, Kururu). Mounted with the endpoint at the mount

@@ -26,6 +26,11 @@ x-backend-env: &backend-env
   S3_SECRET_KEY: ${S3_SECRET_KEY:?Set S3_SECRET_KEY in .env}
   S3_BUCKET: ${S3_BUCKET:-familyos-media}
   JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+  # 32-byte base64 key for AES-GCM password-block encryption. Lives in the
+  # environment, never in the database: a database dump alone must not reveal
+  # stored passwords. Changing it makes existing password blocks undecryptable
+  # (AES-GCM fails its tag check), so treat it like JWT_SECRET — set once.
+  FAMILYOS_SECRET_KEY: ${FAMILYOS_SECRET_KEY:?Set FAMILYOS_SECRET_KEY in .env}
   ENVIRONMENT: ${ENVIRONMENT:-development}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
   DOCKER_NETWORK: familyos

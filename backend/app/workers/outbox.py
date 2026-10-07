@@ -504,6 +504,44 @@ async def process_once() -> int:
 
 
 REMINDER_SCAN_INTERVAL_SECONDS = 300  # 5 minutes
+CALENDAR_SYNC_INTERVAL_SECONDS = 900  # 15 minutes
+
+
+async def calendar_sync_scan() -> int:
+    """Pull Google Calendar changes for every active account.
+
+    Google has no push into this system, so without a periodic pull an event
+    created on a phone never appears here. Incremental via ``sync_token``, so
+    the usual run costs one request per calendar.
+
+    One account failing must not stop the others: the whole point is that this
+    runs unattended.
+    """
+
+    from app.models.calendar import CalendarAccount
+    from app.services.calendar_sync import sync_account
+
+    synced = 0
+    async with session_factory() as session:
+        account_ids = (
+            await session.execute(
+                select(CalendarAccount.id).where(CalendarAccount.is_active.is_(True))
+            )
+        ).scalars().all()
+
+        for account_id in account_ids:
+            try:
+                await sync_account(session, account_id)
+                synced += 1
+            except Exception as error:  # noqa: BLE001
+                await session.rollback()
+                logger.warning(
+                    "calendar_sync_scan.account_failed",
+                    account_id=str(account_id),
+                    error=f"{type(error).__name__}: {error}",
+                )
+
+    return synced
 
 
 async def reminder_scan() -> int:
@@ -562,6 +600,9 @@ async def reminder_scan() -> int:
 async def run_forever() -> None:
     logger.info("worker_started", topics=sorted(HANDLERS))
     last_reminder_scan = datetime.now(UTC)
+    # None on purpose: wait a full interval before the first calendar sync so a
+    # restart does not immediately hammer Google for every account.
+    last_calendar_sync: datetime | None = None
     while True:
         try:
             handled = await process_once()
@@ -585,6 +626,21 @@ async def run_forever() -> None:
                     error=f"{type(error).__name__}: {error}",
                 )
             last_reminder_scan = now
+
+        # Pull Google Calendar changes every 15 minutes
+        if (
+            last_calendar_sync is None
+            or (now - last_calendar_sync).total_seconds() >= CALENDAR_SYNC_INTERVAL_SECONDS
+        ):
+            try:
+                count = await calendar_sync_scan()
+                logger.info("calendar_sync_scan_complete", accounts=count)
+            except Exception as error:  # noqa: BLE001
+                logger.warning(
+                    "calendar_sync_scan_error",
+                    error=f"{type(error).__name__}: {error}",
+                )
+            last_calendar_sync = now
 
         if handled == 0:
             await asyncio.sleep(POLL_INTERVAL_SECONDS)

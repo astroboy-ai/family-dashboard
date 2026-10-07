@@ -187,6 +187,23 @@ async def list_events(
                 headers={"Authorization": f"Bearer {token}"},
                 params=params,
             )
+            if response.status_code == 410 and sync_token:
+                # The sync token expired (Google keeps them for a limited time).
+                # Retry once as a full sync and let the caller store the fresh
+                # token. Without this the incremental sync fails forever.
+                logger.info(
+                    "google_calendar.sync_token_expired",
+                    account_id=str(account_id),
+                    calendar_id=calendar_id,
+                )
+                return await list_events(
+                    session,
+                    account_id,
+                    calendar_id,
+                    time_min=time_min,
+                    time_max=time_max,
+                    sync_token=None,
+                )
             response.raise_for_status()
             data = response.json()
             all_events.extend(GoogleEvent(**item) for item in data.get("items", []))

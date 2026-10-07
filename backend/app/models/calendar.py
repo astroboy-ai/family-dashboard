@@ -47,6 +47,8 @@ class Calendar(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     color: Mapped[str | None] = mapped_column(String(32))
+    theme: Mapped[str | None] = mapped_column(String(32))
+    is_customized: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     is_primary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     is_visible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")

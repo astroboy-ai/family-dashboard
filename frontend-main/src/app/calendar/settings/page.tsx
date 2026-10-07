@@ -15,23 +15,28 @@ import {
   Layout,
   Check,
   X,
+  Palette,
+  Lock,
 } from "lucide-react";
 import {
   listCalendarAccounts,
   listCalendars,
+  updateCalendar,
   listCalendarPermissions,
   listCalendarViews,
-  createCalendarPermission,
+  createCalendarPermissionsBulk,
   deleteCalendarPermission,
   createCalendarView,
   deleteCalendarView,
   getCalendarOAuthUrl,
   calendarOAuthCallback,
+  listLoginMembers,
   syncCalendars,
   type CalendarAccount,
   type Calendar,
   type CalendarPermission,
   type CalendarView,
+  type LoginMember,
 } from "@/lib/api";
 
 const LEVEL_ICONS = {
@@ -48,33 +53,61 @@ const LEVEL_COLORS = {
   admin: "bg-red-500",
 };
 
+/** Must stay in step with CALENDAR_THEMES on the calendar page. */
+const CALENDAR_THEMES = [
+  { value: "auto", label: "Auto", swatch: "linear-gradient(135deg,#e5e7eb 50%,#374151 50%)" },
+  { value: "light", label: "Light", swatch: "#f8fafc" },
+  { value: "dark", label: "Dark", swatch: "#1f2937" },
+  { value: "midnight", label: "Midnight", swatch: "#1e3a8a" },
+  { value: "forest", label: "Forest", swatch: "#14532d" },
+] as const;
+
+const CALENDAR_COLORS = [
+  "#17654c", "#0ea5e9", "#6366f1", "#a855f7", "#ec4899",
+  "#ef4444", "#f97316", "#eab308", "#22c55e", "#14b8a6",
+  "#64748b", "#78716c",
+] as const;
+
 export default function CalendarSettingsPage() {
   const router = useRouter();
   const [accounts, setAccounts] = useState<CalendarAccount[]>([]);
   const [calendars, setCalendars] = useState<Calendar[]>([]);
   const [permissions, setPermissions] = useState<CalendarPermission[]>([]);
   const [views, setViews] = useState<CalendarView[]>([]);
+  const [members, setMembers] = useState<LoginMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [showAddAccount, setShowAddAccount] = useState(false);
   const [showAddPermission, setShowAddPermission] = useState(false);
   const [showAddView, setShowAddView] = useState(false);
-  const [newPermission, setNewPermission] = useState<{ calendar_id: string; member_id: string; level: "view" | "edit" | "manage" | "admin" }>({ calendar_id: "", member_id: "", level: "view" });
+  // Multi-select: one level applied to every selected member × calendar.
+  const [newPermission, setNewPermission] = useState<{
+    calendar_ids: string[];
+    member_ids: string[];
+    level: "view" | "edit" | "manage" | "admin";
+  }>({ calendar_ids: [], member_ids: [], level: "view" });
   const [newView, setNewView] = useState<{ name: string; calendar_ids: string[]; layout: "month" | "week" | "day" | "agenda" }>({ name: "", calendar_ids: [], layout: "month" });
+  const [editingCalendar, setEditingCalendar] = useState<Calendar | null>(null);
+  const [calendarDraft, setCalendarDraft] = useState<{ name: string; color: string; theme: string; is_visible: boolean }>({ name: "", color: "", theme: "auto", is_visible: true });
+  const [savingCalendar, setSavingCalendar] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [accData, calData, permData, viewData] = await Promise.all([
+      const [accData, calData, permData, viewData, memberData] = await Promise.all([
         listCalendarAccounts(),
-        listCalendars(),
+        // include_hidden: a calendar switched off here must still be listed,
+        // otherwise it can never be switched back on.
+        listCalendars(true),
         listCalendarPermissions(),
         listCalendarViews(),
+        listLoginMembers().catch(() => []),
       ]);
       setAccounts(accData);
       setCalendars(calData);
       setPermissions(permData);
       setViews(viewData);
+      setMembers(memberData);
     } catch (err) {
       console.error("Failed to fetch calendar settings:", err);
     } finally {
@@ -130,14 +163,43 @@ export default function CalendarSettingsPage() {
   }, []);
 
   const handleCreatePermission = async () => {
-    if (!newPermission.calendar_id || !newPermission.member_id) return;
+    if (newPermission.calendar_ids.length === 0 || newPermission.member_ids.length === 0) return;
     try {
-      await createCalendarPermission(newPermission.calendar_id, newPermission.member_id, newPermission.level);
+      await createCalendarPermissionsBulk(newPermission);
       setShowAddPermission(false);
-      setNewPermission({ calendar_id: "", member_id: "", level: "view" });
+      setNewPermission({ calendar_ids: [], member_ids: [], level: "view" });
       await fetchData();
     } catch (err) {
       console.error("Failed to create permission:", err);
+    }
+  };
+
+  const openCalendarEditor = (cal: Calendar) => {
+    setEditingCalendar(cal);
+    setCalendarDraft({
+      name: cal.name,
+      color: cal.color || CALENDAR_COLORS[0],
+      theme: cal.theme || "auto",
+      is_visible: cal.is_visible,
+    });
+  };
+
+  const handleSaveCalendar = async () => {
+    if (!editingCalendar) return;
+    setSavingCalendar(true);
+    try {
+      await updateCalendar(editingCalendar.id, {
+        name: calendarDraft.name,
+        color: calendarDraft.color,
+        theme: calendarDraft.theme,
+        is_visible: calendarDraft.is_visible,
+      });
+      setEditingCalendar(null);
+      await fetchData();
+    } catch (err) {
+      console.error("Failed to update calendar:", err);
+    } finally {
+      setSavingCalendar(false);
     }
   };
 
@@ -241,11 +303,22 @@ export default function CalendarSettingsPage() {
                 </div>
               )}
               {calendars.map((cal) => (
-                <div key={cal.id} className="flex items-center justify-between rounded-lg border border-[var(--border)] p-3">
+                <button
+                  key={cal.id}
+                  onClick={() => openCalendarEditor(cal)}
+                  className="flex w-full items-center justify-between rounded-lg border border-[var(--border)] p-3 text-left hover:bg-[var(--muted)]"
+                >
                   <div className="flex items-center gap-3">
                     <div className="h-3 w-3 rounded-full" style={{ backgroundColor: cal.color || "#6366f1" }} />
                     <div>
-                      <div className="text-sm font-medium">{cal.name}</div>
+                      <div className="flex items-center gap-1.5 text-sm font-medium">
+                        <span>{cal.name}</span>
+                        {!cal.is_visible && (
+                          <span className="rounded bg-[var(--muted)] px-1.5 py-0.5 text-[10px] text-[var(--muted)]">
+                            Hidden
+                          </span>
+                        )}
+                      </div>
                       {cal.description && <div className="text-xs text-[var(--muted)]">{cal.description}</div>}
                     </div>
                   </div>
@@ -256,8 +329,9 @@ export default function CalendarSettingsPage() {
                     <span className="text-xs text-[var(--muted)]">
                       {cal.last_synced_at ? `Synced ${new Date(cal.last_synced_at).toLocaleDateString()}` : "Not synced"}
                     </span>
+                    <Palette size={14} className="text-[var(--muted)]" />
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           </section>
@@ -290,9 +364,9 @@ export default function CalendarSettingsPage() {
                         <Icon size={14} />
                       </div>
                       <div>
-                        <div className="text-sm font-medium">{cal?.name || "Unknown Calendar"}</div>
+                        <div className="text-sm font-medium">{perm.calendar_name || cal?.name || "Unknown Calendar"}</div>
                         <div className="text-xs text-[var(--muted)]">
-                          Member {perm.member_id.slice(0, 8)}... · {perm.level}
+                          {perm.member_name || `Member ${perm.member_id.slice(0, 8)}...`} · {perm.level}
                         </div>
                       </div>
                     </div>
@@ -382,27 +456,77 @@ export default function CalendarSettingsPage() {
             </div>
             <div className="space-y-4">
               <div>
-                <label className="mb-1 block text-sm font-medium text-[var(--muted)]">Calendar</label>
-                <select
-                  value={newPermission.calendar_id}
-                  onChange={(e) => setNewPermission({ ...newPermission, calendar_id: e.target.value })}
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-                >
-                  <option value="">Select calendar</option>
-                  {calendars.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
+                <label className="mb-1 block text-sm font-medium text-[var(--muted)]">
+                  Calendars ({newPermission.calendar_ids.length} selected)
+                </label>
+                <div className="max-h-40 space-y-1 overflow-auto rounded-lg border border-[var(--border)] p-2">
+                  {calendars.map((c) => {
+                    const checked = newPermission.calendar_ids.includes(c.id);
+                    return (
+                      <button
+                        key={c.id}
+                        onClick={() =>
+                          setNewPermission({
+                            ...newPermission,
+                            calendar_ids: checked
+                              ? newPermission.calendar_ids.filter((id) => id !== c.id)
+                              : [...newPermission.calendar_ids, c.id],
+                          })
+                        }
+                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-[var(--muted)]"
+                      >
+                        <span
+                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                            checked ? "border-[var(--primary)] bg-[var(--primary)]" : "border-[var(--border)]"
+                          }`}
+                        >
+                          {checked && <Check size={11} className="text-white" />}
+                        </span>
+                        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: c.color || "#6366f1" }} />
+                        <span className="truncate text-sm">{c.name}</span>
+                      </button>
+                    );
+                  })}
+                  {calendars.length === 0 && (
+                    <p className="px-2 py-1 text-xs text-[var(--muted)]">No calendars synced yet.</p>
+                  )}
+                </div>
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-[var(--muted)]">Member ID</label>
-                <input
-                  type="text"
-                  value={newPermission.member_id}
-                  onChange={(e) => setNewPermission({ ...newPermission, member_id: e.target.value })}
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-                  placeholder="Member UUID"
-                />
+                <label className="mb-1 block text-sm font-medium text-[var(--muted)]">
+                  Members ({newPermission.member_ids.length} selected)
+                </label>
+                <div className="max-h-40 space-y-1 overflow-auto rounded-lg border border-[var(--border)] p-2">
+                  {members.map((m) => {
+                    const checked = newPermission.member_ids.includes(m.id);
+                    return (
+                      <button
+                        key={m.id}
+                        onClick={() =>
+                          setNewPermission({
+                            ...newPermission,
+                            member_ids: checked
+                              ? newPermission.member_ids.filter((id) => id !== m.id)
+                              : [...newPermission.member_ids, m.id],
+                          })
+                        }
+                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-[var(--muted)]"
+                      >
+                        <span
+                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                            checked ? "border-[var(--primary)] bg-[var(--primary)]" : "border-[var(--border)]"
+                          }`}
+                        >
+                          {checked && <Check size={11} className="text-white" />}
+                        </span>
+                        <span className="truncate text-sm">{m.display_name}</span>
+                      </button>
+                    );
+                  })}
+                  {members.length === 0 && (
+                    <p className="px-2 py-1 text-xs text-[var(--muted)]">No members found.</p>
+                  )}
+                </div>
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-[var(--muted)]">Level</label>
@@ -426,7 +550,7 @@ export default function CalendarSettingsPage() {
               </div>
               <button
                 onClick={handleCreatePermission}
-                disabled={!newPermission.calendar_id || !newPermission.member_id}
+                disabled={newPermission.calendar_ids.length === 0 || newPermission.member_ids.length === 0}
                 className="w-full rounded-lg bg-[var(--primary)] py-2.5 text-sm font-medium text-white disabled:opacity-50"
               >
                 Add Permission
@@ -503,6 +627,74 @@ export default function CalendarSettingsPage() {
               >
                 Create View
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Calendar Editor Modal */}
+      {editingCalendar && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => { setEditingCalendar(null); }}>
+          <div className="w-full max-w-md rounded-2xl bg-[var(--background)] p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Edit Calendar</h2>
+              <button onClick={() => setEditingCalendar(null)} className="rounded-lg p-1 hover:bg-[var(--muted)]">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-[var(--muted)]">Name</label>
+                <input
+                  type="text"
+                  value={calendarDraft.name}
+                  onChange={(e) => setCalendarDraft({ ...calendarDraft, name: e.target.value })}
+                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                  placeholder="Calendar name"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-[var(--muted)]">Color</label>
+                <div className="flex flex-wrap gap-2">
+                  {CALENDAR_COLORS.map((c) => (
+                    <button
+                      key={c}
+                      onClick={() => setCalendarDraft({ ...calendarDraft, color: c })}
+                      className={`h-6 w-6 rounded-full border-2 ${calendarDraft.color === c ? "border-white scale-110" : "border-transparent"}`}
+                      style={{ backgroundColor: c }}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-[var(--muted)]">Theme</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {CALENDAR_THEMES.map((t) => (
+                    <button
+                      key={t.value}
+                      onClick={() => setCalendarDraft({ ...calendarDraft, theme: t.value })}
+                      className={`rounded-lg border p-2 text-xs text-center ${calendarDraft.theme === t.value ? "border-[var(--primary)] bg-[var(--primary)]/10" : "border-[var(--border)]"}`}
+                    >
+                      <div className="mx-auto mb-1 h-4 w-8 rounded" style={{ background: t.swatch }} />
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={calendarDraft.is_visible}
+                  onChange={(e) => setCalendarDraft({ ...calendarDraft, is_visible: e.target.checked })}
+                  className="rounded"
+                />
+                Visible on calendar
+              </label>
+              <div className="flex gap-2">
+                <button onClick={() => setEditingCalendar(null)} className="flex-1 rounded-lg border border-[var(--border)] py-2 text-sm">Cancel</button>
+                <button onClick={handleSaveCalendar} disabled={savingCalendar || !calendarDraft.name} className="flex-1 rounded-lg bg-[var(--primary)] py-2 text-sm font-medium text-white disabled:opacity-50">
+                  {savingCalendar ? "Saving..." : "Save"}
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -1277,23 +1277,32 @@ h2 {
 
 .note-detail-heading {
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 20px;
-  padding-bottom: 20px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding-bottom: 12px;
   border-bottom: 1px solid var(--line);
+}
+
+/* Title and its save button share one line, so the first block sits higher up
+   the page. The save button only appears once the title is dirty. */
+.note-title-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
 }
 
 .note-title-input {
   display: block;
   width: min(100%, 760px);
-  min-height: 45px;
+  min-height: 40px;
   padding: 0;
   border: 0;
   outline: 0;
   background: transparent;
   color: var(--foreground);
-  font-size: 28px;
+  font-size: 26px;
   font-weight: 690;
 }
 
@@ -1305,17 +1314,19 @@ h2 {
 .note-tag-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px;
-  padding: 16px 0;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 0;
 }
 
 .tag-chip {
-  padding: 4px 9px;
+  padding: 2px 7px;
   border: 1px solid var(--line);
   border-radius: 20px;
   background: var(--accent-soft);
   color: var(--accent);
-  font-size: 11px;
+  font-size: 10px;
+  line-height: 1.5;
 }
 
 .tag-chip-button {
@@ -1326,17 +1337,18 @@ h2 {
 .compact-tag-entry {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-left: 8px;
+  gap: 5px;
+  margin-left: 4px;
 }
 
 .compact-tag-entry input {
-  min-width: 130px;
-  padding: 7px 9px;
+  min-width: 100px;
+  padding: 3px 7px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--surface);
   color: var(--foreground);
+  font-size: 11px;
 }
 
 .note-summary {
@@ -4162,6 +4174,24 @@ body:has(.note-detail-page.fullscreen) .tool-dock {
 
 .tool-dock-primary:hover {
   background: var(--accent-strong);
+}
+
+/* Icon-only actions in the bar: same hit area, no label. */
+.tool-dock-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted-strong);
+  cursor: pointer;
+}
+
+.tool-dock-icon:hover {
+  background: var(--surface-muted);
+  color: var(--accent);
 }
 
 @media (min-width: 861px) {

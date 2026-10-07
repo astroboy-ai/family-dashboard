@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Check, Copy, Eye, EyeOff, Expand, GripVertical, LoaderCircle, Lock, LockOpen, Maximize, Minimize, Minus, Plus, Save, SquarePen, Trash2, Unlock, X } from "lucide-react";
+import { ArrowLeft, Check, Copy, Eye, EyeOff, Expand, GripVertical, LoaderCircle, Lock, LockOpen, Maximize, Minimize, Minus, Plus, Save, SquarePen, Trash2, Type, Unlock, X } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -504,12 +504,14 @@ export default function NoteDetailPage() {
 
   return (
     <div className={`page-wrap note-detail-page ${fullscreen ? "fullscreen" : ""}`}>
-      <div className="detail-back-row"><Link href="/notes"><ArrowLeft size={16} /> Notes</Link><span>{message && <span className="save-state"><Check size={14} /> {message}</span>}</span><button className="icon-button" onClick={() => setFullscreen(!fullscreen)} aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}>{fullscreen ? <Minimize size={16} /> : <Maximize size={16} />}</button></div>
+      <div className="detail-back-row"><Link href="/notes"><ArrowLeft size={16} /> Notes</Link><span>{message && <span className="save-state"><Check size={14} /> {message}</span>}</span></div>
       <section className="note-detail-heading">
-        <div><p className="eyebrow">{note.type.replaceAll("_", " ")} · {note.status}</p><input className="note-title-input" value={note.title ?? ""} onChange={(event) => setNote({ ...note, title: event.target.value })} onBlur={() => void saveTitle()} aria-label="Note title" placeholder="Untitled note" /><p className="page-subtitle">Updated {new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(note.updated_at))}</p></div>
-        <div className="inline-actions">
+        <div className="note-title-row">
+          <input className="note-title-input" value={note.title ?? ""} onChange={(event) => setNote({ ...note, title: event.target.value })} onBlur={() => void saveTitle()} aria-label="Note title" placeholder="Untitled note" />
           <button className="icon-button" onClick={() => void saveTitle()} disabled={saving} aria-label="Save title" title="Save title">{saving ? <LoaderCircle className="spin" size={16} /> : <Save size={16} />}</button>
         </div>
+        <p className="eyebrow">{note.type.replaceAll("_", " ")} · {note.status}</p>
+        <p className="page-subtitle">Updated {new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(note.updated_at))}</p>
       </section>
       <div className="note-tag-row">
         {note.tags.map((tag) => <button type="button" className="tag-chip tag-chip-button" key={tag.id} onClick={() => void removeTag(tag.slug)}>#{tag.slug}</button>)}
@@ -904,14 +906,15 @@ export default function NoteDetailPage() {
         Kept out of the content flow so it never scrolls away.
       */}
       <div className="tool-dock" role="toolbar" aria-label="Note actions">
+        <button type="button" className="tool-dock-item" onClick={() => void addTextBlock()} title="Add a text block"><Type size={15} /> text</button>
+        <button type="button" className="tool-dock-item" onClick={() => void addDrawingBlock()} title="Add a drawing block"><SquarePen size={15} /> drawing</button>
+        <button type="button" className="tool-dock-item tool-dock-primary" onClick={() => setDrawerOpen(true)} aria-label="Open the tool drawer"><Plus size={15} /> Tools</button>
         {note.blocks.length > 0 && (unlockedBlocks.size < note.blocks.length ? (
-          <button type="button" className="tool-dock-item" onClick={() => setUnlockedBlocks(new Set(note.blocks.map((b) => b.id)))} title="Unlock every block in this note"><Unlock size={15} /> Unlock all</button>
+          <button type="button" className="tool-dock-icon" onClick={() => setUnlockedBlocks(new Set(note.blocks.map((b) => b.id)))} title="Unlock every block" aria-label="Unlock every block"><Unlock size={15} /></button>
         ) : (
-          <button type="button" className="tool-dock-item" onClick={() => setUnlockedBlocks(new Set())} title="Lock every block again"><Lock size={15} /> Lock all</button>
+          <button type="button" className="tool-dock-icon" onClick={() => setUnlockedBlocks(new Set())} title="Lock every block" aria-label="Lock every block"><Lock size={15} /></button>
         ))}
-        <button type="button" className="tool-dock-item" onClick={() => void addTextBlock()}><Plus size={15} /> Add text</button>
-        <button type="button" className="tool-dock-item" onClick={() => void addDrawingBlock()}><SquarePen size={15} /> Add drawing</button>
-        <button type="button" className="tool-dock-item tool-dock-primary" onClick={() => setDrawerOpen(true)} aria-label="Add block or tool"><Plus size={15} /> Tools</button>
+        <button type="button" className="tool-dock-icon" onClick={() => setFullscreen(!fullscreen)} aria-label={fullscreen ? "Exit full screen" : "Full screen"} title={fullscreen ? "Exit full screen" : "Full screen"}>{fullscreen ? <Minimize size={15} /> : <Maximize size={15} />}</button>
       </div>
 
       {textOverlay && (

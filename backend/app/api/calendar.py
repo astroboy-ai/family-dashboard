@@ -16,6 +16,8 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import structlog
+
 from app.api.deps import Actor, get_current_actor, require_scope
 from app.core.config import get_settings
 from app.core.db import get_session
@@ -48,6 +50,7 @@ from app.services.google_calendar import (
 )
 
 router = APIRouter(prefix="/calendar", tags=["calendar"])
+logger = structlog.get_logger(__name__)
 
 
 @router.get("/oauth/url", response_model=OAuthUrlResponse)
@@ -73,7 +76,7 @@ async def get_oauth_url(
     return OAuthUrlResponse(authorize_url=get_authorize_url(state, settings.google_redirect_uri))
 
 
-@router.get("/oauth/callback", response_model=CalendarAccountResponse)
+@router.get("/oauth/callback")
 async def oauth_callback(
     actor: Annotated[Actor, Depends(get_current_actor)],
     session: Annotated[AsyncSession, Depends(get_session)],
@@ -142,6 +145,13 @@ async def oauth_callback(
     session.add(account)
     await session.commit()
     await session.refresh(account)
+
+    # Auto-sync right away so the user sees calendars without pressing Sync.
+    # A failure here must not break the OAuth redirect.
+    try:
+        await sync_account(session, account.id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("calendar.oauth.auto_sync_failed", error=str(exc))
 
     return RedirectResponse(url="/calendar/settings?oauth=success", status_code=303)
 

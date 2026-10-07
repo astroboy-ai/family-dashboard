@@ -80,12 +80,23 @@ async def sync_account(session: AsyncSession, account_id: uuid.UUID) -> dict[str
         await session.flush()
 
         # Sync events
-        events, next_sync_token = await list_events(
-            session,
-            account_id,
-            cal.id,
-            sync_token=calendar.sync_token,
-        )
+        try:
+            events, next_sync_token = await list_events(
+                session,
+                account_id,
+                cal.id,
+                sync_token=calendar.sync_token,
+            )
+        except Exception as exc:
+            # A single unreachable calendar (e.g. deleted holiday feed) must not
+            # abort the whole sync for the account.
+            logger.warning(
+                "calendar_sync.calendar_failed",
+                account_id=str(account_id),
+                calendar_id=cal.id,
+                error=str(exc),
+            )
+            continue
 
         for evt in events:
             if evt.status == "cancelled":

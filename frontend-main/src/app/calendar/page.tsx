@@ -124,9 +124,20 @@ export default function CalendarPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
+      // Without a range the API returns the oldest events first (2008+), so the
+      // current month would look empty. Ask for a window around today instead.
+      const rangeStart = new Date();
+      rangeStart.setDate(rangeStart.getDate() - 30);
+      const rangeEnd = new Date();
+      rangeEnd.setDate(rangeEnd.getDate() + 365);
+
       const [calData, evtData] = await Promise.all([
         listCalendars(),
-        listCalendarEvents({ limit: 500 }),
+        listCalendarEvents({
+          start: rangeStart.toISOString(),
+          end: rangeEnd.toISOString(),
+          limit: 2000,
+        }),
       ]);
       setCalendars(calData);
       setEvents(evtData);

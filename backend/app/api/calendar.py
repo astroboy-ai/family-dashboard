@@ -261,7 +261,7 @@ async def list_events(
     calendar_id: uuid.UUID | None = None,
     start: datetime | None = None,
     end: datetime | None = None,
-    limit: int = Query(default=100, ge=1, le=500),
+    limit: int = Query(default=100, ge=1, le=2000),
 ) -> list[CalendarEventResponse]:
     """List events, optionally filtered by calendar and time range."""
     stmt = (
@@ -271,6 +271,7 @@ async def list_events(
         .where(
             CalendarAccount.household_id == actor.household_id,
             Calendar.is_visible.is_(True),
+            CalendarEvent.status != "cancelled",
         )
     )
     if calendar_id:

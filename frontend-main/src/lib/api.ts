@@ -954,10 +954,8 @@ export function getCalendarOAuthUrl(): Promise<{ authorize_url: string }> {
 }
 
 export function calendarOAuthCallback(code: string, state: string): Promise<CalendarAccount> {
-  return apiRequest<CalendarAccount>("/calendar/oauth/callback", {
-    method: "POST",
-    body: JSON.stringify({ code, state }),
-  });
+  const params = new URLSearchParams({ code, state });
+  return apiRequest<CalendarAccount>(`/calendar/oauth/callback?${params.toString()}`);
 }
 
 export function listCalendarPermissions(calendarId?: string): Promise<CalendarPermission[]> {

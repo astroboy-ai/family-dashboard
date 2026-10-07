@@ -72,11 +72,12 @@ async def get_oauth_url(
     return OAuthUrlResponse(authorize_url=get_authorize_url(state, settings.google_redirect_uri))
 
 
-@router.post("/oauth/callback", response_model=CalendarAccountResponse)
+@router.get("/oauth/callback", response_model=CalendarAccountResponse)
 async def oauth_callback(
-    payload: OAuthCallbackRequest,
     actor: Annotated[Actor, Depends(get_current_actor)],
     session: Annotated[AsyncSession, Depends(get_session)],
+    code: str = Query(...),
+    state: str = Query(...),
 ) -> CalendarAccountResponse:
     """Exchange OAuth code for tokens and create calendar account."""
     settings = get_settings()
@@ -87,7 +88,7 @@ async def oauth_callback(
     import jwt
     try:
         state_claims = jwt.decode(
-            payload.state,
+            state,
             settings.jwt_secret,
             algorithms=["HS256"],
         )
@@ -97,7 +98,7 @@ async def oauth_callback(
     if state_claims.get("household_id") != str(actor.household_id):
         raise HTTPException(status_code=403, detail="State mismatch")
 
-    token_data = await exchange_code(payload.code, settings.google_redirect_uri)
+    token_data = await exchange_code(code, settings.google_redirect_uri)
 
     # Fetch user info to get email
     import httpx

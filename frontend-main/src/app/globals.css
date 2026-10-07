@@ -4113,26 +4113,55 @@ html[data-theme="forest"] .brand-mark {
   position: fixed;
   z-index: 19;
   right: 0;
+  /* Sits above the app footer nav. In full screen the footer is hidden, so the
+     fullscreen rule below pulls this back down to the viewport edge — otherwise
+     the bar floats in mid-air over the content. */
   bottom: 66px;
   left: 0;
   display: flex;
-  height: 34px;
+  height: 38px;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 4px;
+  padding: 0 8px;
   border: 0;
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
   backdrop-filter: blur(8px);
+}
+
+/* Full screen hides the footer nav, so pin the bar to the bottom edge. */
+.note-detail-page.fullscreen ~ .tool-dock,
+body:has(.note-detail-page.fullscreen) .tool-dock {
+  bottom: 0;
+}
+
+.tool-dock-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
   color: var(--accent);
   font-size: 12px;
   font-weight: 650;
   cursor: pointer;
 }
 
-.tool-dock:hover {
+.tool-dock-item:hover {
   background: var(--surface-muted);
+}
+
+.tool-dock-primary {
+  color: var(--on-accent);
+  background: var(--accent);
+}
+
+.tool-dock-primary:hover {
+  background: var(--accent-strong);
 }
 
 @media (min-width: 861px) {
@@ -5083,24 +5112,7 @@ tfoot .table-control-btn {
   opacity: 0.72;
 }
 
-/* A disabled fieldset would otherwise grey out its own banner text. */
-.block-locked-banner {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin-bottom: 0.5rem;
-  padding: 0.35rem 0.6rem;
-  border: 1px dashed var(--line);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--ink) 4%, transparent);
-  color: var(--muted);
-  font-size: 0.72rem;
-  letter-spacing: 0.02em;
-}
 
-.block-fieldset[disabled] .block-locked-banner {
-  color: var(--muted);
-}
 
 .block-lock-toggle {
   color: var(--muted);

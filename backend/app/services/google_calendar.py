@@ -9,6 +9,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, UTC
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 import structlog
@@ -173,7 +174,7 @@ async def list_events(
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.get(
-            f"{GOOGLE_CALENDAR_API}/calendars/{calendar_id}/events",
+            f"{GOOGLE_CALENDAR_API}/calendars/{quote(calendar_id, safe='')}/events",
             headers={"Authorization": f"Bearer {token}"},
             params=params,
         )
@@ -193,7 +194,7 @@ async def get_event(
     token = await _get_valid_token(session, account_id)
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.get(
-            f"{GOOGLE_CALENDAR_API}/calendars/{calendar_id}/events/{event_id}",
+            f"{GOOGLE_CALENDAR_API}/calendars/{quote(calendar_id, safe='')}/events/{quote(event_id, safe='')}",
             headers={"Authorization": f"Bearer {token}"},
         )
         response.raise_for_status()
@@ -211,7 +212,7 @@ async def create_event(
     body = event.model_dump(exclude={"id", "htmlLink", "updated"}, exclude_none=True)
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
-            f"{GOOGLE_CALENDAR_API}/calendars/{calendar_id}/events",
+            f"{GOOGLE_CALENDAR_API}/calendars/{quote(calendar_id, safe='')}/events",
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
             json=body,
         )
@@ -230,7 +231,7 @@ async def update_event(
     body = event.model_dump(exclude={"id", "htmlLink", "updated"}, exclude_none=True)
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.put(
-            f"{GOOGLE_CALENDAR_API}/calendars/{calendar_id}/events/{event.id}",
+            f"{GOOGLE_CALENDAR_API}/calendars/{quote(calendar_id, safe='')}/events/{quote(event.id, safe='')}",
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
             json=body,
         )
@@ -248,7 +249,7 @@ async def delete_event(
     token = await _get_valid_token(session, account_id)
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.delete(
-            f"{GOOGLE_CALENDAR_API}/calendars/{calendar_id}/events/{event_id}",
+            f"{GOOGLE_CALENDAR_API}/calendars/{quote(calendar_id, safe='')}/events/{quote(event_id, safe='')}",
             headers={"Authorization": f"Bearer {token}"},
         )
         response.raise_for_status()

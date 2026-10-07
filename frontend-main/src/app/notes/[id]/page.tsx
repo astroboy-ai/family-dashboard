@@ -21,7 +21,6 @@ export default function NoteDetailPage() {
   const [tagInput, setTagInput] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
-  const [textOverlay, setTextOverlay] = useState<NoteBlock | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   // Per-block edit lock — a UI guard only, never persisted.
@@ -554,7 +553,7 @@ export default function NoteDetailPage() {
                 </div>
               )}
             {block.type === "text" ? (
-              <TextBlockView block={block} onSave={saveBlock} onExpand={() => setTextOverlay(block)} />
+              <TextBlockView block={block} onSave={saveBlock} />
             ) : block.type === "drawing" ? (
               <button className="drawing-preview" type="button" onClick={() => openPanel("whiteboard", note.id, block.id)}>
                 <span className="drawing-preview-header">
@@ -865,14 +864,6 @@ export default function NoteDetailPage() {
         <span>Add</span>
       </button>
 
-      {textOverlay && (
-        <TextOverlayView
-          block={textOverlay}
-          onClose={() => setTextOverlay(null)}
-          onSave={saveBlock}
-        />
-      )}
-
       <ToolsDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onSelect={handleToolSelect} />
     </div>
   );
@@ -980,25 +971,36 @@ function PasswordBlockView({
 function TextBlockView({
   block,
   onSave,
-  onExpand,
 }: {
   block: NoteBlock;
   onSave: (blockId: string, text: string) => Promise<void>;
-  onExpand: () => void;
 }) {
-  const rows = Number(block.data?.rows ?? 3);
   const [draft, setDraft] = useState<string | null>(null);
   const value = draft ?? block.text_content ?? "";
+  const [expanded, setExpanded] = useState(false);
 
-  function setRows(next: number) {
-    void onSave(block.id, value).then(() => {
-      // Persist the row preference separately — it is block metadata, not text.
-      void fetch(`/api/notes/${block.note_id}/blocks/${block.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data: { ...block.data, rows: next } }),
-      });
-    });
+  // Row height is a reading preference, not note content, so it stays in local
+  // state and never touches the API. Persisting it meant a PATCH on every click
+  // — and it hit a route that does not exist (`/notes/{id}/blocks/{id}` instead
+  // of `/blocks/{id}`), so the change silently 404'd and the button looked dead.
+  const [rows, setRows] = useState<number>(() => {
+    const stored = typeof window === "undefined" ? null : window.localStorage.getItem("familyos.textRows");
+    const parsed = Number(stored);
+    return [3, 10, 20].includes(parsed) ? parsed : Number(block.data?.rows ?? 3);
+  });
+
+  function setRowCount(next: number) {
+    setRows(next);
+    try {
+      window.localStorage.setItem("familyos.textRows", String(next));
+    } catch { /* storage unavailable — the choice just won't persist */ }
+  }
+
+  async function save() {
+    if (value !== (block.text_content ?? "")) {
+      await onSave(block.id, value);
+    }
+    setDraft(null);
   }
 
   return (
@@ -1008,20 +1010,20 @@ function TextBlockView({
         value={value}
         key={`${block.id}:${block.updated_at}`}
         onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => {
-          if (value !== (block.text_content ?? "")) {
-            void onSave(block.id, value);
-          }
-          setDraft(null);
-        }}
+        onBlur={() => void save()}
         aria-label="Text block"
         placeholder="Write a note…"
       />
+      {/*
+        The toolbar lives OUTSIDE the block's <fieldset>, so reading controls —
+        row height and full screen — keep working on a locked block. Only editing
+        is meant to be gated; looking at your own note never is.
+      */}
       <div className="text-block-toolbar">
         <button
           type="button"
           className="icon-button small-icon"
-          onClick={onExpand}
+          onClick={() => setExpanded(true)}
           aria-label="View full text"
           title="View full text"
         >
@@ -1033,7 +1035,7 @@ function TextBlockView({
               key={n}
               type="button"
               className={rows === n ? "active" : ""}
-              onClick={() => setRows(n)}
+              onClick={() => setRowCount(n)}
               aria-label={`${n} rows`}
             >
               {n}
@@ -1041,6 +1043,13 @@ function TextBlockView({
           ))}
         </div>
       </div>
+      {expanded && (
+        <TextOverlayView
+          block={block}
+          onClose={() => setExpanded(false)}
+          onSave={onSave}
+        />
+      )}
     </div>
   );
 }
@@ -1063,6 +1072,15 @@ function TextOverlayView({
   const [draft, setDraft] = useState(block.text_content ?? "");
   const [copied, setCopied] = useState(false);
 
+  // Esc closes the full screen view, the usual expectation for a full-bleed panel.
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   async function copy() {
     try {
       await navigator.clipboard.writeText(draft);
@@ -1072,8 +1090,8 @@ function TextOverlayView({
   }
 
   return (
-    <div className="text-overlay" role="dialog" aria-modal="true" aria-label="Full text" onClick={onClose}>
-      <div className="text-overlay-card" onClick={(event) => event.stopPropagation()}>
+    <div className="text-overlay" role="dialog" aria-modal="true" aria-label="Full text">
+      <div className="text-overlay-card">
         <div className="text-overlay-head">
           <strong>Text block</strong>
           <div className="inline-actions">

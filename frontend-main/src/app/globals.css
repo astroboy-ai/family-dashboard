@@ -3807,21 +3807,23 @@ html[data-theme="forest"] .brand-mark {
   z-index: 60;
   inset: 0;
   display: grid;
-  place-items: center;
-  padding: 20px;
-  background: var(--overlay);
+  /* A real full screen: the point of the overlay is to read a long block, so it
+     takes the whole viewport instead of a centred card with wasted margins. */
+  place-items: stretch;
+  padding: 0;
+  background: var(--surface);
 }
 
 .text-overlay-card {
   display: flex;
-  width: min(680px, 100%);
-  max-height: 80vh;
+  width: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
   flex-direction: column;
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  border: 0;
+  border-radius: 0;
   background: var(--surface);
   color: var(--foreground);
-  box-shadow: var(--shadow);
 }
 
 .text-overlay-head {
@@ -3846,7 +3848,9 @@ html[data-theme="forest"] .brand-mark {
 
 .text-overlay-editor {
   width: 100%;
-  min-height: 40vh;
+  /* Grow into the space left under the header so the editor fills the screen. */
+  flex: 1;
+  min-height: 0;
   margin: 0;
   padding: 16px;
   border: 0;

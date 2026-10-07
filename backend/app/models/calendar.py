@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -60,6 +60,10 @@ class CalendarEvent(Base):
     """An event from Google Calendar."""
 
     __tablename__ = "calendar_events"
+    __table_args__ = (
+        Index("ix_calendar_events_calendar_start", "calendar_id", "start_time"),
+        Index("ix_calendar_events_start_time", "start_time"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=func.gen_random_uuid()

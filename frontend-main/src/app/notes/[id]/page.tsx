@@ -508,8 +508,7 @@ export default function NoteDetailPage() {
       <section className="note-detail-heading">
         <div><p className="eyebrow">{note.type.replaceAll("_", " ")} · {note.status}</p><input className="note-title-input" value={note.title ?? ""} onChange={(event) => setNote({ ...note, title: event.target.value })} onBlur={() => void saveTitle()} aria-label="Note title" placeholder="Untitled note" /><p className="page-subtitle">Updated {new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(note.updated_at))}</p></div>
         <div className="inline-actions">
-          <button className="secondary-button" onClick={() => void saveTitle()} disabled={saving}>{saving ? <LoaderCircle className="spin" size={16} /> : <Save size={16} />} Save title</button>
-          <button className="secondary-button" onClick={() => setDrawerOpen(true)}><Plus size={16} /> Add Block</button>
+          <button className="icon-button" onClick={() => void saveTitle()} disabled={saving} aria-label="Save title" title="Save title">{saving ? <LoaderCircle className="spin" size={16} /> : <Save size={16} />}</button>
         </div>
       </section>
       <div className="note-tag-row">
@@ -522,14 +521,7 @@ export default function NoteDetailPage() {
       </div>
       {note.summary && <p className="note-summary">{note.summary}</p>}
       <section className="block-stack">
-        <div className="section-heading"><div><p className="eyebrow">NOTE CONTENT</p><h2>Blocks</h2></div><div className="inline-actions">
-          {note.blocks.length > 0 && (unlockedBlocks.size < note.blocks.length ? (
-            <button className="text-link" onClick={() => setUnlockedBlocks(new Set(note.blocks.map((b) => b.id)))} title="Unlock every block in this note"><Unlock size={16} /> Unlock all</button>
-          ) : (
-            <button className="text-link" onClick={() => setUnlockedBlocks(new Set())} title="Lock every block again"><Lock size={16} /> Lock all</button>
-          ))}
-          <button className="text-link" onClick={() => void addTextBlock()}><Plus size={16} /> Add text</button><button className="text-link" onClick={() => void addDrawingBlock()}><SquarePen size={16} /> Add drawing</button>
-        </div></div>
+        <div className="section-heading"><div><p className="eyebrow">NOTE CONTENT</p><h2>Blocks</h2></div></div>
         {note.blocks.length === 0 ? <div className="empty-state compact-empty"><strong>This note has no content blocks.</strong><p>Add a text block or a drawing to start writing.</p></div> : note.blocks.map((block, index) => (
           <div
             className={`editable-block${dragId === block.id ? " dragging" : ""}${dropIndex === index && dragId && dragId !== block.id ? " drop-target" : ""}`}
@@ -570,11 +562,6 @@ export default function NoteDetailPage() {
               have to be repeated for every new block type.
             */}
             <fieldset className="block-fieldset" disabled={!isUnlocked(block.id)}>
-              {isUnlocked(block.id) ? null : (
-                <div className="block-locked-banner">
-                  <Lock size={13} /> Locked — unlock this block to edit
-                </div>
-              )}
             {block.type === "text" ? (
               <TextBlockView block={block} rows={textRows} onSave={saveBlock} />
             ) : block.type === "drawing" ? (
@@ -911,12 +898,21 @@ export default function NoteDetailPage() {
         ))}
       </section>
       {error && <p className="inline-error" role="alert">{error}</p>}
-      {/* Thin layer pinned just above the footer nav; tapping it opens the tool
-          overlay. Kept out of the content flow so it never scrolls away. */}
-      <button className="tool-dock" type="button" onClick={() => setDrawerOpen(true)} aria-label="Add block or tool">
-        <Plus size={15} />
-        <span>Add</span>
-      </button>
+      {/*
+        One action bar at the bottom of the note: the lock switch and the two
+        quick block types sit beside the tool drawer opener, all on one line.
+        Kept out of the content flow so it never scrolls away.
+      */}
+      <div className="tool-dock" role="toolbar" aria-label="Note actions">
+        {note.blocks.length > 0 && (unlockedBlocks.size < note.blocks.length ? (
+          <button type="button" className="tool-dock-item" onClick={() => setUnlockedBlocks(new Set(note.blocks.map((b) => b.id)))} title="Unlock every block in this note"><Unlock size={15} /> Unlock all</button>
+        ) : (
+          <button type="button" className="tool-dock-item" onClick={() => setUnlockedBlocks(new Set())} title="Lock every block again"><Lock size={15} /> Lock all</button>
+        ))}
+        <button type="button" className="tool-dock-item" onClick={() => void addTextBlock()}><Plus size={15} /> Add text</button>
+        <button type="button" className="tool-dock-item" onClick={() => void addDrawingBlock()}><SquarePen size={15} /> Add drawing</button>
+        <button type="button" className="tool-dock-item tool-dock-primary" onClick={() => setDrawerOpen(true)} aria-label="Add block or tool"><Plus size={15} /> Tools</button>
+      </div>
 
       {textOverlay && (
         <TextOverlayView
@@ -1079,6 +1075,9 @@ function TextOverlayView({
 }) {
   const [draft, setDraft] = useState(block.text_content ?? "");
   const [copied, setCopied] = useState(false);
+  // Opens locked: the full screen view is for reading a long block, and an
+  // accidental keystroke there would edit the note. Unlocking is deliberate.
+  const [unlocked, setUnlocked] = useState(false);
 
   // Esc closes the full screen view, the usual expectation for a full-bleed panel.
   useEffect(() => {
@@ -1112,6 +1111,16 @@ function TextOverlayView({
         <div className="text-overlay-head">
           <strong>Text block</strong>
           <div className="inline-actions">
+            <button
+              type="button"
+              className={`icon-button${unlocked ? " unlocked" : ""}`}
+              onClick={() => setUnlocked(!unlocked)}
+              aria-pressed={!unlocked}
+              aria-label={unlocked ? "Lock this text" : "Unlock to edit"}
+              title={unlocked ? "Lock — make read-only again" : "Unlock — allow editing"}
+            >
+              {unlocked ? <LockOpen size={18} /> : <Lock size={18} />}
+            </button>
             <button type="button" className="secondary-button" onClick={() => void copy()}>
               {copied ? "Copied" : "Copy"}
             </button>
@@ -1121,9 +1130,10 @@ function TextOverlayView({
         <textarea
           className="text-overlay-editor"
           value={draft}
+          readOnly={!unlocked}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={() => {
-            if (draft !== (block.text_content ?? "")) {
+            if (unlocked && draft !== (block.text_content ?? "")) {
               void onSave(block.id, draft);
             }
           }}

@@ -1089,6 +1089,15 @@ function TextOverlayView({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // Freeze the page behind the overlay. Without this the page keeps its
+  // scrollbar, so the "full screen" panel is 15px short of the viewport width
+  // and the note scrolls underneath while you are reading.
+  useEffect(() => {
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previous; };
+  }, []);
+
   async function copy() {
     try {
       await navigator.clipboard.writeText(draft);

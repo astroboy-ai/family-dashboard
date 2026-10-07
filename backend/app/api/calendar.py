@@ -22,14 +22,17 @@ from app.api.deps import Actor, get_current_actor, require_scope
 from app.core.config import get_settings
 from app.core.db import get_session
 from app.models.calendar import Calendar, CalendarAccount, CalendarEvent, CalendarPermission, CalendarView
+from app.models.identity import FamilyMember
 from app.schemas.calendar import (
     CalendarAccountResponse,
     CalendarEventCreateRequest,
     CalendarEventResponse,
     CalendarEventUpdateRequest,
+    CalendarPermissionBulkRequest,
     CalendarPermissionRequest,
     CalendarPermissionResponse,
     CalendarResponse,
+    CalendarUpdateRequest,
     CalendarViewCreateRequest,
     CalendarViewResponse,
     CalendarViewUpdateRequest,
@@ -185,32 +188,58 @@ async def list_accounts(
 async def list_calendars(
     actor: Annotated[Actor, Depends(require_scope("calendar.read"))],
     session: Annotated[AsyncSession, Depends(get_session)],
+    include_hidden: bool = False,
 ) -> list[CalendarResponse]:
-    """List calendars for the household."""
-    rows = (
-        await session.execute(
-            select(Calendar)
-            .join(CalendarAccount, Calendar.account_id == CalendarAccount.id)
-            .where(
-                CalendarAccount.household_id == actor.household_id,
-                Calendar.is_visible.is_(True),
-            )
-        )
-    ).scalars().all()
-    return [
-        CalendarResponse(
-            id=r.id,
-            account_id=r.account_id,
-            google_calendar_id=r.google_calendar_id,
-            name=r.name,
-            description=r.description,
-            color=r.color,
-            is_primary=r.is_primary,
-            is_visible=r.is_visible,
-            last_synced_at=r.last_synced_at,
-        )
-        for r in rows
-    ]
+    """List calendars for the household.
+
+    Hidden calendars are filtered out by default — that is what the calendar
+    page wants. The settings page passes ``include_hidden=true`` so a calendar
+    that was switched off can still be found and switched back on.
+    """
+    stmt = (
+        select(Calendar)
+        .join(CalendarAccount, Calendar.account_id == CalendarAccount.id)
+        .where(CalendarAccount.household_id == actor.household_id)
+    )
+    if not include_hidden:
+        stmt = stmt.where(Calendar.is_visible.is_(True))
+
+    rows = (await session.execute(stmt)).scalars().all()
+    return [_calendar_response(r) for r in rows]
+
+
+@router.patch("/calendars/{calendar_id}", response_model=CalendarResponse)
+async def update_calendar(
+    calendar_id: uuid.UUID,
+    payload: CalendarUpdateRequest,
+    actor: Annotated[Actor, Depends(require_scope("calendar.write"))],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> CalendarResponse:
+    """Update a calendar's local display settings.
+
+    Nothing here is written back to Google: the name, colour, theme and
+    visibility are FamilyOS-side display choices.
+    """
+    calendar = await session.get(Calendar, calendar_id)
+    if not calendar:
+        raise HTTPException(status_code=404, detail="Calendar not found")
+
+    account = await session.get(CalendarAccount, calendar.account_id)
+    if not account or account.household_id != actor.household_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    fields = payload.model_dump(exclude_unset=True)
+    for key in ("name", "color"):
+        # These two are also refreshed from Google on every sync, so record that
+        # the member has taken ownership of them.
+        if key in fields:
+            calendar.is_customized = True
+    for key, value in fields.items():
+        setattr(calendar, key, value)
+
+    await session.commit()
+    await session.refresh(calendar)
+    return _calendar_response(calendar)
 
 
 def _google_time_range(
@@ -233,6 +262,41 @@ def _google_time_range(
         last_day = end.date() if end.date() > start.date() else start.date() + timedelta(days=1)
         return {"date": start.date().isoformat()}, {"date": last_day.isoformat()}
     return {"dateTime": start.isoformat()}, {"dateTime": end.isoformat()}
+
+
+def _calendar_response(calendar: Calendar) -> CalendarResponse:
+    """Serialise a calendar row. One place, so no field is dropped on one path."""
+
+    return CalendarResponse(
+        id=calendar.id,
+        account_id=calendar.account_id,
+        google_calendar_id=calendar.google_calendar_id,
+        name=calendar.name,
+        description=calendar.description,
+        color=calendar.color,
+        theme=calendar.theme,
+        is_primary=calendar.is_primary,
+        is_visible=calendar.is_visible,
+        is_customized=calendar.is_customized,
+        last_synced_at=calendar.last_synced_at,
+    )
+
+
+def _permission_response(
+    row: CalendarPermission,
+    member_names: dict[str, str],
+    calendar_names: dict[str, str],
+) -> CalendarPermissionResponse:
+    """Serialise a permission with the display names the UI needs."""
+
+    return CalendarPermissionResponse(
+        id=row.id,
+        calendar_id=row.calendar_id,
+        member_id=row.member_id,
+        level=row.level,
+        member_name=member_names.get(str(row.member_id)),
+        calendar_name=calendar_names.get(str(row.calendar_id)),
+    )
 
 
 def _event_response(event: CalendarEvent) -> CalendarEventResponse:
@@ -463,15 +527,101 @@ async def list_permissions(
     if calendar_id:
         stmt = stmt.where(CalendarPermission.calendar_id == calendar_id)
     rows = (await session.execute(stmt)).scalars().all()
-    return [
-        CalendarPermissionResponse(
-            id=r.id,
-            calendar_id=r.calendar_id,
-            member_id=r.member_id,
-            level=r.level,
+    if not rows:
+        return []
+
+    # Resolve display names in two queries rather than N+1: the UI shows the
+    # member's name, and "Member 7a921736..." is unreadable.
+    member_rows = (
+        await session.execute(
+            select(FamilyMember).where(
+                FamilyMember.id.in_({r.member_id for r in rows})
+            )
         )
-        for r in rows
-    ]
+    ).scalars().all()
+    member_names = {str(m.id): m.display_name for m in member_rows}
+
+    calendar_rows = (
+        await session.execute(
+            select(Calendar).where(Calendar.id.in_({r.calendar_id for r in rows}))
+        )
+    ).scalars().all()
+    calendar_names = {str(c.id): c.name for c in calendar_rows}
+
+    return [_permission_response(r, member_names, calendar_names) for r in rows]
+
+
+@router.post(
+    "/permissions/bulk",
+    response_model=list[CalendarPermissionResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_permissions_bulk(
+    payload: CalendarPermissionBulkRequest,
+    actor: Annotated[Actor, Depends(require_scope("calendar.admin"))],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> list[CalendarPermissionResponse]:
+    """Grant one level to many members across many calendars.
+
+    Upserts: re-granting an existing pair updates its level instead of failing,
+    so the UI can post the whole selection without diffing first.
+    """
+    calendars = (
+        await session.execute(
+            select(Calendar)
+            .join(CalendarAccount, Calendar.account_id == CalendarAccount.id)
+            .where(
+                Calendar.id.in_(payload.calendar_ids),
+                CalendarAccount.household_id == actor.household_id,
+            )
+        )
+    ).scalars().all()
+    if len(calendars) != len(set(payload.calendar_ids)):
+        raise HTTPException(status_code=404, detail="One or more calendars not found")
+
+    members = (
+        await session.execute(
+            select(FamilyMember).where(
+                FamilyMember.id.in_(payload.member_ids),
+                FamilyMember.household_id == actor.household_id,
+            )
+        )
+    ).scalars().all()
+    if len(members) != len(set(payload.member_ids)):
+        raise HTTPException(status_code=404, detail="One or more members not found")
+
+    existing_rows = (
+        await session.execute(
+            select(CalendarPermission).where(
+                CalendarPermission.calendar_id.in_(payload.calendar_ids),
+                CalendarPermission.member_id.in_(payload.member_ids),
+            )
+        )
+    ).scalars().all()
+    existing_by_pair = {(r.calendar_id, r.member_id): r for r in existing_rows}
+
+    results: list[CalendarPermission] = []
+    for calendar in calendars:
+        for member in members:
+            row = existing_by_pair.get((calendar.id, member.id))
+            if row:
+                row.level = payload.level
+            else:
+                row = CalendarPermission(
+                    calendar_id=calendar.id,
+                    member_id=member.id,
+                    level=payload.level,
+                )
+                session.add(row)
+            results.append(row)
+
+    await session.commit()
+    for row in results:
+        await session.refresh(row)
+
+    member_names = {str(m.id): m.display_name for m in members}
+    calendar_names = {str(c.id): c.name for c in calendars}
+    return [_permission_response(r, member_names, calendar_names) for r in results]
 
 
 @router.post("/permissions", response_model=CalendarPermissionResponse, status_code=status.HTTP_201_CREATED)

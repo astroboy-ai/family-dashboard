@@ -53,9 +53,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [theme, setTheme] = useState<"light" | "dark" | "midnight" | "forest" | "unicorn" | "pixel" | "system">("dark");
-  // Calendar theme is deliberately independent of the system theme: a child can
-  // theme the calendar without changing the whole app.
-  const [calendarTheme, setCalendarTheme] = useState("auto");
   const [density, setDensity] = useState<"comfortable" | "compact">("comfortable");
   const { panels, open, closeTop } = usePanelStore();
   const { startNewNote } = useNewNote();
@@ -86,25 +83,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true;
     getMyPreferences()
-      .then((prefs) => {
-        if (active && prefs.calendar_theme) setCalendarTheme(prefs.calendar_theme);
-      })
+      .then(() => {})
       .catch(() => {
-        // Preferences are optional; the default theme is fine when unavailable.
+        // Preferences are optional; defaults are fine when unavailable.
       });
     return () => {
       active = false;
     };
   }, []);
-
-  async function chooseCalendarTheme(next: string) {
-    setCalendarTheme(next);
-    try {
-      await updateMyPreferences({ calendar_theme: next });
-    } catch {
-      // Keep the local choice; the next load re-syncs from the server.
-    }
-  }
 
   useEffect(() => {
     window.localStorage.setItem("familyos-density", density);
@@ -287,14 +273,6 @@ export function AppShell({ children }: { children: ReactNode }) {
                     <div className="segmented-control compact-control">
                       <button className={density === "comfortable" ? "selected" : ""} onClick={() => setDensity("comfortable")}>Comfort</button>
                       <button className={density === "compact" ? "selected" : ""} onClick={() => setDensity("compact")}>Compact</button>
-                    </div>
-                  </div>
-                  <div className="user-menu-section">
-                    <span>Calendar theme</span>
-                    <div className="segmented-control compact-control">
-                      <button className={calendarTheme === "auto" ? "selected" : ""} onClick={() => void chooseCalendarTheme("auto")}>Auto</button>
-                      <button className={calendarTheme === "light" ? "selected" : ""} onClick={() => void chooseCalendarTheme("light")}>Light</button>
-                      <button className={calendarTheme === "dark" ? "selected" : ""} onClick={() => void chooseCalendarTheme("dark")}>Dark</button>
                     </div>
                   </div>
                   <button onClick={handleSignOut} className="user-menu-button danger">Sign out</button>

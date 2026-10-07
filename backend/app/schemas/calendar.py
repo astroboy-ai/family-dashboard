@@ -22,9 +22,25 @@ class CalendarResponse(BaseModel):
     name: str
     description: str | None = None
     color: str | None = None
+    theme: str | None = None
     is_primary: bool
     is_visible: bool
+    is_customized: bool = False
     last_synced_at: datetime | None = None
+
+
+class CalendarUpdateRequest(BaseModel):
+    """Local-only calendar display settings.
+
+    ``name`` and ``color`` are also written by the sync from Google, so setting
+    either one flips ``is_customized`` and the sync stops overwriting them.
+    ``is_visible`` and ``theme`` are purely local and never come from Google.
+    """
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    color: str | None = Field(default=None, max_length=32)
+    theme: str | None = Field(default=None, max_length=32)
+    is_visible: bool | None = None
 
 
 class CalendarEventResponse(BaseModel):
@@ -90,6 +106,22 @@ class CalendarPermissionResponse(BaseModel):
     calendar_id: uuid.UUID
     member_id: uuid.UUID
     level: str
+    # Denormalised for display. The settings UI needs a name, not a UUID, and
+    # resolving it client-side would need a second lookup per row.
+    member_name: str | None = None
+    calendar_name: str | None = None
+
+
+class CalendarPermissionBulkRequest(BaseModel):
+    """Grant one level to many members across many calendars in one call.
+
+    The UI selects members and calendars with multi-select controls; posting
+    each pair individually would be N×M round-trips for one screen action.
+    """
+
+    member_ids: list[uuid.UUID] = Field(min_length=1)
+    calendar_ids: list[uuid.UUID] = Field(min_length=1)
+    level: str = Field(pattern="^(view|edit|manage|admin)$")
 
 
 class CalendarPermissionRequest(BaseModel):

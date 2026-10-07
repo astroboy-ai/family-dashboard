@@ -847,8 +847,11 @@ export type Calendar = {
   name: string;
   description: string | null;
   color: string | null;
+  theme: string | null;
   is_primary: boolean;
   is_visible: boolean;
+  /** True once a member renamed or recoloured it; the sync stops overwriting. */
+  is_customized: boolean;
   last_synced_at: string | null;
 };
 
@@ -873,6 +876,9 @@ export type CalendarPermission = {
   calendar_id: string;
   member_id: string;
   level: "view" | "edit" | "manage" | "admin";
+  /** Denormalised by the API so the UI never shows a raw UUID. */
+  member_name: string | null;
+  calendar_name: string | null;
 };
 
 export type CalendarView = {
@@ -887,8 +893,24 @@ export function listCalendarAccounts(): Promise<CalendarAccount[]> {
   return apiRequest<CalendarAccount[]>("/calendar/accounts");
 }
 
-export function listCalendars(): Promise<Calendar[]> {
-  return apiRequest<Calendar[]>("/calendar/calendars");
+export function listCalendars(includeHidden = false): Promise<Calendar[]> {
+  const query = includeHidden ? "?include_hidden=true" : "";
+  return apiRequest<Calendar[]>(`/calendar/calendars${query}`);
+}
+
+export function updateCalendar(
+  calendarId: string,
+  input: Partial<{
+    name: string;
+    color: string;
+    theme: string;
+    is_visible: boolean;
+  }>,
+): Promise<Calendar> {
+  return apiRequest<Calendar>(`/calendar/calendars/${encodeURIComponent(calendarId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
 }
 
 export function listCalendarEvents(params?: {
@@ -972,6 +994,17 @@ export function createCalendarPermission(
     `/calendar/permissions?calendar_id=${encodeURIComponent(calendarId)}`,
     { method: "POST", body: JSON.stringify({ member_id: memberId, level }) },
   );
+}
+
+export function createCalendarPermissionsBulk(input: {
+  member_ids: string[];
+  calendar_ids: string[];
+  level: "view" | "edit" | "manage" | "admin";
+}): Promise<CalendarPermission[]> {
+  return apiRequest<CalendarPermission[]>("/calendar/permissions/bulk", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 
 export function deleteCalendarPermission(permissionId: string): Promise<void> {

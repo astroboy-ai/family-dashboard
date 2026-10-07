@@ -60,9 +60,14 @@ async def sync_account(session: AsyncSession, account_id: uuid.UUID) -> dict[str
         ).scalar_one_or_none()
 
         if existing:
-            existing.name = cal.summary
+            # Google owns the synced fields, but a member may have renamed or
+            # recoloured the calendar locally. Once they have (is_customized),
+            # stop overwriting name/color or the sync silently undoes their edit
+            # every 15 minutes.
+            if not existing.is_customized:
+                existing.name = cal.summary
+                existing.color = cal.backgroundColor
             existing.description = cal.description
-            existing.color = cal.backgroundColor
             existing.is_primary = cal.primary
             calendar = existing
         else:

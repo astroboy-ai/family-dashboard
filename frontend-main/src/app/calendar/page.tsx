@@ -13,15 +13,22 @@ import {
   X,
   Repeat,
   Pencil,
+  Check,
+  SlidersHorizontal,
+  Lock,
 } from "lucide-react";
 import {
+  listCalendarAccounts,
   listCalendars,
   listCalendarEvents,
   createCalendarEvent,
   updateCalendarEvent,
   deleteCalendarEvent,
   syncCalendars,
+  getMyPreferences,
+  updateMyPreferences,
   type Calendar,
+  type CalendarAccount,
   type CalendarEvent,
 } from "@/lib/api";
 
@@ -38,6 +45,22 @@ const RECURRENCE_OPTIONS = [
   { value: "monthly", label: "Monthly" },
   { value: "yearly", label: "Yearly" },
 ];
+
+/** Light/dark presets a calendar can be themed with. Extend as needed. */
+const CALENDAR_THEMES = [
+  { value: "auto", label: "Auto", swatch: "linear-gradient(135deg,#e5e7eb 50%,#374151 50%)" },
+  { value: "light", label: "Light", swatch: "#f8fafc" },
+  { value: "dark", label: "Dark", swatch: "#1f2937" },
+  { value: "midnight", label: "Midnight", swatch: "#1e3a8a" },
+  { value: "forest", label: "Forest", swatch: "#14532d" },
+] as const;
+
+/** Palette offered for a calendar's dot colour. */
+const CALENDAR_COLORS = [
+  "#17654c", "#0ea5e9", "#6366f1", "#a855f7", "#ec4899",
+  "#ef4444", "#f97316", "#eab308", "#22c55e", "#14b8a6",
+  "#64748b", "#78716c",
+] as const;
 
 function getDaysInMonth(year: number, month: number): number {
   return new Date(year, month + 1, 0).getDate();
@@ -101,6 +124,7 @@ function toDatetimeLocal(iso: string): string {
 export default function CalendarPage() {
   const router = useRouter();
   const [calendars, setCalendars] = useState<Calendar[]>([]);
+  const [accounts, setAccounts] = useState<CalendarAccount[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [view, setView] = useState<"month" | "week" | "day" | "agenda">("month");
@@ -111,6 +135,11 @@ export default function CalendarPage() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  // Which calendars are shown. null means "not chosen yet" so the default
+  // (everything visible) applies without writing a preference on first load.
+  const [visibleCalendarIds, setVisibleCalendarIds] = useState<string[] | null>(null);
+  const [eventCalendarId, setEventCalendarId] = useState<string>("");
   const [eventForm, setEventForm] = useState({
     title: "",
     description: "",
@@ -131,16 +160,37 @@ export default function CalendarPage() {
       const rangeEnd = new Date();
       rangeEnd.setDate(rangeEnd.getDate() + 365);
 
-      const [calData, evtData] = await Promise.all([
+      const [calData, evtData, prefs, acctData] = await Promise.all([
         listCalendars(),
         listCalendarEvents({
           start: rangeStart.toISOString(),
           end: rangeEnd.toISOString(),
           limit: 2000,
         }),
+        // Preferences are optional: a failure must not blank the calendar.
+        getMyPreferences().catch(() => null),
+        listCalendarAccounts().catch(() => []),
       ]);
       setCalendars(calData);
       setEvents(evtData);
+      setAccounts(acctData);
+
+      const storedFilter = prefs?.extra?.visible_calendar_ids;
+      if (Array.isArray(storedFilter)) {
+        // Keep only ids that still exist: a removed calendar must not silently
+        // hide everything.
+        const known = new Set(calData.map((c) => c.id));
+        setVisibleCalendarIds(storedFilter.filter((id) => known.has(id)));
+      } else {
+        setVisibleCalendarIds(calData.map((c) => c.id));
+      }
+
+      const storedEventCal = prefs?.extra?.default_event_calendar_id;
+      if (typeof storedEventCal === "string" && calData.some((c) => c.id === storedEventCal)) {
+        setEventCalendarId(storedEventCal);
+      } else {
+        setEventCalendarId(calData.find((c) => c.is_primary)?.id ?? calData[0]?.id ?? "");
+      }
     } catch (err) {
       console.error("Failed to fetch calendar data:", err);
     } finally {
@@ -164,8 +214,30 @@ export default function CalendarPage() {
     }
   };
 
-  const openNewEvent = (date: Date) => {
-    setSelectedDate(date);
+  const toggleCalendarFilter = async (calendarId: string) => {
+    const current = visibleCalendarIds ?? calendars.map((c) => c.id);
+    const next = current.includes(calendarId)
+      ? current.filter((id) => id !== calendarId)
+      : [...current, calendarId];
+    setVisibleCalendarIds(next);
+    try {
+      await updateMyPreferences({ extra: { visible_calendar_ids: next } });
+    } catch {
+      // Keep the local choice; the next load re-syncs from the server.
+    }
+  };
+
+  /**
+   * Clicking a day selects it (list narrows to that day) and clicking it again
+   * clears the selection. Opening the new-event sheet moved to the + button, so
+   * this click no longer has to mean "create".
+   */
+  const handleSelectDate = (date: Date) => {
+    setSelectedDate((prev) => (prev && isSameDay(prev, date) ? null : date));
+  };
+
+  const openNewEvent = (date: Date | null) => {
+    setSelectedDate(date ?? new Date());
     setEditingEvent(null);
     setFormError(null);
     setEventForm({
@@ -200,7 +272,10 @@ export default function CalendarPage() {
 
   const handleSaveEvent = async () => {
     if (!eventForm.title) return;
-    const calendarId = calendars[0]?.id;
+    // Editing is locked to the event's own calendar: Google has no move API, so
+    // "moving" would be delete + create and could lose attendees. Create uses
+    // whatever the picker shows.
+    const calendarId = editingEvent ? editingEvent.calendar_id : eventCalendarId;
     if (!calendarId) {
       setFormError("No calendar connected. Go to Calendar Settings and add a Google account first.");
       return;
@@ -235,6 +310,9 @@ export default function CalendarPage() {
         await updateCalendarEvent(editingEvent.id, payload);
       } else {
         await createCalendarEvent({ ...payload, calendar_id: calendarId });
+        // Remember the choice so the next new event defaults to it.
+        setEventCalendarId(calendarId);
+        void updateMyPreferences({ extra: { default_event_calendar_id: calendarId } }).catch(() => {});
       }
       setShowEventModal(false);
       await fetchData();
@@ -269,7 +347,9 @@ export default function CalendarPage() {
   const goToday = () => setCurrentDate(new Date());
 
   const visibleEvents = useMemo(() => {
+    const allowed = visibleCalendarIds ? new Set(visibleCalendarIds) : null;
     return events.filter((e) => {
+      if (allowed && !allowed.has(e.calendar_id)) return false;
       const evtDate = new Date(e.start_time);
       if (view === "month") {
         return evtDate.getMonth() === currentDate.getMonth() && evtDate.getFullYear() === currentDate.getFullYear();
@@ -285,7 +365,16 @@ export default function CalendarPage() {
         return isSameDay(evtDate, currentDate);
       }
     });
-  }, [events, currentDate, view]);
+  }, [events, currentDate, view, visibleCalendarIds]);
+
+  /**
+   * The list under the grid. A selected day narrows it to that day; with no
+   * selection it shows everything the current view already covers.
+   */
+  const listedEvents = useMemo(() => {
+    if (!selectedDate) return visibleEvents;
+    return visibleEvents.filter((e) => isSameDay(new Date(e.start_time), selectedDate));
+  }, [visibleEvents, selectedDate]);
 
   const eventsByDate = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>();
@@ -332,6 +421,17 @@ export default function CalendarPage() {
           {view === "agenda" && "Agenda"}
         </span>
         <div className="flex items-center gap-1">
+          <button
+            onClick={() => setShowFilters((v) => !v)}
+            className={`rounded-full p-1.5 hover:bg-[var(--muted)] ${
+              showFilters || (visibleCalendarIds && visibleCalendarIds.length < calendars.length)
+                ? "text-[var(--primary)]"
+                : ""
+            }`}
+            title="Choose which calendars to show"
+          >
+            <SlidersHorizontal size={16} />
+          </button>
           <button onClick={handleSync} disabled={syncing} className="rounded-full p-1.5 hover:bg-[var(--muted)]">
             <RefreshCw size={16} className={syncing ? "animate-spin" : ""} />
           </button>
@@ -339,13 +439,59 @@ export default function CalendarPage() {
             <Settings size={16} />
           </button>
           <button
-            onClick={() => openNewEvent(new Date())}
+            onClick={() => openNewEvent(selectedDate)}
             className="rounded-full bg-[var(--primary)] p-1.5 text-white"
+            title="New event"
           >
             <Plus size={16} />
           </button>
         </div>
       </div>
+
+      {/* Calendar visibility filter — display only, never affects writes */}
+      {showFilters && (
+        <div className="mx-4 mb-2 rounded-xl border border-[var(--border)] p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-xs font-semibold text-[var(--muted)]">Show calendars</span>
+            <button
+              onClick={() => {
+                const all = calendars.map((c) => c.id);
+                setVisibleCalendarIds(all);
+                void updateMyPreferences({ extra: { visible_calendar_ids: all } }).catch(() => {});
+              }}
+              className="text-xs text-[var(--primary)]"
+            >
+              Select all
+            </button>
+          </div>
+          <div className="space-y-1">
+            {calendars.map((cal) => {
+              const checked = !visibleCalendarIds || visibleCalendarIds.includes(cal.id);
+              return (
+                <button
+                  key={cal.id}
+                  onClick={() => void toggleCalendarFilter(cal.id)}
+                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-[var(--muted)]"
+                >
+                  <span
+                    className="flex h-4 w-4 shrink-0 items-center justify-center rounded border"
+                    style={{
+                      borderColor: cal.color || "#6366f1",
+                      backgroundColor: checked ? cal.color || "#6366f1" : "transparent",
+                    }}
+                  >
+                    {checked && <Check size={11} className="text-white" />}
+                  </span>
+                  <span className="truncate text-sm">{cal.name}</span>
+                </button>
+              );
+            })}
+            {calendars.length === 0 && (
+              <p className="px-2 py-1 text-xs text-[var(--muted)]">No calendars synced yet.</p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* View Toggle - iOS segmented control */}
       <div className="flex justify-center px-4 pb-2">
@@ -371,7 +517,8 @@ export default function CalendarPage() {
             currentDate={currentDate}
             eventsByDate={eventsByDate}
             calendarColor={calendarColor}
-            onSelectDate={openNewEvent}
+            selectedDate={selectedDate}
+            onSelectDate={handleSelectDate}
           />
         )}
         {view === "week" && (
@@ -379,7 +526,8 @@ export default function CalendarPage() {
             currentDate={currentDate}
             events={visibleEvents}
             calendarColor={calendarColor}
-            onSelectDate={openNewEvent}
+            selectedDate={selectedDate}
+            onSelectDate={handleSelectDate}
           />
         )}
         {view === "day" && (
@@ -387,7 +535,8 @@ export default function CalendarPage() {
             currentDate={currentDate}
             events={visibleEvents}
             calendarColor={calendarColor}
-            onSelectDate={openNewEvent}
+            selectedDate={selectedDate}
+            onSelectDate={handleSelectDate}
           />
         )}
         {view === "agenda" && (
@@ -402,16 +551,28 @@ export default function CalendarPage() {
         {/* Events List - iOS style below grid (not for agenda) */}
         {view !== "agenda" && (
           <div className="mt-4 px-4">
-            <h3 className="mb-2 text-sm font-semibold text-[var(--muted)]">
-              {visibleEvents.length} event{visibleEvents.length !== 1 ? "s" : ""}
-            </h3>
+            <div className="mb-2 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-[var(--muted)]">
+                {selectedDate
+                  ? `${formatDateShort(selectedDate.toISOString())} · ${listedEvents.length} event${listedEvents.length !== 1 ? "s" : ""}`
+                  : `${listedEvents.length} event${listedEvents.length !== 1 ? "s" : ""}`}
+              </h3>
+              {selectedDate && (
+                <button
+                  onClick={() => setSelectedDate(null)}
+                  className="text-xs text-[var(--primary)]"
+                >
+                  Show all
+                </button>
+              )}
+            </div>
             <div className="space-y-2">
-              {visibleEvents.length === 0 && (
+              {listedEvents.length === 0 && (
                 <div className="rounded-xl border border-dashed border-[var(--border)] p-6 text-center text-sm text-[var(--muted)]">
                   No events
                 </div>
               )}
-              {visibleEvents.map((e) => (
+              {listedEvents.map((e) => (
                 <div
                   key={e.id}
                   className="flex items-start gap-3 rounded-xl border border-[var(--border)] p-3"
@@ -477,6 +638,43 @@ export default function CalendarPage() {
               </button>
             </div>
             <div className="space-y-4">
+              {editingEvent ? (
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Calendar</label>
+                  <div className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--muted)] px-3 py-2.5 text-sm">
+                    <span
+                      className="h-3 w-3 shrink-0 rounded-full"
+                      style={{ backgroundColor: calendarColor(editingEvent.calendar_id) }}
+                    />
+                    <span className="truncate">
+                      {calendars.find((c) => c.id === editingEvent.calendar_id)?.name ?? "Unknown calendar"}
+                    </span>
+                    <Lock size={12} className="ml-auto shrink-0 text-[var(--muted)]" />
+                  </div>
+                  <p className="mt-1 text-[10px] text-[var(--muted)]">
+                    An event stays in its own calendar. Delete and recreate it to move it.
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Calendar</label>
+                  <select
+                    value={eventCalendarId}
+                    onChange={(e) => setEventCalendarId(e.target.value)}
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                  >
+                    {calendars.map((cal) => {
+                      const account = accounts.find((a) => a.id === cal.account_id);
+                      return (
+                        <option key={cal.id} value={cal.id}>
+                          {cal.name}
+                          {account ? ` — ${account.email}` : ""}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+              )}
               <div>
                 <input
                   type="text"
@@ -577,11 +775,13 @@ function MonthView({
   currentDate,
   eventsByDate,
   calendarColor,
+  selectedDate,
   onSelectDate,
 }: {
   currentDate: Date;
   eventsByDate: Map<string, CalendarEvent[]>;
   calendarColor: (id: string) => string;
+  selectedDate: Date | null;
   onSelectDate: (d: Date) => void;
 }) {
   const year = currentDate.getFullYear();
@@ -609,6 +809,7 @@ function MonthView({
           if (!date) return <div key={i} className="aspect-square" />;
           const dayEvents = eventsByDate.get(date.toDateString()) || [];
           const isToday = isSameDay(date, today);
+          const isSelected = selectedDate ? isSameDay(date, selectedDate) : false;
           const hasEvents = dayEvents.length > 0;
           return (
             <div
@@ -618,7 +819,11 @@ function MonthView({
             >
               <span
                 className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium ${
-                  isToday ? "bg-[var(--primary)] text-white" : "text-[var(--foreground)]"
+                  isSelected
+                    ? "bg-[var(--accent,var(--primary))] text-white ring-2 ring-[var(--primary)] ring-offset-1 ring-offset-[var(--background)]"
+                    : isToday
+                      ? "bg-[var(--primary)] text-white"
+                      : "text-[var(--foreground)]"
                 }`}
               >
                 {date.getDate()}
@@ -648,11 +853,13 @@ function WeekView({
   currentDate,
   events,
   calendarColor,
+  selectedDate,
   onSelectDate,
 }: {
   currentDate: Date;
   events: CalendarEvent[];
   calendarColor: (id: string) => string;
+  selectedDate: Date | null;
   onSelectDate: (d: Date) => void;
 }) {
   const start = new Date(currentDate);
@@ -728,11 +935,13 @@ function DayView({
   currentDate,
   events,
   calendarColor,
+  selectedDate,
   onSelectDate,
 }: {
   currentDate: Date;
   events: CalendarEvent[];
   calendarColor: (id: string) => string;
+  selectedDate: Date | null;
   onSelectDate: (d: Date) => void;
 }) {
   const hours = Array.from({ length: 24 }, (_, i) => i);

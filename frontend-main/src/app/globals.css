@@ -3793,7 +3793,6 @@ html[data-theme="forest"] .brand-mark {
 
 .text-block-wrap textarea {
   width: 100%;
-  padding-right: 34px;
 }
 
 .text-expand {
@@ -3866,13 +3865,14 @@ html[data-theme="forest"] .brand-mark {
   outline: none;
 }
 
+/* Reading controls for a text block, rendered after the block's <fieldset> so
+   they stay usable while the block is locked. */
 .text-block-toolbar {
-  position: absolute;
-  top: 4px;
-  right: 4px;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 2px;
+  margin-top: 2px;
 }
 
 .text-rows-toggle {

@@ -21,6 +21,14 @@ export default function NoteDetailPage() {
   const [tagInput, setTagInput] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  // Row height is a reading preference, shared by every text block in the app,
+  // so it lives here and is remembered per browser. It is never sent to the API:
+  // it is how you like to read, not part of the note.
+  const [textRows, setTextRows] = useState<number>(3);
+  // Which text block is open full screen. Held at page level so the overlay
+  // renders outside every block's <fieldset> and stays interactive when the
+  // block it belongs to is locked.
+  const [textOverlay, setTextOverlay] = useState<NoteBlock | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   // Per-block edit lock — a UI guard only, never persisted.
@@ -52,6 +60,21 @@ export default function NoteDetailPage() {
   useEffect(() => {
     setUnlockedBlocks(new Set());
   }, [params.id]);
+
+  // Restore the remembered row height once on mount, after hydration.
+  useEffect(() => {
+    try {
+      const parsed = Number(window.localStorage.getItem("familyos.textRows"));
+      if ([3, 10, 20].includes(parsed)) setTextRows(parsed);
+    } catch { /* storage unavailable — keep the default */ }
+  }, []);
+
+  function chooseTextRows(next: number) {
+    setTextRows(next);
+    try {
+      window.localStorage.setItem("familyos.textRows", String(next));
+    } catch { /* storage unavailable — the choice just won't persist */ }
+  }
 
   function isUnlocked(blockId: string) {
     return unlockedBlocks.has(blockId);
@@ -553,7 +576,7 @@ export default function NoteDetailPage() {
                 </div>
               )}
             {block.type === "text" ? (
-              <TextBlockView block={block} onSave={saveBlock} />
+              <TextBlockView block={block} rows={textRows} onSave={saveBlock} />
             ) : block.type === "drawing" ? (
               <button className="drawing-preview" type="button" onClick={() => openPanel("whiteboard", note.id, block.id)}>
                 <span className="drawing-preview-header">
@@ -853,6 +876,37 @@ export default function NoteDetailPage() {
             ) : <pre>{JSON.stringify(block.data, null, 2)}</pre>}
             {block.caption && <p className="block-caption">{block.caption}</p>}
             </fieldset>
+            {/*
+              Reading controls live OUTSIDE the <fieldset> on purpose: row height
+              and full screen must keep working on a locked block. The lock gates
+              editing, not looking at your own note.
+            */}
+            {block.type === "text" && (
+              <div className="text-block-toolbar">
+                <button
+                  type="button"
+                  className="icon-button small-icon"
+                  onClick={() => setTextOverlay(block)}
+                  aria-label="View full text"
+                  title="View full text"
+                >
+                  <Expand size={14} />
+                </button>
+                <div className="text-rows-toggle">
+                  {[3, 10, 20].map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      className={textRows === n ? "active" : ""}
+                      onClick={() => chooseTextRows(n)}
+                      aria-label={`${n} rows`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         ))}
       </section>
@@ -863,6 +917,14 @@ export default function NoteDetailPage() {
         <Plus size={15} />
         <span>Add</span>
       </button>
+
+      {textOverlay && (
+        <TextOverlayView
+          block={textOverlay}
+          onClose={() => setTextOverlay(null)}
+          onSave={saveBlock}
+        />
+      )}
 
       <ToolsDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onSelect={handleToolSelect} />
     </div>
@@ -970,38 +1032,15 @@ function PasswordBlockView({
  */
 function TextBlockView({
   block,
+  rows,
   onSave,
 }: {
   block: NoteBlock;
+  rows: number;
   onSave: (blockId: string, text: string) => Promise<void>;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
   const value = draft ?? block.text_content ?? "";
-  const [expanded, setExpanded] = useState(false);
-
-  // Row height is a reading preference, not note content, so it stays in local
-  // state and never touches the API. Persisting it meant a PATCH on every click
-  // — and it hit a route that does not exist (`/notes/{id}/blocks/{id}` instead
-  // of `/blocks/{id}`), so the change silently 404'd and the button looked dead.
-  const [rows, setRows] = useState<number>(() => {
-    const stored = typeof window === "undefined" ? null : window.localStorage.getItem("familyos.textRows");
-    const parsed = Number(stored);
-    return [3, 10, 20].includes(parsed) ? parsed : Number(block.data?.rows ?? 3);
-  });
-
-  function setRowCount(next: number) {
-    setRows(next);
-    try {
-      window.localStorage.setItem("familyos.textRows", String(next));
-    } catch { /* storage unavailable — the choice just won't persist */ }
-  }
-
-  async function save() {
-    if (value !== (block.text_content ?? "")) {
-      await onSave(block.id, value);
-    }
-    setDraft(null);
-  }
 
   return (
     <div className="text-block-wrap">
@@ -1010,46 +1049,15 @@ function TextBlockView({
         value={value}
         key={`${block.id}:${block.updated_at}`}
         onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => void save()}
+        onBlur={() => {
+          if (value !== (block.text_content ?? "")) {
+            void onSave(block.id, value);
+          }
+          setDraft(null);
+        }}
         aria-label="Text block"
         placeholder="Write a note…"
       />
-      {/*
-        The toolbar lives OUTSIDE the block's <fieldset>, so reading controls —
-        row height and full screen — keep working on a locked block. Only editing
-        is meant to be gated; looking at your own note never is.
-      */}
-      <div className="text-block-toolbar">
-        <button
-          type="button"
-          className="icon-button small-icon"
-          onClick={() => setExpanded(true)}
-          aria-label="View full text"
-          title="View full text"
-        >
-          <Expand size={14} />
-        </button>
-        <div className="text-rows-toggle">
-          {[3, 10, 20].map((n) => (
-            <button
-              key={n}
-              type="button"
-              className={rows === n ? "active" : ""}
-              onClick={() => setRowCount(n)}
-              aria-label={`${n} rows`}
-            >
-              {n}
-            </button>
-          ))}
-        </div>
-      </div>
-      {expanded && (
-        <TextOverlayView
-          block={block}
-          onClose={() => setExpanded(false)}
-          onSave={onSave}
-        />
-      )}
     </div>
   );
 }

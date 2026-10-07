@@ -33,8 +33,10 @@ RUN addgroup --system --gid 1001 nodejs \
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/next.config.ts ./next.config.ts
-# public/ may be cleaned by Next.js build; create it if missing
-RUN mkdir -p public && COPY --from=builder /app/public/* ./public/ 2>/dev/null || true
+# Static assets. This must be a plain COPY: a COPY cannot be nested inside a RUN,
+# and the previous `RUN mkdir -p public && COPY ...` was invalid — the manifest,
+# service worker and icons would never reach the image.
+COPY --from=builder /app/public ./public
 COPY --from=builder /app/src ./src
 
 # Install production dependencies (next start needs node_modules)

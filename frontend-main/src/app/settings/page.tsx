@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, LoaderCircle, RefreshCw, Save, ShieldCheck, TriangleAlert, Upload } from "lucide-react";
+import { CheckCircle2, Download, LoaderCircle, RefreshCw, Save, ShieldCheck, TriangleAlert, Upload } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
   getActor,
@@ -71,6 +71,98 @@ function ModelSelect({
         ))}
       </select>
     </label>
+  );
+}
+
+/**
+ * "Install as app" — drives Chrome's install prompt.
+ *
+ * Chrome fires `beforeinstallprompt` when the manifest, icons and service
+ * worker are all acceptable; the event must be captured and deferred, because
+ * it can only be triggered once and only from a user gesture. The section
+ * renders nothing when installation is not possible (already installed, or a
+ * browser that does not support it), so it never shows a dead button.
+ */
+type InstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
+
+function InstallAppSection() {
+  const [promptEvent, setPromptEvent] = useState<InstallPromptEvent | null>(null);
+  const [installed, setInstalled] = useState(false);
+  const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    function onPrompt(event: Event) {
+      // Keep the event so the button can use it later.
+      event.preventDefault();
+      setPromptEvent(event as InstallPromptEvent);
+    }
+    function onInstalled() {
+      setInstalled(true);
+      setPromptEvent(null);
+    }
+
+    // Already running as an installed app?
+    if (window.matchMedia("(display-mode: standalone)").matches) setInstalled(true);
+
+    window.addEventListener("beforeinstallprompt", onPrompt);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onPrompt);
+      window.removeEventListener("appinstalled", onInstalled);
+    };
+  }, []);
+
+  async function install() {
+    if (!promptEvent) return;
+    await promptEvent.prompt();
+    const choice = await promptEvent.userChoice;
+    // The event cannot be reused; drop it either way.
+    setPromptEvent(null);
+    if (choice.outcome === "accepted") setDone(true);
+  }
+
+  if (installed) {
+    return (
+      <section className="settings-section">
+        <h2>Install as app</h2>
+        <p className="muted">FamilyOS is already installed on this device.</p>
+      </section>
+    );
+  }
+
+  if (done) {
+    return (
+      <section className="settings-section">
+        <h2>Install as app</h2>
+        <p className="muted">Installing — look for the FamilyOS icon on your home screen or app list.</p>
+      </section>
+    );
+  }
+
+  // No prompt available: the browser has not offered one. Say why rather than
+  // showing a button that would do nothing.
+  if (!promptEvent) {
+    return (
+      <section className="settings-section">
+        <h2>Install as app</h2>
+        <p className="muted">
+          Open this page in Chrome or Edge over HTTPS to install FamilyOS as an app. If you are already
+          using an installed copy, nothing to do.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="settings-section">
+      <h2>Install as app</h2>
+      <p className="muted">
+        Install FamilyOS for its own window, its own icon and a faster start.
+      </p>
+      <button type="button" className="primary-button" onClick={() => void install()}>
+        <Download size={16} /> Install FamilyOS
+      </button>
+    </section>
   );
 }
 
@@ -296,6 +388,8 @@ export default function SettingsPage() {
 
       {error && <div className="form-error">{error}</div>}
       {saved && <div className="form-success">Settings saved.</div>}
+
+      <InstallAppSection />
 
       <form onSubmit={submit} className="settings-form" noValidate>
         <section className="settings-section">

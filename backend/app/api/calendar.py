@@ -12,6 +12,7 @@ from typing import Annotated
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -78,7 +79,7 @@ async def oauth_callback(
     session: Annotated[AsyncSession, Depends(get_session)],
     code: str = Query(...),
     state: str = Query(...),
-) -> CalendarAccountResponse:
+) -> RedirectResponse:
     """Exchange OAuth code for tokens and create calendar account."""
     settings = get_settings()
     if not settings.google_calendar_enabled:
@@ -127,12 +128,7 @@ async def oauth_callback(
         existing.token_expiry = datetime.now(UTC) + timedelta(seconds=token_data.expires_in)
         existing.is_active = True
         await session.commit()
-        return CalendarAccountResponse(
-            id=existing.id,
-            email=existing.email,
-            is_active=existing.is_active,
-            created_at=existing.created_at,
-        )
+        return RedirectResponse(url="/calendar/settings?oauth=success", status_code=303)
 
     account = CalendarAccount(
         household_id=actor.household_id,
@@ -147,12 +143,7 @@ async def oauth_callback(
     await session.commit()
     await session.refresh(account)
 
-    return CalendarAccountResponse(
-        id=account.id,
-        email=account.email,
-        is_active=account.is_active,
-        created_at=account.created_at,
-    )
+    return RedirectResponse(url="/calendar/settings?oauth=success", status_code=303)
 
 
 @router.get("/accounts", response_model=list[CalendarAccountResponse])

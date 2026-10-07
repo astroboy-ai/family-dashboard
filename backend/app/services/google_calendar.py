@@ -51,7 +51,7 @@ class GoogleCalendarInfo(BaseModel):
 
 class GoogleEvent(BaseModel):
     id: str
-    summary: str
+    summary: str | None = None
     description: str | None = None
     start: dict[str, Any]
     end: dict[str, Any]
@@ -165,23 +165,37 @@ async def list_events(
         "singleEvents": True,
         "orderBy": "startTime",
     }
-    if time_min:
-        params["timeMin"] = time_min.isoformat()
-    if time_max:
-        params["timeMax"] = time_max.isoformat()
     if sync_token:
+        # Google rejects syncToken combined with orderBy/timeMin/timeMax.
         params["syncToken"] = sync_token
+    else:
+        if time_min:
+            params["timeMin"] = time_min.isoformat()
+        if time_max:
+            params["timeMax"] = time_max.isoformat()
+
+    all_events: list[GoogleEvent] = []
+    next_sync_token: str | None = None
+    page_token: str | None = None
 
     async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.get(
-            f"{GOOGLE_CALENDAR_API}/calendars/{quote(calendar_id, safe='')}/events",
-            headers={"Authorization": f"Bearer {token}"},
-            params=params,
-        )
-        response.raise_for_status()
-        data = response.json()
-        events = [GoogleEvent(**item) for item in data.get("items", [])]
-        return events, data.get("nextSyncToken")
+        while True:
+            if page_token:
+                params["pageToken"] = page_token
+            response = await client.get(
+                f"{GOOGLE_CALENDAR_API}/calendars/{quote(calendar_id, safe='')}/events",
+                headers={"Authorization": f"Bearer {token}"},
+                params=params,
+            )
+            response.raise_for_status()
+            data = response.json()
+            all_events.extend(GoogleEvent(**item) for item in data.get("items", []))
+            page_token = data.get("nextPageToken")
+            if not page_token:
+                next_sync_token = data.get("nextSyncToken")
+                break
+
+    return all_events, next_sync_token
 
 
 async def get_event(

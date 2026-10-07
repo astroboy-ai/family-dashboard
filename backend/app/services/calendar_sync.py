@@ -123,7 +123,7 @@ async def sync_account(session: AsyncSession, account_id: uuid.UUID) -> dict[str
             all_day = "date" in evt.start
 
             if existing_evt:
-                existing_evt.title = evt.summary
+                existing_evt.title = evt.summary or "(No title)"
                 existing_evt.description = evt.description
                 existing_evt.start_time = start_time
                 existing_evt.end_time = end_time
@@ -142,7 +142,7 @@ async def sync_account(session: AsyncSession, account_id: uuid.UUID) -> dict[str
                     CalendarEvent(
                         calendar_id=calendar.id,
                         google_event_id=evt.id,
-                        title=evt.summary,
+                        title=evt.summary or "(No title)",
                         description=evt.description,
                         start_time=start_time,
                         end_time=end_time,

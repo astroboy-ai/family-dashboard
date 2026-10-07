@@ -5,6 +5,10 @@ The calendar UI asks for events in a window around today. Without an index on
 events, including recurring ones far in the past). Adds a plain ``start_time``
 index plus a composite ``(calendar_id, start_time)`` for per-calendar views.
 
+Both are created with ``IF NOT EXISTS``: SQLAlchemy's ``create_all`` may have
+already produced the single-column index on an existing deployment, and a
+duplicate ``CREATE INDEX`` would abort startup.
+
 No data is touched.
 """
 
@@ -17,18 +21,16 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.create_index(
-        "ix_calendar_events_start_time",
-        "calendar_events",
-        ["start_time"],
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS ix_calendar_events_start_time "
+        "ON calendar_events (start_time)"
     )
-    op.create_index(
-        "ix_calendar_events_calendar_start",
-        "calendar_events",
-        ["calendar_id", "start_time"],
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS ix_calendar_events_calendar_start "
+        "ON calendar_events (calendar_id, start_time)"
     )
 
 
 def downgrade() -> None:
-    op.drop_index("ix_calendar_events_calendar_start", table_name="calendar_events")
-    op.drop_index("ix_calendar_events_start_time", table_name="calendar_events")
+    op.execute("DROP INDEX IF EXISTS ix_calendar_events_calendar_start")
+    op.execute("DROP INDEX IF EXISTS ix_calendar_events_start_time")

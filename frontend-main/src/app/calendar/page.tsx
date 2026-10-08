@@ -16,6 +16,8 @@ import {
   Check,
   SlidersHorizontal,
   Lock,
+  Trash2,
+  Eye,
 } from "lucide-react";
 import {
   listCalendarAccounts,
@@ -132,9 +134,11 @@ export default function CalendarPage() {
   const [syncing, setSyncing] = useState(false);
   const [showEventModal, setShowEventModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [viewingEvent, setViewingEvent] = useState<CalendarEvent | null>(null);
+  const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   // Which calendars are shown. null means "not chosen yet" so the default
   // (everything visible) applies without writing a preference on first load.
@@ -239,6 +243,7 @@ export default function CalendarPage() {
   const openNewEvent = (date: Date | null) => {
     setSelectedDate(date ?? new Date());
     setEditingEvent(null);
+    setViewingEvent(null);
     setFormError(null);
     setEventForm({
       title: "",
@@ -255,6 +260,7 @@ export default function CalendarPage() {
   const openEditEvent = (event: CalendarEvent) => {
     setEditingEvent(event);
     setFormError(null);
+    setConfirmingDelete(false);
     // selectedDate drives the modal's date context, and handleSaveEvent bails
     // out when it is null — without this, "Save Changes" did nothing at all.
     setSelectedDate(new Date(event.start_time));
@@ -268,6 +274,12 @@ export default function CalendarPage() {
       recurrence: fromRRULE(event.recurrence?.[0]),
     });
     setShowEventModal(true);
+  };
+
+  const openViewEvent = (event: CalendarEvent) => {
+    setViewingEvent(event);
+    setEditingEvent(null);
+    setConfirmingDelete(false);
   };
 
   const handleSaveEvent = async () => {
@@ -360,6 +372,13 @@ export default function CalendarPage() {
         start.setDate(start.getDate() + diff);
         const end = new Date(start);
         end.setDate(end.getDate() + 7);
+        if (view === "agenda") {
+          // Agenda always includes today, even when browsing other weeks.
+          const today = new Date();
+          const todayEnd = new Date(today);
+          todayEnd.setDate(todayEnd.getDate() + 1);
+          return (evtDate >= start && evtDate < end) || (evtDate >= today && evtDate < todayEnd);
+        }
         return evtDate >= start && evtDate < end;
       } else {
         return isSameDay(evtDate, currentDate);
@@ -544,7 +563,7 @@ export default function CalendarPage() {
             events={visibleEvents}
             calendarColor={calendarColor}
             onEditEvent={openEditEvent}
-            onDeleteEvent={handleDeleteEvent}
+            onViewEvent={openViewEvent}
           />
         )}
 
@@ -575,7 +594,8 @@ export default function CalendarPage() {
               {listedEvents.map((e) => (
                 <div
                   key={e.id}
-                  className="flex items-start gap-3 rounded-xl border border-[var(--border)] p-3"
+                  onClick={() => openViewEvent(e)}
+                  className="flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--border)] p-3 hover:bg-[var(--muted)]"
                 >
                   <div
                     className="mt-0.5 h-10 w-1 rounded-full"
@@ -584,20 +604,12 @@ export default function CalendarPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2">
                       <span className="text-sm font-medium text-[var(--foreground)] truncate">{e.title}</span>
-                      <div className="flex shrink-0 items-center gap-1">
-                        <button
-                          onClick={() => openEditEvent(e)}
-                          className="rounded p-1 hover:bg-[var(--muted)]"
-                        >
-                          <Pencil size={12} className="text-[var(--muted)]" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteEvent(e.id)}
-                          className="rounded p-1 hover:bg-[var(--muted)]"
-                        >
-                          <X size={12} className="text-[var(--muted)]" />
-                        </button>
-                      </div>
+                      <button
+                        onClick={(ev) => { ev.stopPropagation(); openEditEvent(e); }}
+                        className="shrink-0 rounded p-1 hover:bg-[var(--muted)]"
+                      >
+                        <Pencil size={12} className="text-[var(--muted)]" />
+                      </button>
                     </div>
                     <div className="mt-0.5 flex items-center gap-2 text-xs text-[var(--muted)]">
                       <Clock size={10} />
@@ -625,142 +637,223 @@ export default function CalendarPage() {
 
       {/* Event Modal - iOS style bottom sheet */}
       {showEventModal && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50" onClick={() => setShowEventModal(false)}>
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50" onClick={() => { setShowEventModal(false); setViewingEvent(null); }}>
           <div
-            className="w-full max-w-lg rounded-t-2xl bg-[var(--background)] p-6 pb-8 shadow-xl"
+            className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-t-2xl bg-[var(--background)] p-6 pb-8 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-[var(--muted)]" />
+            <div className="mx-auto mb-4 h-1 w-10 shrink-0 rounded-full bg-[var(--muted)]" />
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold">{editingEvent ? "Edit Event" : "New Event"}</h2>
-              <button onClick={() => setShowEventModal(false)} className="rounded-full p-1 hover:bg-[var(--muted)]">
+              <h2 className="text-lg font-semibold">
+                {viewingEvent ? "Event" : editingEvent ? "Edit Event" : "New Event"}
+              </h2>
+              <button onClick={() => { setShowEventModal(false); setViewingEvent(null); }} className="rounded-full p-1 hover:bg-[var(--muted)]">
                 <X size={18} />
               </button>
             </div>
-            <div className="space-y-4">
-              {editingEvent ? (
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Calendar</label>
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto">
+              {viewingEvent ? (
+                <>
                   <div className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--muted)] px-3 py-2.5 text-sm">
                     <span
                       className="h-3 w-3 shrink-0 rounded-full"
-                      style={{ backgroundColor: calendarColor(editingEvent.calendar_id) }}
+                      style={{ backgroundColor: calendarColor(viewingEvent.calendar_id) }}
                     />
                     <span className="truncate">
-                      {calendars.find((c) => c.id === editingEvent.calendar_id)?.name ?? "Unknown calendar"}
+                      {calendars.find((c) => c.id === viewingEvent.calendar_id)?.name ?? "Unknown calendar"}
                     </span>
-                    <Lock size={12} className="ml-auto shrink-0 text-[var(--muted)]" />
                   </div>
-                  <p className="mt-1 text-[10px] text-[var(--muted)]">
-                    An event stays in its own calendar. Delete and recreate it to move it.
-                  </p>
-                </div>
+                  <div>
+                    <div className="text-lg font-semibold text-[var(--foreground)]">{viewingEvent.title}</div>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm text-[var(--muted)]">
+                    <Clock size={14} />
+                    <span>
+                      {viewingEvent.all_day
+                        ? "All day"
+                        : `${formatTime(viewingEvent.start_time)} – ${formatTime(viewingEvent.end_time)}`}
+                    </span>
+                    <span>·</span>
+                    <span>{formatDateShort(viewingEvent.start_time)}</span>
+                  </div>
+                  {viewingEvent.description && (
+                    <div className="rounded-lg border border-[var(--border)] bg-[var(--muted)] p-3 text-sm text-[var(--foreground)] whitespace-pre-wrap">
+                      {viewingEvent.description}
+                    </div>
+                  )}
+                  {viewingEvent.location && (
+                    <div className="flex items-center gap-2 text-sm text-[var(--muted)]">
+                      <MapPin size={14} />
+                      <span>{viewingEvent.location}</span>
+                    </div>
+                  )}
+                  <div className="flex gap-2 pt-2">
+                    <button
+                      onClick={() => { setViewingEvent(null); openEditEvent(viewingEvent); }}
+                      className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[var(--primary)] py-3 text-sm font-semibold text-white"
+                    >
+                      <Pencil size={14} />
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => { setShowEventModal(false); setViewingEvent(null); }}
+                      className="rounded-xl border border-[var(--border)] px-4 py-3 text-sm text-[var(--muted)]"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </>
               ) : (
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Calendar</label>
-                  <select
-                    value={eventCalendarId}
-                    onChange={(e) => setEventCalendarId(e.target.value)}
-                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-                  >
-                    {calendars.map((cal) => {
-                      const account = accounts.find((a) => a.id === cal.account_id);
-                      return (
-                        <option key={cal.id} value={cal.id}>
-                          {cal.name}
-                          {account ? ` — ${account.email}` : ""}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </div>
-              )}
-              <div>
-                <input
-                  type="text"
-                  value={eventForm.title}
-                  onChange={(e) => setEventForm({ ...eventForm, title: e.target.value })}
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm"
-                  placeholder="Event title"
-                  autoFocus
-                />
-              </div>
-              <div>
-                <textarea
-                  value={eventForm.description}
-                  onChange={(e) => setEventForm({ ...eventForm, description: e.target.value })}
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm"
-                  rows={2}
-                  placeholder="Description (optional)"
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={eventForm.all_day}
-                  onChange={(e) => setEventForm({ ...eventForm, all_day: e.target.checked })}
-                  className="h-4 w-4 rounded"
-                />
-                <label className="text-sm">All day</label>
-              </div>
-              {!eventForm.all_day && (
-                <div className="grid grid-cols-2 gap-3">
+                <>
+                  {editingEvent ? (
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Calendar</label>
+                      <div className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--muted)] px-3 py-2.5 text-sm">
+                        <span
+                          className="h-3 w-3 shrink-0 rounded-full"
+                          style={{ backgroundColor: calendarColor(editingEvent.calendar_id) }}
+                        />
+                        <span className="truncate">
+                          {calendars.find((c) => c.id === editingEvent.calendar_id)?.name ?? "Unknown calendar"}
+                        </span>
+                        <Lock size={12} className="ml-auto shrink-0 text-[var(--muted)]" />
+                      </div>
+                      <p className="mt-1 text-[10px] text-[var(--muted)]">
+                        An event stays in its own calendar. Delete and recreate it to move it.
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Calendar</label>
+                      <select
+                        value={eventCalendarId}
+                        onChange={(e) => setEventCalendarId(e.target.value)}
+                        className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                      >
+                        {calendars.map((cal) => {
+                          const account = accounts.find((a) => a.id === cal.account_id);
+                          return (
+                            <option key={cal.id} value={cal.id}>
+                              {cal.name}
+                              {account ? ` — ${account.email}` : ""}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+                  )}
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Start</label>
                     <input
-                      type="datetime-local"
-                      value={eventForm.start_time}
-                      onChange={(e) => setEventForm({ ...eventForm, start_time: e.target.value })}
-                      className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                      type="text"
+                      value={eventForm.title}
+                      onChange={(e) => setEventForm({ ...eventForm, title: e.target.value })}
+                      className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm"
+                      placeholder="Event title"
+                      autoFocus
                     />
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-[var(--muted)]">End</label>
-                    <input
-                      type="datetime-local"
-                      value={eventForm.end_time}
-                      onChange={(e) => setEventForm({ ...eventForm, end_time: e.target.value })}
-                      className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                    <textarea
+                      value={eventForm.description}
+                      onChange={(e) => setEventForm({ ...eventForm, description: e.target.value })}
+                      className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm"
+                      rows={5}
+                      placeholder="Description (optional)"
                     />
                   </div>
-                </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={eventForm.all_day}
+                      onChange={(e) => setEventForm({ ...eventForm, all_day: e.target.checked })}
+                      className="h-4 w-4 rounded"
+                    />
+                    <label className="text-sm">All day</label>
+                  </div>
+                  {!eventForm.all_day && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Start</label>
+                        <input
+                          type="datetime-local"
+                          value={eventForm.start_time}
+                          onChange={(e) => setEventForm({ ...eventForm, start_time: e.target.value })}
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-[var(--muted)]">End</label>
+                        <input
+                          type="datetime-local"
+                          value={eventForm.end_time}
+                          onChange={(e) => setEventForm({ ...eventForm, end_time: e.target.value })}
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                        />
+                      </div>
+                    </div>
+                  )}
+                  <div>
+                    <input
+                      type="text"
+                      value={eventForm.location}
+                      onChange={(e) => setEventForm({ ...eventForm, location: e.target.value })}
+                      className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm"
+                      placeholder="Location (optional)"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-[var(--muted)]">
+                      <Repeat size={12} />
+                      Repeat
+                    </label>
+                    <select
+                      value={eventForm.recurrence}
+                      onChange={(e) => setEventForm({ ...eventForm, recurrence: e.target.value })}
+                      className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                    >
+                      {RECURRENCE_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {formError && (
+                    <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">
+                      {formError}
+                    </p>
+                  )}
+                  <div className="flex gap-2">
+                    {editingEvent && (
+                      <button
+                        onClick={() => {
+                          if (confirmingDelete) {
+                            void handleDeleteEvent(editingEvent.id).then(() => {
+                              setShowEventModal(false);
+                              setEditingEvent(null);
+                            });
+                          } else {
+                            setConfirmingDelete(true);
+                          }
+                        }}
+                        className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm ${
+                          confirmingDelete
+                            ? "border-red-500 bg-red-500/10 text-red-400"
+                            : "border-[var(--border)] text-[var(--muted)]"
+                        }`}
+                      >
+                        <Trash2 size={14} />
+                        {confirmingDelete ? "Confirm?" : "Delete"}
+                      </button>
+                    )}
+                    <button
+                      onClick={handleSaveEvent}
+                      disabled={!eventForm.title || saving}
+                      className="flex-1 rounded-xl bg-[var(--primary)] py-3 text-sm font-semibold text-white disabled:opacity-40"
+                    >
+                      {saving ? "Saving..." : editingEvent ? "Save Changes" : "Create Event"}
+                    </button>
+                  </div>
+                </>
               )}
-              <div>
-                <input
-                  type="text"
-                  value={eventForm.location}
-                  onChange={(e) => setEventForm({ ...eventForm, location: e.target.value })}
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm"
-                  placeholder="Location (optional)"
-                />
-              </div>
-              <div>
-                <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-[var(--muted)]">
-                  <Repeat size={12} />
-                  Repeat
-                </label>
-                <select
-                  value={eventForm.recurrence}
-                  onChange={(e) => setEventForm({ ...eventForm, recurrence: e.target.value })}
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-                >
-                  {RECURRENCE_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-              </div>
-              {formError && (
-                <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">
-                  {formError}
-                </p>
-              )}
-              <button
-                onClick={handleSaveEvent}
-                disabled={!eventForm.title || saving}
-                className="w-full rounded-xl bg-[var(--primary)] py-3 text-sm font-semibold text-white disabled:opacity-40"
-              >
-                {saving ? "Saving..." : editingEvent ? "Save Changes" : "Create Event"}
-              </button>
             </div>
           </div>
         </div>
@@ -822,7 +915,7 @@ function MonthView({
                   isSelected
                     ? "bg-[var(--accent,var(--primary))] text-white ring-2 ring-[var(--primary)] ring-offset-1 ring-offset-[var(--background)]"
                     : isToday
-                      ? "bg-[var(--primary)] text-white"
+                      ? "text-[var(--primary)] ring-2 ring-[var(--primary)] ring-offset-1 ring-offset-[var(--background)]"
                       : "text-[var(--foreground)]"
                 }`}
               >
@@ -875,12 +968,12 @@ function WeekView({
 
   return (
     <div className="px-4">
-      <div className="grid grid-cols-[40px_repeat(7,1fr)] gap-px mb-1">
+      <div className="grid grid-cols-[40px_repeat(7,1fr)] gap-px">
         <div />
         {weekDays.map((d, i) => {
           const isToday = isSameDay(d, new Date());
           return (
-            <div key={i} className="flex flex-col items-center py-1">
+            <div key={i} className="flex flex-col items-center border-t border-[var(--border)] py-1">
               <span className="text-[10px] text-[var(--muted)]">{WEEKDAYS[i]}</span>
               <span
                 className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium ${
@@ -990,12 +1083,12 @@ function AgendaView({
   events,
   calendarColor,
   onEditEvent,
-  onDeleteEvent,
+  onViewEvent,
 }: {
   events: CalendarEvent[];
   calendarColor: (id: string) => string;
   onEditEvent: (e: CalendarEvent) => void;
-  onDeleteEvent: (id: string) => void;
+  onViewEvent: (e: CalendarEvent) => void;
 }) {
   const grouped = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>();
@@ -1043,7 +1136,8 @@ function AgendaView({
               {dayEvents.map((e) => (
                 <div
                   key={e.id}
-                  className="flex items-start gap-3 rounded-xl border border-[var(--border)] p-3"
+                  onClick={() => onViewEvent(e)}
+                  className="flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--border)] p-3 hover:bg-[var(--muted)]"
                 >
                   <div
                     className="mt-0.5 h-10 w-1 rounded-full"
@@ -1052,20 +1146,12 @@ function AgendaView({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2">
                       <span className="text-sm font-medium text-[var(--foreground)] truncate">{e.title}</span>
-                      <div className="flex shrink-0 items-center gap-1">
-                        <button
-                          onClick={() => onEditEvent(e)}
-                          className="rounded p-1 hover:bg-[var(--muted)]"
-                        >
-                          <Pencil size={12} className="text-[var(--muted)]" />
-                        </button>
-                        <button
-                          onClick={() => onDeleteEvent(e.id)}
-                          className="rounded p-1 hover:bg-[var(--muted)]"
-                        >
-                          <X size={12} className="text-[var(--muted)]" />
-                        </button>
-                      </div>
+                      <button
+                        onClick={(ev) => { ev.stopPropagation(); onEditEvent(e); }}
+                        className="shrink-0 rounded p-1 hover:bg-[var(--muted)]"
+                      >
+                        <Pencil size={12} className="text-[var(--muted)]" />
+                      </button>
                     </div>
                     <div className="mt-0.5 flex items-center gap-2 text-xs text-[var(--muted)]">
                       <Clock size={10} />

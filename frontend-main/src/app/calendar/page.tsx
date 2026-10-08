@@ -367,22 +367,22 @@ export default function CalendarPage() {
       const evtDate = new Date(e.start_time);
       if (view === "month") {
         return evtDate.getMonth() === currentDate.getMonth() && evtDate.getFullYear() === currentDate.getFullYear();
-      } else if (view === "week" || view === "agenda") {
+      } else if (view === "week") {
         const start = new Date(currentDate);
         const day = start.getDay();
         const diff = day === 0 ? -6 : 1 - day;
         start.setDate(start.getDate() + diff);
         const end = new Date(start);
         end.setDate(end.getDate() + 7);
-        if (view === "agenda") {
-          // Agenda always includes today, even when browsing other weeks.
-          // Start of day, not "now": an event earlier today is still today's.
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
-          const todayEnd = new Date(today);
-          todayEnd.setDate(todayEnd.getDate() + 1);
-          return (evtDate >= start && evtDate < end) || (evtDate >= today && evtDate < todayEnd);
-        }
+        return evtDate >= start && evtDate < end;
+      } else if (view === "agenda") {
+        // A rolling 7-day window starting today, not the Mon–Sun calendar week:
+        // "what's coming up" should not restart every Monday. The window follows
+        // currentDate so the arrows still page forward and back.
+        const start = new Date(currentDate);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(start);
+        end.setDate(end.getDate() + 7);
         return evtDate >= start && evtDate < end;
       } else {
         return isSameDay(evtDate, currentDate);
@@ -441,7 +441,7 @@ export default function CalendarPage() {
           {view === "month" && `${MONTHS[currentDate.getMonth()]} ${currentDate.getFullYear()}`}
           {view === "week" && `Week of ${formatDateShort(new Date(currentDate).toISOString())}`}
           {view === "day" && currentDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
-          {view === "agenda" && "Agenda"}
+          {view === "agenda" && `Next 7 days from ${formatDateShort(currentDate.toISOString())}`}
         </span>
         <div className="flex items-center gap-1">
           <button
@@ -571,7 +571,7 @@ export default function CalendarPage() {
           />
         )}
 
-        {/* Events List - iOS style below grid (not for agenda) */}
+        {/* Events List - grouped by day, same reading as the agenda view */}
         {view !== "agenda" && (
           <div className="mt-4 px-4">
             <div className="mb-2 flex items-center justify-between">
@@ -589,52 +589,18 @@ export default function CalendarPage() {
                 </button>
               )}
             </div>
-            <div className="space-y-2">
-              {listedEvents.length === 0 && (
-                <div className="rounded-xl border border-dashed border-[var(--border)] p-6 text-center text-sm text-[var(--muted)]">
-                  No events
-                </div>
-              )}
-              {listedEvents.map((e) => (
-                <div
-                  key={e.id}
-                  onClick={() => openViewEvent(e)}
-                  className="flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--border)] p-3 hover:bg-[var(--muted)]"
-                >
-                  <div
-                    className="mt-0.5 h-10 w-1 rounded-full"
-                    style={{ backgroundColor: calendarColor(e.calendar_id) }}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="text-sm font-medium text-[var(--foreground)] truncate">{e.title}</span>
-                      <button
-                        onClick={(ev) => { ev.stopPropagation(); openEditEvent(e); }}
-                        className="shrink-0 rounded p-1 hover:bg-[var(--muted)]"
-                      >
-                        <Pencil size={12} className="text-[var(--muted)]" />
-                      </button>
-                    </div>
-                    <div className="mt-0.5 flex items-center gap-2 text-xs text-[var(--muted)]">
-                      <Clock size={10} />
-                      <span>
-                        {e.all_day
-                          ? "All day"
-                          : `${formatTime(e.start_time)} – ${formatTime(e.end_time)}`}
-                      </span>
-                      <span>·</span>
-                      <span>{formatDateShort(e.start_time)}</span>
-                    </div>
-                    {e.location && (
-                      <div className="mt-0.5 flex items-center gap-1 text-xs text-[var(--muted)]">
-                        <MapPin size={10} />
-                        <span className="truncate">{e.location}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
+            {listedEvents.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-[var(--border)] p-6 text-center text-sm text-[var(--muted)]">
+                No events
+              </div>
+            ) : (
+              <DayGroupList
+                events={listedEvents}
+                calendarColor={calendarColor}
+                onEditEvent={openEditEvent}
+                onViewEvent={openViewEvent}
+              />
+            )}
           </div>
         )}
       </div>
@@ -1083,37 +1049,39 @@ function DayView({
 
 // ── Agenda View ───────────────────────────────────────────────────────────────
 
-function AgendaView({
+/** Group events by calendar day, oldest first. */
+function groupEventsByDay(events: CalendarEvent[]): [string, CalendarEvent[]][] {
+  const map = new Map<string, CalendarEvent[]>();
+  for (const e of events) {
+    const key = new Date(e.start_time).toDateString();
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(e);
+  }
+  return Array.from(map.entries()).sort(([a], [b]) => new Date(a).getTime() - new Date(b).getTime());
+}
+
+/**
+ * A day heading with its events underneath. Shared by the agenda view and the
+ * list below the month/week/day grids, so both read the same way.
+ */
+function DayGroupList({
   events,
   calendarColor,
   onEditEvent,
   onViewEvent,
+  showDateInRow = false,
 }: {
   events: CalendarEvent[];
   calendarColor: (id: string) => string;
   onEditEvent: (e: CalendarEvent) => void;
   onViewEvent: (e: CalendarEvent) => void;
+  /** Month/week/day grids already show the date, so their rows omit it. */
+  showDateInRow?: boolean;
 }) {
-  const grouped = useMemo(() => {
-    const map = new Map<string, CalendarEvent[]>();
-    for (const e of events) {
-      const key = new Date(e.start_time).toDateString();
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(e);
-    }
-    return Array.from(map.entries()).sort(([a], [b]) => new Date(a).getTime() - new Date(b).getTime());
-  }, [events]);
-
-  if (events.length === 0) {
-    return (
-      <div className="px-4 py-8 text-center text-sm text-[var(--muted)]">
-        No events this week
-      </div>
-    );
-  }
+  const grouped = useMemo(() => groupEventsByDay(events), [events]);
 
   return (
-    <div className="px-4 space-y-4">
+    <div className="space-y-4">
       {grouped.map(([dateKey, dayEvents]) => {
         const date = new Date(dateKey);
         const isToday = isSameDay(date, new Date());
@@ -1122,14 +1090,16 @@ function AgendaView({
             <div className="mb-2 flex items-center gap-2">
               <span
                 className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold ${
-                  isToday ? "bg-[var(--primary)] text-white" : "text-[var(--foreground)]"
+                  isToday
+                    ? "bg-[var(--primary)] text-white"
+                    : "text-[var(--foreground)] ring-1 ring-[var(--border)]"
                 }`}
               >
                 {date.getDate()}
               </span>
               <div>
                 <div className="text-sm font-medium text-[var(--foreground)]">
-                  {date.toLocaleDateString("en-US", { weekday: "long" })}
+                  {isToday ? "Today" : date.toLocaleDateString("en-US", { weekday: "long" })}
                 </div>
                 <div className="text-xs text-[var(--muted)]">
                   {date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
@@ -1164,6 +1134,12 @@ function AgendaView({
                           ? "All day"
                           : `${formatTime(e.start_time)} – ${formatTime(e.end_time)}`}
                       </span>
+                      {showDateInRow && (
+                        <>
+                          <span>·</span>
+                          <span>{formatDateShort(e.start_time)}</span>
+                        </>
+                      )}
                     </div>
                     {e.location && (
                       <div className="mt-0.5 flex items-center gap-1 text-xs text-[var(--muted)]">
@@ -1178,6 +1154,37 @@ function AgendaView({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function AgendaView({
+  events,
+  calendarColor,
+  onEditEvent,
+  onViewEvent,
+}: {
+  events: CalendarEvent[];
+  calendarColor: (id: string) => string;
+  onEditEvent: (e: CalendarEvent) => void;
+  onViewEvent: (e: CalendarEvent) => void;
+}) {
+  if (events.length === 0) {
+    return (
+      <div className="px-4 py-8 text-center text-sm text-[var(--muted)]">
+        No events in the next 7 days
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-4">
+      <DayGroupList
+        events={events}
+        calendarColor={calendarColor}
+        onEditEvent={onEditEvent}
+        onViewEvent={onViewEvent}
+      />
     </div>
   );
 }

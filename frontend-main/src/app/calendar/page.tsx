@@ -259,6 +259,7 @@ export default function CalendarPage() {
 
   const openEditEvent = (event: CalendarEvent) => {
     setEditingEvent(event);
+    setViewingEvent(null);
     setFormError(null);
     setConfirmingDelete(false);
     // selectedDate drives the modal's date context, and handleSaveEvent bails
@@ -280,6 +281,7 @@ export default function CalendarPage() {
     setViewingEvent(event);
     setEditingEvent(null);
     setConfirmingDelete(false);
+    setShowEventModal(true);
   };
 
   const handleSaveEvent = async () => {
@@ -374,7 +376,9 @@ export default function CalendarPage() {
         end.setDate(end.getDate() + 7);
         if (view === "agenda") {
           // Agenda always includes today, even when browsing other weeks.
+          // Start of day, not "now": an event earlier today is still today's.
           const today = new Date();
+          today.setHours(0, 0, 0, 0);
           const todayEnd = new Date(today);
           todayEnd.setDate(todayEnd.getDate() + 1);
           return (evtDate >= start && evtDate < end) || (evtDate >= today && evtDate < todayEnd);
@@ -639,7 +643,7 @@ export default function CalendarPage() {
       {showEventModal && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50" onClick={() => { setShowEventModal(false); setViewingEvent(null); }}>
           <div
-            className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-t-2xl bg-[var(--background)] p-6 pb-8 shadow-xl"
+            className="flex h-[85vh] w-full max-w-lg flex-col rounded-t-2xl bg-[var(--background)] p-6 pb-8 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mx-auto mb-4 h-1 w-10 shrink-0 rounded-full bg-[var(--muted)]" />
@@ -968,12 +972,12 @@ function WeekView({
 
   return (
     <div className="px-4">
-      <div className="grid grid-cols-[40px_repeat(7,1fr)] gap-px">
+      <div className="grid grid-cols-[40px_repeat(7,minmax(0,1fr))] gap-px">
         <div />
         {weekDays.map((d, i) => {
           const isToday = isSameDay(d, new Date());
           return (
-            <div key={i} className="flex flex-col items-center border-t border-[var(--border)] py-1">
+            <div key={i} className="flex min-w-0 flex-col items-center border-t border-[var(--border)] py-1">
               <span className="text-[10px] text-[var(--muted)]">{WEEKDAYS[i]}</span>
               <span
                 className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium ${
@@ -986,7 +990,7 @@ function WeekView({
           );
         })}
       </div>
-      <div className="grid grid-cols-[40px_repeat(7,1fr)] gap-px">
+      <div className="grid grid-cols-[40px_repeat(7,minmax(0,1fr))] gap-px">
         {hours.map((hour) => (
           <div key={hour} className="contents">
             <div className="flex items-start justify-end pr-1 pt-0.5 text-[9px] text-[var(--muted)]">
@@ -1001,7 +1005,7 @@ function WeekView({
                 <div
                   key={di}
                   onClick={() => onSelectDate(day)}
-                  className="min-h-[30px] cursor-pointer border-t border-[var(--border)] hover:bg-[var(--muted)]"
+                  className="min-h-[30px] min-w-0 cursor-pointer overflow-hidden border-t border-[var(--border)] hover:bg-[var(--muted)]"
                 >
                   {hourEvents.map((e) => (
                     <div
@@ -1097,7 +1101,7 @@ function AgendaView({
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(e);
     }
-    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
+    return Array.from(map.entries()).sort(([a], [b]) => new Date(a).getTime() - new Date(b).getTime());
   }, [events]);
 
   if (events.length === 0) {

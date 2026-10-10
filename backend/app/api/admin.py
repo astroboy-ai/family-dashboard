@@ -63,6 +63,10 @@ class AiSettingsPatch(BaseModel):
     llm_model: str | None = Field(default=None, max_length=120)
     vision_model: str | None = Field(default=None, max_length=120)
     tagging_model: str | None = Field(default=None, max_length=120)
+    azure_endpoint: str | None = Field(default=None, max_length=500)
+    azure_api_key: str | None = Field(default=None, max_length=500)
+    azure_api_version: str | None = Field(default=None, max_length=120)
+    azure_model: str | None = Field(default=None, max_length=120)
     # Nested rather than a second body parameter: two Pydantic params would make
     # FastAPI expect an embedded body and break the existing flat client payload.
     storage: StorageSettingsPatch | None = None

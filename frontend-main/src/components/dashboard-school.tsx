@@ -20,33 +20,29 @@ export function DashboardSchool({ childName = "Phoebe" }: DashboardSchoolProps) 
         {/* Uniform */}
         <div className="dashboard-school-item">
           <div className="dashboard-school-icon uniform">
-            <Shirt size={24} />
+            <Shirt size={14} />
           </div>
-          <div className="dashboard-school-label">Uniform</div>
         </div>
 
         {/* Singing lesson */}
         <div className="dashboard-school-item">
           <div className="dashboard-school-icon music">
-            <Music size={24} />
+            <Music size={14} />
           </div>
-          <div className="dashboard-school-label">Singing</div>
         </div>
 
         {/* Violin lesson */}
         <div className="dashboard-school-item">
           <div className="dashboard-school-icon violin">
-            <Music2 size={24} />
+            <Music2 size={14} />
           </div>
-          <div className="dashboard-school-label">Violin</div>
         </div>
 
         {/* School bus */}
         <div className="dashboard-school-item">
           <div className="dashboard-school-icon bus">
-            <Bus size={24} />
+            <Bus size={14} />
           </div>
-          <div className="dashboard-school-label">Bus</div>
           <div className="dashboard-school-time">3:50 PM</div>
         </div>
       </div>
@@ -58,9 +54,9 @@ export function DashboardSchool({ childName = "Phoebe" }: DashboardSchoolProps) 
         <textarea
           className="dashboard-school-textarea"
           placeholder="Extra notes..."
-          value={note}
+          value={note || "Remember to bring water bottle\nPiano lesson at 4pm\nViolin practice 30min\nPE kit needed tomorrow\nLunch money $25\nLibrary book due Friday\nMaths homework page 42\nScience project next week\nSwimming lesson Thursday\nParent meeting 6pm"}
           onChange={(e) => setNote(e.target.value)}
-          rows={2}
+          rows={10}
         />
       </div>
     </div>

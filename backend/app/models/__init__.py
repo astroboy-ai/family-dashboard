@@ -1,6 +1,7 @@
 from app.models.audit import AgentToolCall, AuditLog
 from app.models.base import Base
 from app.models.dashboard import Dashboard
+from app.models.dashboard_template import DashboardTemplate
 from app.models.calendar import Calendar, CalendarAccount, CalendarEvent, CalendarPermission, CalendarView
 from app.models.embedding import Embedding
 from app.models.graph_artifact import GraphArtifact

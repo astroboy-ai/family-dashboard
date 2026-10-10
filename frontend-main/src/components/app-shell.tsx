@@ -12,6 +12,7 @@ import {
   Plus,
   Search,
   X,
+  Calendar,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -47,6 +48,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [actor, setActor] = useState<Actor | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [dateOpen, setDateOpen] = useState(false);
+  const [now, setNow] = useState(new Date());
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -56,6 +59,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [density, setDensity] = useState<"comfortable" | "compact">("comfortable");
   const { panels, open, closeTop } = usePanelStore();
   const { startNewNote } = useNewNote();
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -192,16 +200,32 @@ export function AppShell({ children }: { children: ReactNode }) {
     }
   }
 
+  const formatDate = (d: Date) =>
+    d.toLocaleDateString("en-HK", { weekday: "short", day: "numeric", month: "short" });
+  const formatTime = (d: Date) =>
+    d.toLocaleTimeString("en-HK", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
   return (
     <div className="app-frame">
-      <aside className="sidebar" aria-label="Primary navigation">
-        <Link className="brand-lockup" href="/" aria-label="FamilyOS home">
-          <span className="brand-mark">F</span>
-          <span className="brand-name">FamilyOS</span>
-          <span className="brand-edition">HOME</span>
-        </Link>
+      {/* Sidebar drawer overlay */}
+      {moreOpen && (
+        <div className="sidebar-overlay" onClick={() => setMoreOpen(false)} />
+      )}
 
-        <button className="capture-button" onClick={() => void startNewNote()}>
+      {/* Sidebar drawer */}
+      <aside className={`sidebar${moreOpen ? " sidebar-open" : ""}`} aria-label="Primary navigation">
+        <div className="sidebar-header">
+          <Link className="brand-lockup" href="/" aria-label="FamilyOS home" onClick={() => setMoreOpen(false)}>
+            <span className="brand-mark">F</span>
+            <span className="brand-name">FamilyOS</span>
+            <span className="brand-edition">HOME</span>
+          </Link>
+          <button className="sidebar-close" onClick={() => setMoreOpen(false)} aria-label="Close menu">
+            <X size={20} />
+          </button>
+        </div>
+
+        <button className="capture-button" onClick={() => { setMoreOpen(false); void startNewNote(); }}>
           <Plus size={18} strokeWidth={2.4} />
           <span>Capture</span>
           <kbd>C</kbd>
@@ -214,6 +238,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               className={`nav-item${isActive(pathname, href) ? " nav-item-active" : ""}`}
               href={href}
               key={href}
+              onClick={() => setMoreOpen(false)}
             >
               <Icon size={18} strokeWidth={1.8} />
               <span>{label}</span>
@@ -226,6 +251,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               className={`nav-item${isActive(pathname, href) ? " nav-item-active" : ""}`}
               href={href}
               key={href}
+              onClick={() => setMoreOpen(false)}
             >
               <Icon size={18} strokeWidth={1.8} />
               <span>{label}</span>
@@ -287,11 +313,18 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <div className="app-column">
         <header className="topbar">
+          <button className="hamburger-button" aria-label="Open menu" onClick={() => setMoreOpen(true)}>
+            <Menu size={20} />
+          </button>
           <div className="mobile-brand">
             <span className="brand-mark">F</span>
             <span className="brand-name">FamilyOS</span>
           </div>
           <div className="topbar-title">{title}</div>
+          <div className="topbar-datetime">
+            <span className="topbar-date">{formatDate(now)}</span>
+            <span className="topbar-time">{formatTime(now)}</span>
+          </div>
           <div className="topbar-actions">
             <button className="search-trigger" onClick={() => setPaletteOpen(true)}>
               <Search size={17} />
@@ -334,37 +367,8 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </div>
               )}
             </div>
-            <button className="mobile-menu-button" aria-label="More navigation" onClick={() => setMoreOpen((value) => !value)}>
-              {moreOpen ? <X size={20} /> : <Menu size={20} />}
-            </button>
           </div>
         </header>
-
-        {moreOpen && (
-          <>
-            <div className="mobile-more-menu-overlay" onClick={() => setMoreOpen(false)} />
-            <div className="mobile-more-menu">
-              {navigation.slice(3).map(({ href, label, icon: Icon }) => (
-                <Link href={href} key={href} onClick={() => setMoreOpen(false)}>
-                  <Icon size={17} /> {label}
-                </Link>
-              ))}
-              <div className="mobile-menu-section">
-                <span>Theme</span>
-                <div className="theme-grid">
-                  <button className={theme === "light" ? "selected" : ""} onClick={() => setTheme("light")}>☀️ Light</button>
-                  <button className={theme === "dark" ? "selected" : ""} onClick={() => setTheme("dark")}>🌙 Dark</button>
-                  <button className={theme === "midnight" ? "selected" : ""} onClick={() => setTheme("midnight")}>🔵 Midnight</button>
-                  <button className={theme === "forest" ? "selected" : ""} onClick={() => setTheme("forest")}>🌲 Forest</button>
-                  <button className={theme === "unicorn" ? "selected" : ""} onClick={() => setTheme("unicorn")}>🦄 Unicorn</button>
-                  <button className={theme === "pixel" ? "selected" : ""} onClick={() => setTheme("pixel")}>👾 Pixel</button>
-                  <button className={theme === "system" ? "selected" : ""} onClick={() => setTheme("system")}>⚙️ Auto</button>
-                </div>
-              </div>
-              <Link href="/login" onClick={() => setMoreOpen(false)}>Sign in / switch member</Link>
-            </div>
-          </>
-        )}
 
         <div className="workspace-row">
           <main className="main-content" id="main-content">{children}</main>
@@ -385,7 +389,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <button className="mobile-capture" onClick={() => void startNewNote()} aria-label="New note">
           <Plus size={21} />
         </button>
-        <button onClick={() => setMoreOpen((value) => !value)}>
+        <button onClick={() => setMoreOpen(true)}>
           <Menu size={19} /> <span>More</span>
         </button>
       </nav>

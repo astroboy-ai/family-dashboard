@@ -343,18 +343,124 @@ a {
   min-height: 100vh;
 }
 
+.sidebar-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 998;
+  background: rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+
+.sidebar-overlay:not([style*="display: none"]) {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .sidebar {
-  position: sticky;
+  position: fixed;
   top: 0;
+  left: 0;
+  z-index: 999;
   display: flex;
-  flex: 0 0 252px;
   flex-direction: column;
-  width: 252px;
+  width: 280px;
   height: 100vh;
-  padding: 24px 15px 14px;
-  overflow: auto;
+  padding: 20px 15px 14px;
+  overflow-y: auto;
   background: var(--surface-strong);
   color: var(--on-strong);
+  transform: translateX(-100%);
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 2px 0 12px rgba(0, 0, 0, 0.15);
+}
+
+.sidebar.sidebar-open {
+  transform: translateX(0);
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.sidebar-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.sidebar-close:hover {
+  background: var(--surface);
+  color: var(--foreground);
+}
+
+.hamburger-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--foreground);
+  cursor: pointer;
+  transition: background 0.15s ease;
+  flex-shrink: 0;
+}
+
+.hamburger-button:hover {
+  background: var(--surface);
+}
+
+.topbar-datetime {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+  margin-right: 16px;
+  padding: 6px 14px;
+  border-radius: 10px;
+  background: var(--surface);
+  flex-shrink: 0;
+}
+
+.topbar-date {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--foreground);
+  white-space: nowrap;
+}
+
+.topbar-time {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .topbar-datetime {
+    display: none;
+  }
+
+  .sidebar {
+    width: 85vw;
+    max-width: 320px;
+  }
 }
 
 .brand-lockup,
@@ -677,8 +783,10 @@ kbd {
 }
 
 .mobile-brand,
-.mobile-menu-button,
-.mobile-tabs,
+.mobile-tabs {
+  display: none;
+}
+
 .mobile-more-menu {
   display: none;
 }

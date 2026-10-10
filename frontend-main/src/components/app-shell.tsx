@@ -312,7 +312,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="app-column">
-        <header className={`topbar${isFullscreen ? " topbar-hidden" : ""}`}>
+        <header className="topbar">
           <button className="hamburger-button" aria-label="Open menu" onClick={() => setMoreOpen(true)}>
             <Menu size={20} />
           </button>

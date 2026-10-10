@@ -201,7 +201,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   const formatDate = (d: Date) =>
-    d.toLocaleDateString("en-HK", { weekday: "short", day: "numeric", month: "short" });
+    d.toLocaleDateString("en-HK", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   const formatTime = (d: Date) =>
     d.toLocaleTimeString("en-HK", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 

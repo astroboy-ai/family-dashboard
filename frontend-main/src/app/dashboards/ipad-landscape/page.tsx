@@ -9,18 +9,9 @@ import { DashboardNote } from "@/components/dashboard-note";
 
 const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
 
-function formatDate(date: Date) {
-  return date.toLocaleDateString("en-HK", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  });
-}
-
 export default function DashboardIPadLandscapePage() {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [noteIndex, setNoteIndex] = useState(0);
-  const [now, setNow] = useState(new Date());
 
   const loadDashboard = useCallback(async () => {
     try {
@@ -36,10 +27,8 @@ export default function DashboardIPadLandscapePage() {
 
   useEffect(() => {
     loadDashboard();
-    const timer = setInterval(() => setNow(new Date()), 60000);
     const refresh = setInterval(loadDashboard, REFRESH_INTERVAL);
     return () => {
-      clearInterval(timer);
       clearInterval(refresh);
     };
   }, [loadDashboard]);
@@ -61,13 +50,6 @@ export default function DashboardIPadLandscapePage() {
     <div className="dashboard-ipad-landscape">
       {/* Header */}
       <div className="dashboard-ipad-header">
-        <div className="dashboard-ipad-date">
-          <span className="dashboard-ipad-date-text">{formatDate(now)}</span>
-          <span className="dashboard-ipad-time">
-            {now.toLocaleTimeString("en-HK", { hour: "2-digit", minute: "2-digit" })}
-          </span>
-        </div>
-
         <DashboardWeather location="Hong Kong" />
       </div>
 

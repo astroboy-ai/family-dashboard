@@ -3996,6 +3996,92 @@ html[data-theme="forest"] .brand-mark {
   background: var(--primary)/5;
 }
 
+.block-text-props {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.block-text-prop {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--muted)/30;
+}
+
+.block-text-prop-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.block-text-prop-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.block-text-prop-edit {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--primary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.block-text-prop-edit:hover {
+  background: var(--primary)/10;
+}
+
+.block-text-prop-value {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--foreground);
+  white-space: pre-wrap;
+}
+
+.block-text-prop-edit-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.block-text-prop-input {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--foreground);
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.block-text-prop-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.block-text-prop-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.small-button {
+  min-height: 28px;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
 .image-gallery {
   position: fixed;
   z-index: 75;

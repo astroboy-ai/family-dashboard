@@ -2529,7 +2529,8 @@ color: var(--gold-on-strong);
   }
 
   .sidebar {
-    display: none;
+    width: 85vw;
+    max-width: 320px;
   }
 
   .topbar {

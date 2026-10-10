@@ -5626,6 +5626,11 @@ tfoot .table-control-btn {
     flex: 0 0 auto;
   }
 
+  .dashboard-school {
+    height: auto;
+    min-height: 200px;
+  }
+
   .dashboard-ipad-bottom-row {
     flex-direction: column;
   }
@@ -5675,6 +5680,11 @@ tfoot .table-control-btn {
   .dashboard-ipad-notes {
     flex: 0 0 auto;
     width: 100%;
+  }
+
+  .dashboard-school {
+    height: auto;
+    min-height: 200px;
   }
 
   .dashboard-ipad-notes {

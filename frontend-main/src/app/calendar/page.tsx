@@ -34,7 +34,8 @@ import {
   type CalendarEvent,
 } from "@/lib/api";
 
-const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WEEKDAYS_SHORT = ["S", "M", "T", "W", "T", "F", "S"];
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
@@ -56,6 +57,15 @@ const CALENDAR_THEMES = [
   { value: "midnight", label: "Midnight", swatch: "#1e3a8a" },
   { value: "forest", label: "Forest", swatch: "#14532d" },
 ] as const;
+
+/** Resolve the effective color scheme for a calendar theme. */
+function resolveColorScheme(
+  theme: string | null | undefined,
+  systemScheme: "light" | "dark",
+): "light" | "dark" {
+  if (theme === "light" || theme === "dark") return theme;
+  return systemScheme; // "auto", null, or unknown → follow system
+}
 
 /** Palette offered for a calendar's dot colour. */
 const CALENDAR_COLORS = [
@@ -409,9 +419,17 @@ export default function CalendarPage() {
     return map;
   }, [visibleEvents]);
 
+  const systemScheme: "light" | "dark" = "light"; // default; could be from matchMedia
+
   const calendarColor = (calendarId: string): string => {
     const cal = calendars.find((c) => c.id === calendarId);
     return cal?.color || "#6366f1";
+  };
+
+  /** Per-calendar color scheme — independent of the global theme. */
+  const calendarScheme = (calendarId: string): "light" | "dark" => {
+    const cal = calendars.find((c) => c.id === calendarId);
+    return resolveColorScheme(cal?.theme, systemScheme);
   };
 
   if (loading) {
@@ -862,7 +880,7 @@ function MonthView({
     <div className="px-4">
       <div className="grid grid-cols-7 mb-1">
         {WEEKDAYS.map((d, i) => (
-          <div key={i} className="py-1 text-center text-[10px] font-medium text-[var(--muted)]">
+          <div key={i} className="py-1 text-center text-xs font-semibold text-[var(--muted)]">
             {d}
           </div>
         ))}
@@ -878,25 +896,27 @@ function MonthView({
             <div
               key={i}
               onClick={() => onSelectDate(date)}
-              className="flex aspect-square cursor-pointer flex-col items-center justify-center rounded-lg hover:bg-[var(--muted)]"
+              className={`relative flex aspect-square cursor-pointer flex-col rounded-lg p-1.5 hover:bg-[var(--muted)] ${
+                isSelected ? "bg-[var(--primary)]/10" : ""
+              }`}
             >
               <span
-                className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium ${
-                  isSelected
-                    ? "bg-[var(--accent,var(--primary))] text-white ring-2 ring-[var(--primary)] ring-offset-1 ring-offset-[var(--background)]"
-                    : isToday
-                      ? "text-[var(--primary)] ring-2 ring-[var(--primary)] ring-offset-1 ring-offset-[var(--background)]"
+                className={`text-sm font-semibold ${
+                  isToday
+                    ? "text-[var(--primary)]"
+                    : isSelected
+                      ? "text-[var(--primary)]"
                       : "text-[var(--foreground)]"
                 }`}
               >
                 {date.getDate()}
               </span>
               {hasEvents && (
-                <div className="mt-0.5 flex gap-0.5">
+                <div className="mt-auto flex gap-0.5">
                   {dayEvents.slice(0, 3).map((e) => (
                     <div
                       key={e.id}
-                      className="h-1 w-1 rounded-full"
+                      className="h-1.5 w-1.5 rounded-full"
                       style={{ backgroundColor: calendarColor(e.calendar_id) }}
                     />
                   ))}
@@ -943,10 +963,10 @@ function WeekView({
         {weekDays.map((d, i) => {
           const isToday = isSameDay(d, new Date());
           return (
-            <div key={i} className="flex min-w-0 flex-col items-center border-t border-[var(--border)] py-1">
-              <span className="text-[10px] text-[var(--muted)]">{WEEKDAYS[i]}</span>
+            <div key={i} className="flex min-w-0 flex-col items-center border-t-2 border-[var(--border)] py-1">
+              <span className="text-xs font-semibold text-[var(--muted)]">{WEEKDAYS[i]}</span>
               <span
-                className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium ${
+                className={`flex h-7 w-7 items-center justify-center rounded-full text-sm font-medium ${
                   isToday ? "bg-[var(--primary)] text-white" : ""
                 }`}
               >
@@ -967,11 +987,14 @@ function WeekView({
                 const evtDate = new Date(e.start_time);
                 return isSameDay(evtDate, day) && evtDate.getHours() === hour;
               });
+              const isToday = isSameDay(day, new Date());
               return (
                 <div
                   key={di}
                   onClick={() => onSelectDate(day)}
-                  className="min-h-[30px] min-w-0 cursor-pointer overflow-hidden border-t border-[var(--border)] hover:bg-[var(--muted)]"
+                  className={`min-h-[30px] min-w-0 cursor-pointer overflow-hidden border-t border-[var(--border)] hover:bg-[var(--muted)] ${
+                    isToday ? "bg-[var(--primary)]/5" : ""
+                  }`}
                 >
                   {hourEvents.map((e) => (
                     <div
@@ -1025,7 +1048,7 @@ function DayView({
               <div className="w-10 shrink-0 pt-1 text-right text-[10px] text-[var(--muted)]">
                 {hour === 0 ? "" : `${hour}:00`}
               </div>
-              <div className="flex-1 min-h-[40px] border-t border-[var(--border)] py-1">
+              <div className="flex-1 min-h-[56px] border-t border-[var(--border)] py-1">
                 {hourEvents.map((e) => (
                   <div
                     key={e.id}

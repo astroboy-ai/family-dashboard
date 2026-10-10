@@ -46,16 +46,6 @@ export default function NoteDetailPage() {
   // persist the resulting ids; order_index is recomputed server-side.
   const blockIdsRef = useRef<string[]>([]);
 
-  // Auto-enter fullscreen when launched as a PWA (standalone mode).
-  // The note page's fullscreen toggle hides the side panel and header,
-  // giving a clean reading view — which is exactly what you want when
-  // the app is installed and launched from the home screen.
-  useEffect(() => {
-    if (window.matchMedia("(display-mode: standalone)").matches) {
-      setFullscreen(true);
-    }
-  }, []);
-
   useEffect(() => {
     let active = true;
     getNote(params.id)

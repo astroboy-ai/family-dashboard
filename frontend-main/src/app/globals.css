@@ -5557,15 +5557,6 @@ tfoot .table-control-btn {
   cursor: not-allowed;
 }
 
-/* Hide topbar when in fullscreen */
-.topbar-hidden {
-  display: none !important;
-}
-
-.dashboard-ipad-landscape:fullscreen .app-column .topbar {
-  display: none;
-}
-
 /* iPad landscape responsive: stack panels on narrow screens */
 @media (max-width: 1100px) {
   .dashboard-ipad-content {
@@ -5684,10 +5675,14 @@ tfoot .table-control-btn {
   color: var(--muted);
 }
 
+.dashboard-weather {
+  position: relative;
+}
+
 .dashboard-weather-windy {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: 4px;
+  right: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -5699,6 +5694,7 @@ tfoot .table-control-btn {
   color: var(--muted);
   cursor: pointer;
   transition: background 0.15s ease;
+  z-index: 5;
 }
 
 .dashboard-weather-windy:hover {
@@ -5869,7 +5865,7 @@ tfoot .table-control-btn {
 }
 
 .dashboard-ipad-calendar {
-  flex: 0 0 44%;
+  flex: 0 0 30%;
   min-width: 0;
   border-radius: 12px;
   background: var(--surface);
@@ -6072,8 +6068,6 @@ tfoot .table-control-btn {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding-top: 8px;
   overflow: hidden;
 }
 

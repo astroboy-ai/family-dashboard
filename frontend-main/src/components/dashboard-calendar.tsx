@@ -199,6 +199,7 @@ export function DashboardCalendar({ calendarId, days = 90 }: DashboardCalendarPr
       const startDate = new Date(newDate.getFullYear(), newDate.getMonth(), 1);
       const endDate = new Date(newDate.getFullYear(), newDate.getMonth() + 1, 0);
       await fetchEvents(startDate, endDate);
+      setSelectedDate(startDate);
     } catch (err) {
       console.error("Failed to fetch month events:", err);
     } finally {

@@ -5859,7 +5859,7 @@ tfoot .table-control-btn {
 }
 
 .dashboard-ipad-calendar {
-  flex: 0 0 55%;
+  flex: 0 0 44%;
   min-width: 0;
   border-radius: 12px;
   background: var(--surface);
@@ -5867,15 +5867,28 @@ tfoot .table-control-btn {
   overflow: hidden;
 }
 
-.dashboard-ipad-notes {
+.dashboard-ipad-right {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.dashboard-ipad-weather-area {
+  flex: 0 0 auto;
+}
+
+.dashboard-ipad-notes {
+  flex: 1;
+  min-height: 0;
   border-radius: 12px;
   background: var(--surface);
   border: 1px solid var(--border);
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  touch-action: pan-y;
 }
 
 .dashboard-ipad-notes .dashboard-note {
@@ -6047,9 +6060,23 @@ tfoot .table-control-btn {
 .dashboard-calendar-body {
   flex: 1;
   min-height: 0;
-  overflow: hidden;
   display: flex;
-  flex-direction: column;
+  gap: 12px;
+  padding-top: 12px;
+}
+
+.dashboard-calendar-left {
+  flex: 0 0 55%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.dashboard-calendar-right {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  border-left: 1px solid var(--border);
+  padding-left: 12px;
 }
 
 /* Calendar grid views */
@@ -6211,7 +6238,26 @@ tfoot .table-control-btn {
 .dashboard-cal-agenda {
   flex: 1;
   overflow-y: auto;
-  padding-top: 8px;
+}
+
+.dashboard-cal-agenda-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+
+.dashboard-cal-agenda-date {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.dashboard-cal-agenda-count {
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .dashboard-calendar-list {

@@ -51,6 +51,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [dateOpen, setDateOpen] = useState(false);
   const [now, setNow] = useState(new Date());
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [hideTopbar, setHideTopbar] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -145,7 +146,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     // Track the real browser state rather than our own flag, so exiting with
     // Esc or F11 keeps the icon honest.
-    const sync = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    const sync = () => {
+      const fs = Boolean(document.fullscreenElement);
+      setIsFullscreen(fs);
+      setHideTopbar(fs);
+    };
     document.addEventListener("fullscreenchange", sync);
     sync();
     return () => document.removeEventListener("fullscreenchange", sync);
@@ -312,7 +317,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="app-column">
-        <header className="topbar">
+        <header className={`topbar${hideTopbar ? " topbar-hidden" : ""}`}>
           <button className="hamburger-button" aria-label="Open menu" onClick={() => setMoreOpen(true)}>
             <Menu size={20} />
           </button>

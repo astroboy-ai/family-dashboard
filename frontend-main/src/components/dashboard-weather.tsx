@@ -90,7 +90,11 @@ export function DashboardWeather({ location = "Hong Kong", compact = false }: Da
                 </button>
               </div>
               <div className="dashboard-weather-windy-map">
-                <p>Windy.com embed will appear here</p>
+                <iframe
+                  src="https://embed.windy.com/embed2.html?lat=22.3193&lon=114.1694&zoom=10&level=surface&overlay=wind&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&detailLat=22.3193&detailLon=114.1694&metricWind=km%2Fh&metricTemp=%C2%B0C&radarRange=-1"
+                  title="Windy - Hong Kong"
+                  style={{ width: "100%", height: "100%", border: "none" }}
+                />
               </div>
             </div>
           </div>
@@ -143,7 +147,11 @@ export function DashboardWeather({ location = "Hong Kong", compact = false }: Da
               </button>
             </div>
             <div className="dashboard-weather-windy-map">
-              <p>Windy.com embed will appear here</p>
+              <iframe
+                src="https://embed.windy.com/embed2.html?lat=22.3193&lon=114.1694&zoom=10&level=surface&overlay=wind&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&detailLat=22.3193&detailLon=114.1694&metricWind=km%2Fh&metricTemp=%C2%B0C&radarRange=-1"
+                title="Windy - Hong Kong"
+                style={{ width: "100%", height: "100%", border: "none" }}
+              />
             </div>
           </div>
         </div>

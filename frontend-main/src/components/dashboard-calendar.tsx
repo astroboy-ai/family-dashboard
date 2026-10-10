@@ -175,10 +175,10 @@ export function DashboardCalendar({ calendarId, days = 60 }: DashboardCalendarPr
         <span className="dashboard-calendar-count">{events.length} events</span>
       </div>
       <div className="dashboard-calendar-body">
-        <div className="dashboard-calendar-left">
+        <div className="dashboard-calendar-month">
           <MonthGrid events={events} selectedDate={selectedDate} onSelectDate={setSelectedDate} />
         </div>
-        <div className="dashboard-calendar-right">
+        <div className="dashboard-calendar-agenda">
           <AgendaList events={events} selectedDate={selectedDate} />
         </div>
       </div>

@@ -5966,11 +5966,32 @@ tfoot .table-control-btn {
   flex-shrink: 0;
 }
 
+.dashboard-timeline-now {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent);
+  background: var(--surface-muted);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
 .dashboard-timeline-list {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   padding: 8px 0;
+  position: relative;
+}
+
+.dashboard-timeline-line {
+  position: absolute;
+  left: 52px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--border);
+  z-index: 0;
 }
 
 .dashboard-timeline-item {
@@ -5981,6 +6002,8 @@ tfoot .table-control-btn {
   border-radius: 6px;
   cursor: pointer;
   transition: background 0.15s ease;
+  position: relative;
+  z-index: 1;
 }
 
 .dashboard-timeline-item:hover {
@@ -5989,6 +6012,20 @@ tfoot .table-control-btn {
 
 .dashboard-timeline-item.selected {
   background: var(--surface-muted);
+}
+
+.dashboard-timeline-item.current {
+  background: var(--surface-muted);
+  border-left: 3px solid var(--accent);
+}
+
+.dashboard-timeline-item.next {
+  background: var(--surface-muted);
+  border-left: 3px solid #4caf50;
+}
+
+.dashboard-timeline-item.past {
+  opacity: 0.5;
 }
 
 .dashboard-timeline-time {
@@ -6007,6 +6044,16 @@ tfoot .table-control-btn {
   border-radius: 50%;
   margin-top: 4px;
   flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.dashboard-timeline-item.current .dashboard-timeline-dot {
+  box-shadow: 0 0 0 3px var(--accent);
+}
+
+.dashboard-timeline-item.next .dashboard-timeline-dot {
+  box-shadow: 0 0 0 3px #4caf50;
 }
 
 .dashboard-timeline-content {
@@ -6027,6 +6074,20 @@ tfoot .table-control-btn {
   display: flex;
   align-items: center;
   flex-shrink: 0;
+}
+
+.dashboard-timeline-badge {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--accent);
+  color: white;
+  margin-left: 4px;
+}
+
+.dashboard-timeline-badge.next {
+  background: #4caf50;
 }
 
 .dashboard-timeline-location {
@@ -6158,6 +6219,7 @@ tfoot .table-control-btn {
   border-top: 1px solid var(--border);
   padding-top: 8px;
   margin-top: 4px;
+  padding-right: 0;
 }
 
 .dashboard-school-notes-header {
@@ -6183,6 +6245,7 @@ tfoot .table-control-btn {
   resize: none;
   font-family: inherit;
   overflow-y: auto;
+  min-height: 120px;
 }
 
 .dashboard-school-textarea:focus {
@@ -6598,21 +6661,25 @@ tfoot .table-control-btn {
 .dashboard-cal-agenda-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--border);
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--surface-muted);
   margin-bottom: 8px;
 }
 
 .dashboard-cal-agenda-date {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 700;
   color: var(--foreground);
 }
 
 .dashboard-cal-agenda-count {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--muted);
+  background: var(--surface);
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 
 .dashboard-calendar-list {

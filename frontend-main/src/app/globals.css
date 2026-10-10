@@ -6220,10 +6220,11 @@ tfoot .table-control-btn {
 }
 
 .dashboard-school-time {
-  font-size: 9px;
-  color: var(--muted);
-  font-weight: 600;
+  font-size: 13px;
+  color: var(--foreground);
+  font-weight: 700;
   white-space: nowrap;
+  line-height: 1;
 }
 
 .dashboard-school-notes {

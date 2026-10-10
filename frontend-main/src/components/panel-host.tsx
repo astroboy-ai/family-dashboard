@@ -124,6 +124,9 @@ function WhiteboardPanel({
   const [error, setError] = useState("");
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [whiteboardFullscreen, setWhiteboardFullscreen] = useState(false);
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const panStartRef = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     if (!noteId) return;
@@ -187,6 +190,9 @@ function WhiteboardPanel({
     context.fillStyle = background;
     context.fillRect(0, 0, width, height);
 
+    context.save();
+    context.translate(panOffset.x, panOffset.y);
+
     context.strokeStyle = "rgba(255,255,255,0.16)";
     context.lineWidth = 1;
     for (let x = 40; x < width; x += 40) {
@@ -231,7 +237,9 @@ function WhiteboardPanel({
         context.stroke();
       }
     }
-  }, [drawing, draftRef]);
+
+    context.restore();
+  }, [drawing, draftRef, panOffset]);
 
   function getPoint(event: React.PointerEvent<HTMLCanvasElement>): StrokePoint | null {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -256,6 +264,13 @@ function WhiteboardPanel({
   }
 
   function pointerMove(event: React.PointerEvent<HTMLCanvasElement>) {
+    if (isPanning && panStartRef.current) {
+      const dx = event.clientX - panStartRef.current.x;
+      const dy = event.clientY - panStartRef.current.y;
+      setPanOffset((current) => ({ x: current.x + dx, y: current.y + dy }));
+      panStartRef.current = { x: event.clientX, y: event.clientY };
+      return;
+    }
     const draft = draftRef.current;
     if (!draft) return;
     const point = getPoint(event);
@@ -266,6 +281,11 @@ function WhiteboardPanel({
   }
 
   function pointerUp() {
+    if (isPanning) {
+      setIsPanning(false);
+      panStartRef.current = null;
+      return;
+    }
     const draft = draftRef.current;
     if (!draft) return;
     if (draft.points.length > 0) {
@@ -277,6 +297,13 @@ function WhiteboardPanel({
       setDirty(true);
     }
     draftRef.current = null;
+  }
+
+  function startPan(event: React.PointerEvent<HTMLCanvasElement>) {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setIsPanning(true);
+    panStartRef.current = { x: event.clientX, y: event.clientY };
   }
 
   const saveDrawing = useCallback(async () => {
@@ -340,8 +367,30 @@ function WhiteboardPanel({
           </select>
           <button
             type="button"
+            className={`icon-button${isPanning ? " active" : ""}`}
+            onClick={() => {
+              if (!isPanning) {
+                setIsPanning(true);
+              } else {
+                setIsPanning(false);
+                panStartRef.current = null;
+              }
+            }}
+            aria-label={isPanning ? "Stop panning" : "Pan canvas"}
+            title={isPanning ? "Stop panning" : "Pan canvas"}
+            style={isPanning ? { color: "var(--primary)" } : undefined}
+          >
+            <PencilLine size={16} />
+          </button>
+          <button
+            type="button"
             className="icon-button"
-            onClick={() => setWhiteboardFullscreen((value) => !value)}
+            onClick={() => {
+              setWhiteboardFullscreen((value) => !value);
+              setPanOffset({ x: 0, y: 0 });
+              setIsPanning(false);
+              panStartRef.current = null;
+            }}
             aria-label={whiteboardFullscreen ? "Exit fullscreen drawing" : "Fullscreen drawing"}
             title={whiteboardFullscreen ? "Exit fullscreen" : "Fullscreen"}
           >
@@ -373,8 +422,11 @@ function WhiteboardPanel({
               <canvas
                 ref={canvasRef}
                 className="whiteboard-canvas"
-                style={{ aspectRatio: `${drawing.canvas.width} / ${drawing.canvas.height}` }}
-                onPointerDown={pointerDown}
+                style={{
+                  aspectRatio: `${drawing.canvas.width} / ${drawing.canvas.height}`,
+                  cursor: isPanning ? "grab" : "crosshair",
+                }}
+                onPointerDown={isPanning ? startPan : pointerDown}
                 onPointerMove={pointerMove}
                 onPointerUp={pointerUp}
                 onPointerLeave={pointerUp}
@@ -388,8 +440,11 @@ function WhiteboardPanel({
           <canvas
             ref={canvasRef}
             className="whiteboard-canvas"
-            style={{ aspectRatio: `${drawing.canvas.width} / ${drawing.canvas.height}` }}
-            onPointerDown={pointerDown}
+            style={{
+              aspectRatio: `${drawing.canvas.width} / ${drawing.canvas.height}`,
+              cursor: isPanning ? "grab" : "crosshair",
+            }}
+            onPointerDown={isPanning ? startPan : pointerDown}
             onPointerMove={pointerMove}
             onPointerUp={pointerUp}
             onPointerLeave={pointerUp}

@@ -9,7 +9,7 @@ interface DashboardCalendarProps {
   days?: number;
 }
 
-function MonthGrid({ events, selectedDate, onSelectDate, showFilters, onToggleFilters, hasActiveFilter, calendars }: { events: CalendarEvent[]; selectedDate: Date; onSelectDate: (d: Date) => void; showFilters: boolean; onToggleFilters: () => void; hasActiveFilter: boolean; calendars: Calendar[] }) {
+function MonthGrid({ events, selectedDate, onSelectDate, showFilters, onToggleFilters, hasActiveFilter, calendars, onMonthChange }: { events: CalendarEvent[]; selectedDate: Date; onSelectDate: (d: Date) => void; showFilters: boolean; onToggleFilters: () => void; hasActiveFilter: boolean; calendars: Calendar[]; onMonthChange: (dir: -1 | 1, newDate: Date) => void }) {
   const [calDate, setCalDate] = useState(selectedDate);
 
   useEffect(() => setCalDate(selectedDate), [selectedDate]);
@@ -18,6 +18,7 @@ function MonthGrid({ events, selectedDate, onSelectDate, showFilters, onToggleFi
     const d = new Date(calDate);
     d.setMonth(d.getMonth() + dir);
     setCalDate(d);
+    onMonthChange(dir, d);
   };
 
   const viewLabel = calDate.toLocaleDateString("en-HK", { month: "long", year: "numeric" });
@@ -84,9 +85,6 @@ function MonthGrid({ events, selectedDate, onSelectDate, showFilters, onToggleFi
                       />
                     );
                   })}
-                  {dayEvents.length > 3 && (
-                    <span className="dashboard-cal-more">+{dayEvents.length - 3}</span>
-                  )}
                 </div>
               )}
             </div>
@@ -147,7 +145,7 @@ function AgendaList({ events, selectedDate, calendars }: { events: CalendarEvent
   );
 }
 
-export function DashboardCalendar({ calendarId, days = 60 }: DashboardCalendarProps) {
+export function DashboardCalendar({ calendarId, days = 90 }: DashboardCalendarProps) {
   const [calendars, setCalendars] = useState<Calendar[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -155,6 +153,16 @@ export function DashboardCalendar({ calendarId, days = 60 }: DashboardCalendarPr
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [showFilters, setShowFilters] = useState(false);
   const [visibleCalendarIds, setVisibleCalendarIds] = useState<string[] | null>(null);
+  const [fetchingMonth, setFetchingMonth] = useState(false);
+
+  const fetchEvents = async (startDate: Date, endDate: Date) => {
+    const evList = await listCalendarEvents({
+      start: startDate.toISOString(),
+      end: endDate.toISOString(),
+      limit: 500,
+    });
+    setEvents(evList);
+  };
 
   useEffect(() => {
     let active = true;
@@ -164,7 +172,7 @@ export function DashboardCalendar({ calendarId, days = 60 }: DashboardCalendarPr
         const [calList, evList] = await Promise.all([
           listCalendars(),
           listCalendarEvents({
-            start: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+            start: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(),
             end: new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString(),
             limit: 500,
           }),
@@ -184,6 +192,19 @@ export function DashboardCalendar({ calendarId, days = 60 }: DashboardCalendarPr
     load();
     return () => { active = false; };
   }, [calendarId, days]);
+
+  const handleMonthChange = async (dir: -1 | 1, newDate: Date) => {
+    setFetchingMonth(true);
+    try {
+      const startDate = new Date(newDate.getFullYear(), newDate.getMonth(), 1);
+      const endDate = new Date(newDate.getFullYear(), newDate.getMonth() + 1, 0);
+      await fetchEvents(startDate, endDate);
+    } catch (err) {
+      console.error("Failed to fetch month events:", err);
+    } finally {
+      setFetchingMonth(false);
+    }
+  };
 
   const toggleCalendarFilter = (calendarId: string) => {
     const current = visibleCalendarIds ?? calendars.map((c) => c.id);
@@ -257,12 +278,17 @@ export function DashboardCalendar({ calendarId, days = 60 }: DashboardCalendarPr
       )}
       <div className="dashboard-calendar-body">
         <div className="dashboard-calendar-month">
-          <MonthGrid events={filteredEvents} selectedDate={selectedDate} onSelectDate={setSelectedDate} showFilters={showFilters} onToggleFilters={() => setShowFilters((v) => !v)} hasActiveFilter={visibleCalendarIds !== null && visibleCalendarIds.length < calendars.length} calendars={calendars} />
+          <MonthGrid events={filteredEvents} selectedDate={selectedDate} onSelectDate={setSelectedDate} showFilters={showFilters} onToggleFilters={() => setShowFilters((v) => !v)} hasActiveFilter={visibleCalendarIds !== null && visibleCalendarIds.length < calendars.length} calendars={calendars} onMonthChange={handleMonthChange} />
         </div>
         <div className="dashboard-calendar-agenda">
           <AgendaList events={filteredEvents} selectedDate={selectedDate} calendars={calendars} />
         </div>
       </div>
+      {fetchingMonth && (
+        <div className="dashboard-calendar-overlay">
+          <CalendarDays className="animate-spin" size={24} />
+        </div>
+      )}
     </div>
   );
 }

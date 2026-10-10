@@ -1,0 +1,180 @@
+name: familyos
+
+networks:
+  # Internal service mesh: postgres, redis and object-storage are only ever
+  # reached by the backend/worker, so they stay on this network alone.
+  familyos:
+    driver: bridge
+  # Shared network with cloudflared and the litellm gateway. Only the services
+  # that must be reachable from outside this stack join it.
+  link01:
+    external: true
+    name: ${DOCKER_NETWORK_NAME:-link01}
+
+volumes:
+  pgdata: {}
+  redisdata: {}
+  s3data: {}
+  ollama: {}
+
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql+asyncpg://familyos:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@familyos-postgres:5432/familyos
+  REDIS_URL: redis://familyos-redis:6379/0
+  S3_ENDPOINT: http://familyos-storage:8333
+  S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:?Set S3_PUBLIC_ENDPOINT in .env}
+  S3_ACCESS_KEY: ${S3_ACCESS_KEY:?Set S3_ACCESS_KEY in .env}
+  S3_SECRET_KEY: ${S3_SECRET_KEY:?Set S3_SECRET_KEY in .env}
+  S3_BUCKET: ${S3_BUCKET:-familyos-media}
+  JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+  # 32-byte base64 key for AES-GCM password-block encryption. Lives in the
+  # environment, never in the database: a database dump alone must not reveal
+  # stored passwords. Changing it makes existing password blocks undecryptable
+  # (AES-GCM fails its tag check), so treat it like JWT_SECRET — set once.
+  FAMILYOS_SECRET_KEY: ${FAMILYOS_SECRET_KEY:?Set FAMILYOS_SECRET_KEY in .env}
+  ENVIRONMENT: ${ENVIRONMENT:-development}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  DOCKER_NETWORK: familyos
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: familyos
+      POSTGRES_USER: familyos
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      familyos:
+        # Unique alias: `postgres` is already claimed on link01 by several other
+        # stacks, and Docker DNS resolves a duplicated name to an arbitrary one
+        # of them. Anything that can see link01 must use this name instead.
+        aliases:
+          - familyos-postgres
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      familyos:
+        aliases:
+          - familyos-redis
+
+  object-storage:
+    image: chrislusf/seaweedfs:4.48
+    command:
+      - mini
+      - -dir=/data
+      - -s3.port=8333
+      - -s3.allowedOrigins=${S3_CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:3001,http://localhost:3002}
+    environment:
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY:?Set S3_ACCESS_KEY in .env}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:?Set S3_SECRET_KEY in .env}
+      S3_BUCKET: ${S3_BUCKET:-familyos-media}
+    volumes:
+      - s3data:/data
+    ports:
+      - "${S3_API_PORT:-8333}:8333"
+    networks:
+      familyos:
+        aliases:
+          - familyos-object-storage
+      link01:
+        aliases:
+          - familyos-storage
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    ports:
+      - "${BACKEND_PORT:-8001}:8000"
+    environment: *backend-env
+    # Agent instructions are served from this file. Mounted rather than baked
+    # into the image so editing AGENTS.md takes effect on the next tool call —
+    # no rebuild, no restart. Read-only: the app must never write it.
+    volumes:
+      - ./AGENTS.md:/app/AGENTS.md:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      object-storage:
+        condition: service_started
+    command:
+      - /bin/sh
+      - -ec
+      # --proxy-headers makes uvicorn honour X-Forwarded-Proto, so a redirect
+      # generated behind the tunnel keeps the https scheme instead of degrading
+      # to http. --forwarded-allow-ips is required alongside it: uvicorn only
+      # trusts the header from 127.0.0.1 by default, and the Cloudflare tunnel
+      # reaches us from its own container on link01 (172.18.0.9). Scoped to the
+      # compose subnet rather than "*" so a direct connection cannot forge the
+      # header. A caller that sends no X-Forwarded-Proto (e.g. an agent using
+      # http://familyos-backend:8000 internally) is unaffected.
+      - uv run alembic upgrade head && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips 172.18.0.0/16
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2)
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+    networks:
+      familyos:
+      link01:
+        aliases:
+          - familyos-backend
+
+  frontend:
+    build: ./frontend-main
+    environment:
+      BACKEND_URL: http://familyos-backend:8000
+    depends_on:
+      backend:
+        condition: service_started
+    networks:
+      familyos:
+      link01:
+        aliases:
+          - familyos-frontend
+    restart: unless-stopped
+
+  worker:
+    build: ./backend
+    environment: *backend-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Consumes jobs_outbox: OCR/ASR/LLM/embed. Long-running poll loop.
+    command: ["uv", "run", "python", "-m", "app.workers.outbox"]
+    networks:
+      - familyos
+      - link01
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    profiles:
+      - ai
+    volumes:
+      - ollama:/root/.ollama
+    networks:
+      - familyos

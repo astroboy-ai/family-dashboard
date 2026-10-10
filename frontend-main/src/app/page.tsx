@@ -1,7 +1,14 @@
 "use client";
 
-import CalendarPage from "./calendar/page";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 export default function HomePage() {
-  return <CalendarPage />;
+  const router = useRouter();
+
+  useEffect(() => {
+    router.replace("/dashboards/ipad-landscape");
+  }, [router]);
+
+  return null;
 }

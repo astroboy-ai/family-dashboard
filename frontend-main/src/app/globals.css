@@ -2478,6 +2478,12 @@ color: var(--gold-on-strong);
 }
 
 @media (max-width: 860px) {
+  .app-frame {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
   .sidebar {
     display: none;
   }
@@ -5551,6 +5557,50 @@ tfoot .table-control-btn {
   cursor: not-allowed;
 }
 
+/* iPad landscape responsive: stack panels on narrow screens */
+@media (max-width: 1100px) {
+  .dashboard-ipad-content {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .dashboard-ipad-calendar {
+    flex: 0 0 60vh;
+  }
+
+  .dashboard-ipad-notes {
+    flex: 0 0 auto;
+    min-height: 40vh;
+  }
+}
+
+@media (max-width: 860px) {
+  .dashboard-ipad-landscape {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
+  .dashboard-ipad-header {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .dashboard-ipad-content {
+    flex-direction: column;
+    overflow: visible;
+  }
+
+  .dashboard-ipad-calendar {
+    flex: 0 0 70vh;
+  }
+
+  .dashboard-ipad-notes {
+    flex: 0 0 auto;
+    min-height: 50vh;
+  }
+}
+
 /* === Dashboard Weather Component === */
 .dashboard-weather {
   display: flex;
@@ -5809,7 +5859,7 @@ tfoot .table-control-btn {
 }
 
 .dashboard-ipad-calendar {
-  flex: 0 0 40%;
+  flex: 0 0 55%;
   min-width: 0;
   border-radius: 12px;
   background: var(--surface);
@@ -5823,6 +5873,13 @@ tfoot .table-control-btn {
   border-radius: 12px;
   background: var(--surface);
   border: 1px solid var(--border);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.dashboard-ipad-notes .dashboard-note {
+  flex: 1;
   overflow: hidden;
 }
 

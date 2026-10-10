@@ -57,7 +57,7 @@ export default function DashboardIPadLandscapePage() {
       <div className="dashboard-ipad-content">
         {/* Left: Calendar */}
         <div className="dashboard-ipad-calendar">
-          <DashboardCalendar calendarId={(calendarWidgets[0]?.config as Record<string, unknown>)?.calendarId as string} days={7} />
+          <DashboardCalendar calendarId={(calendarWidgets[0]?.config as Record<string, unknown>)?.calendarId as string} days={7} initialView="month" />
         </div>
 
         {/* Right: Notes with swipe */}

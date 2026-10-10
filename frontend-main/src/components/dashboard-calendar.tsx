@@ -165,7 +165,7 @@ export function DashboardCalendar({ calendarId, days = 60 }: DashboardCalendarPr
         const [calList, evList] = await Promise.all([
           listCalendars(),
           listCalendarEvents({
-            start: new Date().toISOString(),
+            start: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
             end: new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString(),
             limit: 500,
           }),

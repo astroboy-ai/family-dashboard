@@ -660,7 +660,7 @@ export default function NoteDetailPage() {
             ) : block.type === "password" ? (
               <PasswordBlockView block={block} onUpdate={updateBlockData} />
             ) : block.type === "image" ? (
-              <ImageBlockView block={block} onAnalyse={() => void analyseImage(block)} onRemove={() => void removeBlock(block.id)} onOpenGallery={() => openGallery(index)} />
+              <ImageBlockView block={block} onAnalyse={() => void analyseImage(block)} onRemove={() => void removeBlock(block.id)} onOpenGallery={() => openGallery(index)} onUpdateData={(data) => void updateBlockData(block.id, data)} />
             ) : block.type === "file" ? (
               <div className="block-media block-file">
                 <a
@@ -1176,16 +1176,22 @@ function ImageBlockView({
   onAnalyse,
   onRemove,
   onOpenGallery,
+  onUpdateData,
 }: {
   block: NoteBlock;
   onAnalyse: () => void;
   onRemove: () => void;
   onOpenGallery?: () => void;
+  onUpdateData?: (data: Record<string, unknown>) => void;
 }) {
   const assetId = String(block.data?.media_asset_id ?? "");
   const [lightbox, setLightbox] = useState(false);
   const [exif, setExif] = useState<Record<string, unknown> | null>(null);
   const [showExif, setShowExif] = useState(false);
+  const [editingAnalysis, setEditingAnalysis] = useState(false);
+  const [editingNote, setEditingNote] = useState(false);
+  const [analysisDraft, setAnalysisDraft] = useState("");
+  const [noteDraft, setNoteDraft] = useState("");
 
   async function toggleExif() {
     if (showExif) {
@@ -1203,6 +1209,23 @@ function ImageBlockView({
     }
     setShowExif(true);
   }
+
+  function saveAnalysis() {
+    if (onUpdateData) {
+      onUpdateData({ ...block.data, analysis_text: analysisDraft });
+    }
+    setEditingAnalysis(false);
+  }
+
+  function saveNote() {
+    if (onUpdateData) {
+      onUpdateData({ ...block.data, note_text: noteDraft });
+    }
+    setEditingNote(false);
+  }
+
+  const analysisText = String(block.data?.analysis_text ?? "");
+  const noteText = String(block.data?.note_text ?? "");
 
   return (
     <>
@@ -1231,6 +1254,74 @@ function ImageBlockView({
           <p className="block-ai-pending">AI analysis queued…</p>
         ) : null}
       </div>
+
+      {/* Two text properties: analysis + personal note */}
+      <div className="block-text-props">
+        <div className="block-text-prop">
+          <div className="block-text-prop-header">
+            <span className="block-text-prop-label">Analysis</span>
+            {onUpdateData && !editingAnalysis && (
+              <button
+                type="button"
+                className="block-text-prop-edit"
+                onClick={() => { setAnalysisDraft(analysisText); setEditingAnalysis(true); }}
+              >
+                {analysisText ? "Edit" : "Add"}
+              </button>
+            )}
+          </div>
+          {editingAnalysis ? (
+            <div className="block-text-prop-edit-row">
+              <textarea
+                className="block-text-prop-input"
+                value={analysisDraft}
+                onChange={(e) => setAnalysisDraft(e.target.value)}
+                placeholder="AI analysis results…"
+                rows={2}
+              />
+              <div className="block-text-prop-actions">
+                <button type="button" className="primary-button small-button" onClick={saveAnalysis}>Save</button>
+                <button type="button" className="secondary-button small-button" onClick={() => setEditingAnalysis(false)}>Cancel</button>
+              </div>
+            </div>
+          ) : analysisText ? (
+            <p className="block-text-prop-value">{analysisText}</p>
+          ) : null}
+        </div>
+
+        <div className="block-text-prop">
+          <div className="block-text-prop-header">
+            <span className="block-text-prop-label">Note</span>
+            {onUpdateData && !editingNote && (
+              <button
+                type="button"
+                className="block-text-prop-edit"
+                onClick={() => { setNoteDraft(noteText); setEditingNote(true); }}
+              >
+                {noteText ? "Edit" : "Add"}
+              </button>
+            )}
+          </div>
+          {editingNote ? (
+            <div className="block-text-prop-edit-row">
+              <textarea
+                className="block-text-prop-input"
+                value={noteDraft}
+                onChange={(e) => setNoteDraft(e.target.value)}
+                placeholder="Personal note…"
+                rows={2}
+              />
+              <div className="block-text-prop-actions">
+                <button type="button" className="primary-button small-button" onClick={saveNote}>Save</button>
+                <button type="button" className="secondary-button small-button" onClick={() => setEditingNote(false)}>Cancel</button>
+              </div>
+            </div>
+          ) : noteText ? (
+            <p className="block-text-prop-value">{noteText}</p>
+          ) : null}
+        </div>
+      </div>
+
       {/* Reading control — outside the fieldset so it works when locked */}
       {onOpenGallery && (
         <button

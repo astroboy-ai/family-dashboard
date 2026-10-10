@@ -1,0 +1,268 @@
+"""MCP server exposing the household agent tools.
+
+The Model Context Protocol lets an agent discover and call tools without a
+bespoke HTTP client per agent. This module serves the **same** tools as
+``/internal/agent`` — it reads ``app.agent.registry``, so there is one definition
+of what a tool is and no drift between the two surfaces.
+
+Authentication reuses the device tokens from ``services/agent_tokens.py``: the
+MCP layer verifies the bearer token and stashes the agent identity, and each tool
+call re-resolves it to build the same ``Actor`` the REST path builds. A client
+cannot widen its own scope by naming it in the request.
+
+Mounting is handled by ``app.main``; the session manager's lifespan is entered
+there. Note ``streamable_http_path="/"`` so the server answers at the mount point
+itself (``/mcp``) rather than ``/mcp/mcp``.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import inspect
+import json
+import uuid
+from collections.abc import AsyncIterator
+from typing import Any
+
+import structlog
+from mcp.server.auth.provider import AccessToken
+from mcp.server.auth.settings import AuthSettings
+from mcp.server.mcpserver import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
+
+import app.agent.tools  # noqa: F401 — populates the registry via @register
+from app.agent.executor import execute_tool
+from app.agent.instructions import load_agent_instructions
+from app.agent.registry import ToolContext, registry
+from app.api.deps import Actor
+from app.core.db import session_factory
+from app.models import Household
+from app.services.agent_tokens import resolve_agent_token
+
+logger = structlog.get_logger(__name__)
+
+MCP_SERVER_NAME = "familyos"
+MCP_MOUNT_PATH = "/mcp"
+# Agents reach the server through the tunnel hostname, not the compose service
+# name, so this is the origin the Host header will carry.
+MCP_PUBLIC_HOSTNAME = "familyos-mcp.logeebox.com"
+MCP_PUBLIC_BASE_URL = f"https://{MCP_PUBLIC_HOSTNAME}"
+# Agents co-located with the backend (same Docker network) connect over the
+# compose service name. The Host header then carries this name, so it has to be
+# allowed too — otherwise those callers get 421 while the tunnel works.
+MCP_INTERNAL_HOSTNAME = "familyos-backend"
+
+
+class DeviceTokenVerifier:
+    """Verifies MCP bearer tokens against the ``device_tokens`` table.
+
+    Implements the SDK's ``TokenVerifier`` protocol. Returning ``None`` for any
+    unusable token (unknown, revoked, expired) keeps the failure modes
+    indistinguishable to the caller.
+    """
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        async with session_factory() as session:
+            identity = await resolve_agent_token(session, token)
+            if identity is None:
+                return None
+            return AccessToken(
+                token=token,
+                client_id=identity.agent_name,
+                scopes=sorted(identity.scopes),
+                subject=str(identity.member_id) if identity.member_id else None,
+                claims={"household_id": str(identity.household_id)},
+            )
+
+
+def _register_tools(server: MCPServer) -> None:
+    """Mirror every registry entry as an MCP tool.
+
+    The MCP SDK derives a tool's JSON schema from the handler's signature, so the
+    signature is synthesised from the registry's params model. Passing
+    ``Annotated`` types through preserves the model's constraints (``ge``,
+    ``max_length``, …) in the published schema rather than flattening them to
+    bare types.
+
+    Write tools are published too. Access is decided by the scope on the calling
+    token (see ``execute_tool``): a token without ``notes.write`` gets
+    ``permission_denied``, and the call is still recorded in ``agent_tool_calls``.
+    Publishing a tool therefore does not grant it — the token does.
+    """
+
+    for name, definition in registry.items():
+        handler = _make_handler(name, definition)
+        handler.__name__ = name
+        handler.__signature__ = _signature_from_model(definition.params_model)
+        server.add_tool(handler, name=name, description=definition.description)
+
+    # get_agent_instructions: returns the AGENTS.md content so agents can
+    # discover how to use the system without hardcoding instructions.
+    async def get_agent_instructions() -> str:
+        """Return the AGENTS.md content for agent reference."""
+        return load_agent_instructions()
+
+    get_agent_instructions.__name__ = "get_agent_instructions"
+    server.add_tool(
+        get_agent_instructions,
+        name="get_agent_instructions",
+        description="Get the AGENTS.md instructions for how to use the FamilyOS system.",
+    )
+
+
+def _signature_from_model(params_model: type) -> inspect.Signature:
+    from typing import Annotated
+
+    parameters = []
+    for field_name, field in params_model.model_fields.items():
+        if field.metadata:
+            annotation = Annotated[field.annotation, *field.metadata]
+        else:
+            annotation = field.annotation
+        default = (
+            inspect.Parameter.empty
+            if field.is_required()
+            else field.get_default(call_default_factory=True)
+        )
+        parameters.append(
+            inspect.Parameter(
+                field_name,
+                inspect.Parameter.KEYWORD_ONLY,
+                annotation=annotation,
+                default=default,
+            )
+        )
+    return inspect.Signature(parameters)
+
+
+def _make_handler(name: str, definition):
+    """Build the MCP handler for one registry tool.
+
+    The handler receives only validated keyword arguments — no request object —
+    so the calling agent's identity is read from the access token the MCP layer
+    verified for this request.
+
+    Failures raise ``ToolError`` rather than returning a dict. A returned dict is
+    a *successful* tool result as far as the protocol is concerned, so a refusal
+    used to come back as ``isError: false`` with the denial buried in the body —
+    an agent checking the flag would read a denied write as a completed one.
+    ``ToolError`` is the SDK's channel for an anticipated failure: it sets
+    ``is_error=True``, logs at INFO without a traceback, and leaves the message
+    for the model to read.
+    """
+
+    async def handler(**kwargs: Any) -> Any:
+        from mcp.server.auth.middleware.auth_context import get_access_token
+        from mcp.server.mcpserver.exceptions import ToolError
+
+        def failure(error: str, code: str) -> ToolError:
+            return ToolError(json.dumps({"ok": False, "error": error, "error_code": code}))
+
+        access_token = get_access_token()
+        if access_token is None:
+            raise failure("Not authenticated", "unauthenticated")
+
+        # Re-resolve the token on every call rather than trusting the claims
+        # cached at session start: a token revoked mid-session must stop working
+        # immediately, which is the whole point of per-agent tokens.
+        async with session_factory() as session:
+            identity = await resolve_agent_token(session, access_token.token)
+            if identity is None:
+                raise failure("Invalid agent token", "unauthenticated")
+
+            actor = await _build_actor(session, identity)
+            if actor is None:
+                raise failure("Invalid agent token", "unauthenticated")
+
+            context = ToolContext(
+                actor=actor,
+                session=session,
+                request_id=str(uuid.uuid4()),
+                agent=identity.agent_name,
+            )
+            result = await execute_tool(name=name, params=kwargs, context=context)
+
+        if not result.ok:
+            raise failure(result.error or "Tool failed", result.error_code or "error")
+
+        # Plain JSON: MCP serialises dicts into structured content, and a
+        # ToolResult is not itself JSON-serialisable.
+        return {"ok": True, "data": _jsonable(result.data), "meta": result.meta}
+
+    return handler
+
+
+async def _build_actor(session, identity) -> Actor | None:
+    household = await session.get(Household, identity.household_id)
+    if household is None:
+        return None
+    return Actor(
+        member_id=identity.member_id,
+        household_id=identity.household_id,
+        role="agent",
+        display_name=identity.label,
+        timezone=household.timezone,
+        locale=household.locale,
+        scopes=identity.scopes,
+    )
+
+
+def _jsonable(value: Any) -> Any:
+    """Convert Pydantic models and ORM rows into JSON-safe structures."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_jsonable(item) for item in value]
+    dump = getattr(value, "model_dump", None)
+    if callable(dump):
+        return _jsonable(dump(mode="json"))
+    return str(value)
+
+
+def build_mcp_server(*, public_base_url: str) -> MCPServer:
+    """Create the MCP server with the household tools registered.
+
+    ``token_verifier`` and ``auth`` must be supplied together — the SDK rejects
+    one without the other. ``auth`` does not start an OAuth flow here (no
+    ``auth_server_provider``); it only publishes the protected-resource metadata
+    document and enables the bearer middleware. ``validate_token_resource`` is
+    off because our verifier decides validity from the database, not from a
+    resource indicator.
+    """
+
+    server = MCPServer(
+        name=MCP_SERVER_NAME,
+        title="FamilyOS",
+        instructions=(
+            "Household notes and tags. Read tools are open to any valid token; "
+            "write tools (create_note, append_block, upload_media) require the "
+            "notes.write scope. Notes private to another member are not visible. "
+            "Call get_agent_instructions for the full guide."
+        ),
+        token_verifier=DeviceTokenVerifier(),
+        auth=AuthSettings(
+            issuer_url=public_base_url,
+            resource_server_url=public_base_url,
+            validate_token_resource=False,
+        ),
+    )
+    _register_tools(server)
+    return server
+
+
+mcp_server = build_mcp_server(public_base_url=MCP_PUBLIC_BASE_URL)
+
+
+@contextlib.asynccontextmanager
+async def mcp_lifespan() -> AsyncIterator[None]:
+    """Run the MCP session manager for the lifetime of the parent app.
+
+    The MCP streamable-HTTP transport keeps sessions in a task group that must be
+    running for the mounted app to serve requests. Mounting without this yields a
+    server that answers every call with a 500.
+    """
+
+    async with mcp_server.session_manager.run():
+        yield

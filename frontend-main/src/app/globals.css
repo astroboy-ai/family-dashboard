@@ -429,26 +429,27 @@ a {
 .topbar-datetime {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
   margin-left: auto;
   margin-right: 16px;
-  padding: 6px 14px;
+  padding: 0 20px;
   border-radius: 10px;
   background: var(--surface);
   flex-shrink: 0;
+  height: 56px;
 }
 
 .topbar-date {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--foreground);
   white-space: nowrap;
 }
 
 .topbar-time {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--muted);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--foreground);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -5929,7 +5930,7 @@ tfoot .table-control-btn {
 }
 
 .dashboard-ipad-weather-area {
-  flex: 0 0 45%;
+  flex: 0 0 50%;
   min-width: 0;
   align-self: stretch;
   display: flex;
@@ -5937,7 +5938,7 @@ tfoot .table-control-btn {
 }
 
 .dashboard-ipad-school-area {
-  flex: 1;
+  flex: 0 0 30%;
   min-width: 0;
   align-self: stretch;
   display: flex;
@@ -5992,18 +5993,6 @@ tfoot .table-control-btn {
   background: var(--surface);
   border: 1px solid var(--border);
   overflow: hidden;
-}
-
-.dashboard-school-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--border);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--foreground);
-  flex-shrink: 0;
 }
 
 .dashboard-school-grid {

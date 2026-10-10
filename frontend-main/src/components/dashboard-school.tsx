@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { GraduationCap, Music, Music2, Bus, Shirt, MessageSquare } from "lucide-react";
+import { Music, Music2, Bus, Shirt, MessageSquare } from "lucide-react";
 
 interface DashboardSchoolProps {
   childName?: string;
@@ -12,11 +12,7 @@ export function DashboardSchool({ childName = "Phoebe" }: DashboardSchoolProps) 
 
   return (
     <div className="dashboard-school">
-      <div className="dashboard-school-header">
-        <GraduationCap size={18} />
-        <span>{childName}&apos;s School Day</span>
-      </div>
-      <div className="dashboard-school-grid">
+      <div className="dashboard-school-grid" title={`${childName}'s School Day`}>
         {/* Uniform */}
         <div className="dashboard-school-item">
           <div className="dashboard-school-icon uniform">

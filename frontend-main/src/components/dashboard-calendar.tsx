@@ -39,13 +39,12 @@ function MonthGrid({ events, selectedDate, onSelectDate, showFilters, onToggleFi
     <div className="dashboard-cal-view">
       <div className="dashboard-cal-nav">
         <button onClick={() => navigate(-1)} aria-label="Previous"><ChevronLeft size={14} /></button>
-        <span>{viewLabel}</span>
+        <span className="dashboard-cal-nav-month">{viewLabel}</span>
         <button onClick={() => navigate(1)} aria-label="Next"><ChevronRight size={14} /></button>
         <button
           className={`dashboard-cal-filter-btn${showFilters || hasActiveFilter ? " active" : ""}`}
           onClick={onToggleFilters}
           title="Choose which calendars to show"
-          style={{ marginLeft: "auto" }}
         >
           <CalendarDays size={14} />
         </button>

@@ -6627,13 +6627,13 @@ tfoot .table-control-btn {
   box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
-.dashboard-cal-day.selected .dashboard-cal-daynum {
+.dashboard-cal-day.selected .dashboard-cal-daynum,
+.dashboard-cal-day.selected.today .dashboard-cal-daynum {
   color: white;
 }
 
-.dashboard-cal-day.selected .dashboard-cal-event {
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
+.dashboard-cal-day.selected .dashboard-cal-event-dot {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.5);
 }
 
 .dashboard-cal-daynum {

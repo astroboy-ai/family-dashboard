@@ -312,7 +312,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="app-column">
-        <header className="topbar">
+        <header className={`topbar${isFullscreen ? " topbar-hidden" : ""}`}>
           <button className="hamburger-button" aria-label="Open menu" onClick={() => setMoreOpen(true)}>
             <Menu size={20} />
           </button>
@@ -320,10 +320,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span className="brand-mark">F</span>
             <span className="brand-name">FamilyOS</span>
           </div>
-          <div className="topbar-title">{title}</div>
           <div className="topbar-datetime">
             <span className="topbar-date">{formatDate(now)}</span>
-            <span className="topbar-time">{formatTime(now)}</span>
+            <span className="topbar-time pixel-font">{formatTime(now)}</span>
           </div>
           <div className="topbar-actions">
             <button className="search-trigger" onClick={() => setPaletteOpen(true)}>

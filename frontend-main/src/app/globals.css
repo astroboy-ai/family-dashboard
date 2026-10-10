@@ -705,6 +705,40 @@ a {
   white-space: nowrap;
 }
 
+/* Hide topbar when in fullscreen */
+.topbar-hidden {
+  display: none !important;
+}
+
+/* Pixel font for clock */
+.pixel-font {
+  font-family: "Courier New", "Lucida Console", monospace;
+  font-weight: 700;
+  letter-spacing: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Calendar filter button in nav */
+.dashboard-cal-filter-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.dashboard-cal-filter-btn:hover,
+.dashboard-cal-filter-btn.active {
+  background: var(--surface-muted);
+  color: var(--foreground);
+}
+
 .topbar-actions {
   display: flex;
   align-items: center;
@@ -5891,16 +5925,23 @@ tfoot .table-control-btn {
   min-height: 200px;
   max-height: 200px;
   overflow: hidden;
+  align-items: stretch;
 }
 
 .dashboard-ipad-weather-area {
-  flex: 0 0 40%;
+  flex: 0 0 45%;
   min-width: 0;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
 }
 
 .dashboard-ipad-school-area {
   flex: 1;
   min-width: 0;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
 }
 
 .dashboard-ipad-bottom-row {
@@ -6169,43 +6210,7 @@ tfoot .table-control-btn {
   color: var(--muted);
 }
 
-.dashboard-calendar-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--border);
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--foreground);
-}
-
-.dashboard-calendar-count {
-  margin-left: auto;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--muted);
-}
-
-.dashboard-calendar-filter-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-
-.dashboard-calendar-filter-btn:hover,
-.dashboard-calendar-filter-btn.active {
-  background: var(--surface-muted);
-  color: var(--foreground);
-}
+/* Calendar header removed — filter icon now lives in MonthGrid nav */
 
 .dashboard-calendar-filters {
   padding: 8px 0;

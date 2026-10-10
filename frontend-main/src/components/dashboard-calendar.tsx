@@ -9,7 +9,7 @@ interface DashboardCalendarProps {
   days?: number;
 }
 
-function MonthGrid({ events, selectedDate, onSelectDate }: { events: CalendarEvent[]; selectedDate: Date; onSelectDate: (d: Date) => void }) {
+function MonthGrid({ events, selectedDate, onSelectDate, showFilters, onToggleFilters, hasActiveFilter }: { events: CalendarEvent[]; selectedDate: Date; onSelectDate: (d: Date) => void; showFilters: boolean; onToggleFilters: () => void; hasActiveFilter: boolean }) {
   const [calDate, setCalDate] = useState(selectedDate);
 
   useEffect(() => setCalDate(selectedDate), [selectedDate]);
@@ -41,6 +41,14 @@ function MonthGrid({ events, selectedDate, onSelectDate }: { events: CalendarEve
         <button onClick={() => navigate(-1)} aria-label="Previous"><ChevronLeft size={14} /></button>
         <span>{viewLabel}</span>
         <button onClick={() => navigate(1)} aria-label="Next"><ChevronRight size={14} /></button>
+        <button
+          className={`dashboard-cal-filter-btn${showFilters || hasActiveFilter ? " active" : ""}`}
+          onClick={onToggleFilters}
+          title="Choose which calendars to show"
+          style={{ marginLeft: "auto" }}
+        >
+          <CalendarDays size={14} />
+        </button>
       </div>
       <div className="dashboard-cal-month">
         <div className="dashboard-cal-wkday">Sun</div>
@@ -184,18 +192,6 @@ export function DashboardCalendar({ calendarId, days = 60 }: DashboardCalendarPr
 
   return (
     <div className="dashboard-calendar">
-      <div className="dashboard-calendar-header">
-        <CalendarDays size={18} />
-        <span>Calendar</span>
-        <button
-          className={`dashboard-calendar-filter-btn${showFilters || (visibleCalendarIds && visibleCalendarIds.length < calendars.length) ? " active" : ""}`}
-          onClick={() => setShowFilters((v) => !v)}
-          title="Choose which calendars to show"
-        >
-          <CalendarDays size={14} />
-        </button>
-        <span className="dashboard-calendar-count">{filteredEvents.length} events</span>
-      </div>
       {showFilters && (
         <div className="dashboard-calendar-filters">
           <div className="dashboard-calendar-filters-header">
@@ -239,7 +235,7 @@ export function DashboardCalendar({ calendarId, days = 60 }: DashboardCalendarPr
       )}
       <div className="dashboard-calendar-body">
         <div className="dashboard-calendar-month">
-          <MonthGrid events={filteredEvents} selectedDate={selectedDate} onSelectDate={setSelectedDate} />
+          <MonthGrid events={filteredEvents} selectedDate={selectedDate} onSelectDate={setSelectedDate} showFilters={showFilters} onToggleFilters={() => setShowFilters((v) => !v)} hasActiveFilter={visibleCalendarIds !== null && visibleCalendarIds.length < calendars.length} />
         </div>
         <div className="dashboard-calendar-agenda">
           <AgendaList events={filteredEvents} selectedDate={selectedDate} />

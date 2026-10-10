@@ -7,6 +7,7 @@ import { DashboardWeather } from "@/components/dashboard-weather";
 import { DashboardCalendar } from "@/components/dashboard-calendar";
 import { DashboardNote } from "@/components/dashboard-note";
 import { DashboardSchool } from "@/components/dashboard-school";
+import { DashboardTimeline } from "@/components/dashboard-timeline";
 
 const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
 
@@ -93,7 +94,7 @@ export default function DashboardIPadLandscapePage() {
           </div>
           <div className="dashboard-ipad-bottom-row">
             <div className="dashboard-ipad-placeholder">
-              <p>Placeholder for next stage</p>
+              <DashboardTimeline childName="Phoebe" />
             </div>
             <div
               className="dashboard-ipad-notes"

@@ -130,6 +130,9 @@ export function DashboardWeather({ location = "Hong Kong", compact = false }: Da
           );
         })}
       </div>
+      <div className="dashboard-weather-footer">
+        <span>Last updated: {new Date().toLocaleTimeString("en-HK", { hour: "2-digit", minute: "2-digit" })} • Auto-refresh every 5 min</span>
+      </div>
       <button
         className="dashboard-weather-windy"
         onClick={() => setShowWindy(true)}

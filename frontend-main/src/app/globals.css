@@ -682,6 +682,7 @@ a {
 .app-column {
   display: flex;
   min-width: 0;
+  min-height: 0;
   flex: 1;
   flex-direction: column;
 }
@@ -836,11 +837,14 @@ kbd {
   display: flex;
   min-height: 0;
   flex: 1;
+  overflow: hidden;
 }
 
 .main-content {
   min-width: 0;
+  min-height: 0;
   flex: 1;
+  overflow: hidden;
 }
 
 .page-wrap {
@@ -5616,8 +5620,9 @@ tfoot .table-control-btn {
 
 @media (max-width: 860px) {
   .dashboard-ipad-landscape {
+    flex: none;
     height: auto;
-    min-height: 100vh;
+    min-height: 0;
     overflow: visible;
   }
 
@@ -5678,6 +5683,14 @@ tfoot .table-control-btn {
   align-items: center;
   gap: 4px;
   font-size: 13px;
+  color: var(--muted);
+}
+
+.dashboard-weather-footer {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  font-size: 11px;
   color: var(--muted);
 }
 
@@ -5855,7 +5868,8 @@ tfoot .table-control-btn {
 .dashboard-ipad-landscape {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
   background: var(--background);
 }
@@ -5902,6 +5916,7 @@ tfoot .table-control-btn {
   display: flex;
   flex: 1;
   min-height: 0;
+  overflow: hidden;
   gap: 16px;
   padding: 16px 24px;
 }
@@ -6579,6 +6594,21 @@ tfoot .table-control-btn {
 .dashboard-cal-day.today {
   background: var(--accent-soft);
   border: 1px solid var(--accent);
+}
+
+.dashboard-cal-day.selected {
+  background: var(--accent);
+  border: 2px solid var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.dashboard-cal-day.selected .dashboard-cal-daynum {
+  color: white;
+}
+
+.dashboard-cal-day.selected .dashboard-cal-event {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
 }
 
 .dashboard-cal-daynum {

@@ -4234,35 +4234,91 @@ html[data-theme="forest"] .brand-mark {
   object-fit: contain;
 }
 
-.image-exif-overlay {
+.image-exif-panel {
   position: absolute;
-  right: 16px;
-  bottom: 16px;
-  max-width: 320px;
-  max-height: 40vh;
+  top: 0;
+  right: 0;
+  width: 320px;
+  max-width: 85vw;
+  height: 100%;
   overflow: auto;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--surface) 92%, transparent);
-  padding: 10px 12px;
+  border-left: 1px solid var(--line);
+  background: var(--surface);
+  padding: 12px 14px;
   font-size: 12px;
-  backdrop-filter: blur(6px);
+  box-shadow: -4px 0 16px rgba(0,0,0,0.15);
+  z-index: 2;
+}
+
+.image-exif-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.image-exif-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 
 .image-exif-row {
   display: flex;
   gap: 8px;
-  padding: 2px 0;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--muted)/10;
 }
 
 .image-exif-key {
   min-width: 110px;
   color: var(--muted);
   font-weight: 600;
+  flex-shrink: 0;
 }
 
 .image-exif-value {
   word-break: break-word;
+  color: var(--foreground);
+}
+
+@media (max-width: 768px) {
+  .image-exif-panel {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.85);
+    border: none;
+    z-index: 100;
+  }
+
+  .image-exif-panel-header {
+    color: white;
+    border-bottom-color: rgba(255, 255, 255, 0.2);
+  }
+
+  .image-exif-panel-body {
+    gap: 2px;
+  }
+
+  .image-exif-row {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .image-exif-key {
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  .image-exif-value {
+    color: white;
+  }
 }
 
 /* === Vault page === */

@@ -5917,6 +5917,197 @@ tfoot .table-control-btn {
   color: var(--muted);
 }
 
+/* === Dashboard Calendar Component === */
+.dashboard-calendar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 16px;
+}
+
+.dashboard-calendar-loading,
+.dashboard-calendar-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.dashboard-calendar-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.dashboard-calendar-count {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.dashboard-calendar-list {
+  flex: 1;
+  overflow-y: auto;
+  padding-top: 12px;
+}
+
+.dashboard-calendar-empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 24px;
+}
+
+.dashboard-calendar-day {
+  margin-bottom: 16px;
+}
+
+.dashboard-calendar-day-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.dashboard-calendar-day-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.dashboard-calendar-day-name.today {
+  color: var(--accent);
+}
+
+.dashboard-calendar-day-date {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.dashboard-calendar-event {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  margin-bottom: 4px;
+  border-radius: 8px;
+  background: var(--surface-muted);
+  border-left: 3px solid var(--accent);
+}
+
+.dashboard-calendar-event-time {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.dashboard-calendar-event-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+.dashboard-calendar-event-location {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* === Dashboard Note Component === */
+.dashboard-note {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 16px;
+}
+
+.dashboard-note-loading,
+.dashboard-note-error,
+.dashboard-note-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 8px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.dashboard-note-header {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+
+.dashboard-note-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.dashboard-note-summary {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.dashboard-note-blocks {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dashboard-note-empty-blocks {
+  text-align: center;
+  color: var(--muted);
+  padding: 24px;
+}
+
+.dashboard-note-text {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--foreground);
+  white-space: pre-wrap;
+}
+
+.dashboard-note-image,
+.dashboard-note-checkbox,
+.dashboard-note-table,
+.dashboard-note-location,
+.dashboard-note-datetime,
+.dashboard-note-default {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--surface-muted);
+  font-size: 14px;
+  color: var(--foreground);
+}
+
+.dashboard-note-hint {
+  font-size: 13px;
+  color: var(--muted);
+  opacity: 0.7;
+}
+
 /* === Utilities page (sidebar + content layout) === */
 .utilities-page {
   display: flex;

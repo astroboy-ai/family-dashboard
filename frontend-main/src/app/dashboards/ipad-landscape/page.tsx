@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback } from "react";
 import { RefreshCw } from "lucide-react";
 import { listDashboards, type Dashboard } from "@/lib/api";
 import { DashboardWeather } from "@/components/dashboard-weather";
+import { DashboardCalendar } from "@/components/dashboard-calendar";
+import { DashboardNote } from "@/components/dashboard-note";
 
 const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
 
@@ -73,16 +75,7 @@ export default function DashboardIPadLandscapePage() {
       <div className="dashboard-ipad-content">
         {/* Left: Calendar */}
         <div className="dashboard-ipad-calendar">
-          {calendarWidgets.length > 0 ? (
-            <div className="dashboard-ipad-calendar-placeholder">
-              <p>Calendar widget: {(calendarWidgets[0].config as Record<string, unknown>)?.calendarId as string || "Default"}</p>
-              <p className="dashboard-ipad-hint">Calendar view will render here</p>
-            </div>
-          ) : (
-            <div className="dashboard-ipad-calendar-placeholder">
-              <p>No calendar widget configured</p>
-            </div>
-          )}
+          <DashboardCalendar calendarId={(calendarWidgets[0]?.config as Record<string, unknown>)?.calendarId as string} days={7} />
         </div>
 
         {/* Right: Notes with swipe */}
@@ -111,13 +104,16 @@ export default function DashboardIPadLandscapePage() {
                 ))}
               </div>
               <div className="dashboard-ipad-notes-content">
-                <p>Note content will render here</p>
-                <p className="dashboard-ipad-hint">Swipe left/right to switch notes</p>
+                <DashboardNote
+                  noteId={(noteWidgets[noteIndex]?.config as Record<string, unknown>)?.noteId as string}
+                  title={(noteWidgets[noteIndex]?.config as Record<string, unknown>)?.title as string}
+                />
               </div>
             </div>
           ) : (
             <div className="dashboard-ipad-notes-placeholder">
               <p>No note widgets configured</p>
+              <p className="dashboard-ipad-hint">Agent will assign notes here</p>
             </div>
           )}
         </div>

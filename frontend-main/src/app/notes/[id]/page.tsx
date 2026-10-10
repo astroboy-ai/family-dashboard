@@ -1386,13 +1386,19 @@ function ImageLightbox({
             className="image-lightbox-img"
           />
           {showExif && exif && (
-            <div className="image-exif-overlay">
-              {Object.entries(exif).map(([key, value]) => (
-                <div key={key} className="image-exif-row">
-                  <span className="image-exif-key">{key}</span>
-                  <span className="image-exif-value">{String(value)}</span>
-                </div>
-              ))}
+            <div className="image-exif-panel">
+              <div className="image-exif-panel-header">
+                <span>EXIF Details</span>
+                <button type="button" className="icon-button" onClick={onToggleExif} aria-label="Close EXIF"><X size={14} /></button>
+              </div>
+              <div className="image-exif-panel-body">
+                {Object.entries(exif).map(([key, value]) => (
+                  <div key={key} className="image-exif-row">
+                    <span className="image-exif-key">{key}</span>
+                    <span className="image-exif-value">{String(value)}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>

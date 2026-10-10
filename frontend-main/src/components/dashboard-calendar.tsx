@@ -9,7 +9,7 @@ interface DashboardCalendarProps {
   days?: number;
 }
 
-function MonthGrid({ events, selectedDate, onSelectDate, showFilters, onToggleFilters, hasActiveFilter }: { events: CalendarEvent[]; selectedDate: Date; onSelectDate: (d: Date) => void; showFilters: boolean; onToggleFilters: () => void; hasActiveFilter: boolean }) {
+function MonthGrid({ events, selectedDate, onSelectDate, showFilters, onToggleFilters, hasActiveFilter, calendars }: { events: CalendarEvent[]; selectedDate: Date; onSelectDate: (d: Date) => void; showFilters: boolean; onToggleFilters: () => void; hasActiveFilter: boolean; calendars: Calendar[] }) {
   const [calDate, setCalDate] = useState(selectedDate);
 
   useEffect(() => setCalDate(selectedDate), [selectedDate]);
@@ -72,10 +72,24 @@ function MonthGrid({ events, selectedDate, onSelectDate, showFilters, onToggleFi
               onClick={() => dayDate && onSelectDate(dayDate)}
             >
               {day && <span className="dashboard-cal-daynum">{day}</span>}
-              {dayEvents.slice(0, 2).map((ev) => (
-                <div key={ev.id} className="dashboard-cal-event">{ev.title}</div>
-              ))}
-              {dayEvents.length > 2 && <div className="dashboard-cal-more">+{dayEvents.length - 2} more</div>}
+              {dayEvents.length > 0 && (
+                <div className="dashboard-cal-event-dots">
+                  {dayEvents.slice(0, 3).map((ev) => {
+                    const cal = calendars.find((c) => c.id === ev.calendar_id);
+                    return (
+                      <div
+                        key={ev.id}
+                        className="dashboard-cal-event-dot"
+                        style={{ backgroundColor: cal?.color || "#6366f1" }}
+                        title={ev.title}
+                      />
+                    );
+                  })}
+                  {dayEvents.length > 3 && (
+                    <span className="dashboard-cal-more">+{dayEvents.length - 3}</span>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
@@ -244,7 +258,7 @@ export function DashboardCalendar({ calendarId, days = 60 }: DashboardCalendarPr
       )}
       <div className="dashboard-calendar-body">
         <div className="dashboard-calendar-month">
-          <MonthGrid events={filteredEvents} selectedDate={selectedDate} onSelectDate={setSelectedDate} showFilters={showFilters} onToggleFilters={() => setShowFilters((v) => !v)} hasActiveFilter={visibleCalendarIds !== null && visibleCalendarIds.length < calendars.length} />
+          <MonthGrid events={filteredEvents} selectedDate={selectedDate} onSelectDate={setSelectedDate} showFilters={showFilters} onToggleFilters={() => setShowFilters((v) => !v)} hasActiveFilter={visibleCalendarIds !== null && visibleCalendarIds.length < calendars.length} calendars={calendars} />
         </div>
         <div className="dashboard-calendar-agenda">
           <AgendaList events={filteredEvents} selectedDate={selectedDate} calendars={calendars} />

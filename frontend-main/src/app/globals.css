@@ -6646,16 +6646,17 @@ tfoot .table-control-btn {
   color: var(--accent);
 }
 
-.dashboard-cal-event {
-  width: 100%;
-  padding: 2px 4px;
-  border-radius: 3px;
-  background: var(--accent-soft);
-  font-size: 10px;
-  color: var(--foreground);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.dashboard-cal-event-dots {
+  display: flex;
+  gap: 2px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+
+.dashboard-cal-event-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
 }
 
 .dashboard-cal-more {

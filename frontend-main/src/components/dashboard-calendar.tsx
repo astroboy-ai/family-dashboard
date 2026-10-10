@@ -121,6 +121,8 @@ export function DashboardCalendar({ calendarId, days = 60 }: DashboardCalendarPr
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [showFilters, setShowFilters] = useState(false);
+  const [visibleCalendarIds, setVisibleCalendarIds] = useState<string[] | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -138,6 +140,7 @@ export function DashboardCalendar({ calendarId, days = 60 }: DashboardCalendarPr
         if (!active) return;
         setCalendars(calList);
         setEvents(evList);
+        setVisibleCalendarIds(calList.map((c) => c.id));
         setError(null);
       } catch (err) {
         if (!active) return;
@@ -149,6 +152,18 @@ export function DashboardCalendar({ calendarId, days = 60 }: DashboardCalendarPr
     load();
     return () => { active = false; };
   }, [calendarId, days]);
+
+  const toggleCalendarFilter = (calendarId: string) => {
+    const current = visibleCalendarIds ?? calendars.map((c) => c.id);
+    const next = current.includes(calendarId)
+      ? current.filter((id) => id !== calendarId)
+      : [...current, calendarId];
+    setVisibleCalendarIds(next);
+  };
+
+  const filteredEvents = visibleCalendarIds
+    ? events.filter((ev) => visibleCalendarIds.includes(ev.calendar_id))
+    : events;
 
   if (loading) {
     return (
@@ -172,14 +187,62 @@ export function DashboardCalendar({ calendarId, days = 60 }: DashboardCalendarPr
       <div className="dashboard-calendar-header">
         <CalendarDays size={18} />
         <span>Calendar</span>
-        <span className="dashboard-calendar-count">{events.length} events</span>
+        <button
+          className={`dashboard-calendar-filter-btn${showFilters || (visibleCalendarIds && visibleCalendarIds.length < calendars.length) ? " active" : ""}`}
+          onClick={() => setShowFilters((v) => !v)}
+          title="Choose which calendars to show"
+        >
+          <CalendarDays size={14} />
+        </button>
+        <span className="dashboard-calendar-count">{filteredEvents.length} events</span>
       </div>
+      {showFilters && (
+        <div className="dashboard-calendar-filters">
+          <div className="dashboard-calendar-filters-header">
+            <span>Show calendars</span>
+            <button
+              onClick={() => {
+                const all = calendars.map((c) => c.id);
+                setVisibleCalendarIds(all);
+              }}
+            >
+              Select all
+            </button>
+          </div>
+          <div className="dashboard-calendar-filters-list">
+            {calendars.map((cal) => {
+              const checked = !visibleCalendarIds || visibleCalendarIds.includes(cal.id);
+              return (
+                <button
+                  key={cal.id}
+                  onClick={() => toggleCalendarFilter(cal.id)}
+                  className="dashboard-calendar-filter-item"
+                >
+                  <span
+                    className="dashboard-calendar-filter-check"
+                    style={{
+                      borderColor: cal.color || "#6366f1",
+                      backgroundColor: checked ? cal.color || "#6366f1" : "transparent",
+                    }}
+                  >
+                    {checked && <span className="dashboard-calendar-filter-check-icon">✓</span>}
+                  </span>
+                  <span className="dashboard-calendar-filter-name">{cal.name}</span>
+                </button>
+              );
+            })}
+            {calendars.length === 0 && (
+              <p className="dashboard-calendar-filters-empty">No calendars synced yet.</p>
+            )}
+          </div>
+        </div>
+      )}
       <div className="dashboard-calendar-body">
         <div className="dashboard-calendar-month">
-          <MonthGrid events={events} selectedDate={selectedDate} onSelectDate={setSelectedDate} />
+          <MonthGrid events={filteredEvents} selectedDate={selectedDate} onSelectDate={setSelectedDate} />
         </div>
         <div className="dashboard-calendar-agenda">
-          <AgendaList events={events} selectedDate={selectedDate} />
+          <AgendaList events={filteredEvents} selectedDate={selectedDate} />
         </div>
       </div>
     </div>

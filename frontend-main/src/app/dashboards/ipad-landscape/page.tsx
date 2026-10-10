@@ -6,6 +6,7 @@ import { listDashboards, type Dashboard } from "@/lib/api";
 import { DashboardWeather } from "@/components/dashboard-weather";
 import { DashboardCalendar } from "@/components/dashboard-calendar";
 import { DashboardNote } from "@/components/dashboard-note";
+import { DashboardSchool } from "@/components/dashboard-school";
 
 const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
 
@@ -80,53 +81,63 @@ export default function DashboardIPadLandscapePage() {
           <DashboardCalendar calendarId={(calendarWidgets[0]?.config as Record<string, unknown>)?.calendarId as string} days={60} />
         </div>
 
-        {/* Right: Weather (top) + Notes (bottom, swipeable) */}
+        {/* Right: Weather + School (top) | Placeholder + Notes (bottom) */}
         <div className="dashboard-ipad-right">
-          <div className="dashboard-ipad-weather-area">
-            <DashboardWeather location="Hong Kong" />
+          <div className="dashboard-ipad-top-row">
+            <div className="dashboard-ipad-weather-area">
+              <DashboardWeather location="Hong Kong" />
+            </div>
+            <div className="dashboard-ipad-school-area">
+              <DashboardSchool childName="Phoebe" />
+            </div>
           </div>
-          <div
-            className="dashboard-ipad-notes"
-            onTouchStart={handleTouchStart}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={handleTouchEnd}
-          >
-            {noteWidgets.length > 0 ? (
-              <div className="dashboard-ipad-notes-container">
-                <div className="dashboard-ipad-notes-tabs">
-                  {noteWidgets.map((w, i) => (
-                    <button
-                      key={i}
-                      className={`dashboard-ipad-notes-tab${i === noteIndex ? " active" : ""}`}
-                      onClick={() => setNoteIndex(i)}
-                    >
-                      {(w.config as Record<string, unknown>)?.title as string || `Note ${i + 1}`}
-                    </button>
-                  ))}
-                </div>
-                <div className="dashboard-ipad-notes-content">
-                  <DashboardNote
-                    noteId={(noteWidgets[noteIndex]?.config as Record<string, unknown>)?.noteId as string}
-                    title={(noteWidgets[noteIndex]?.config as Record<string, unknown>)?.title as string}
-                  />
-                </div>
-                <div className="dashboard-ipad-notes-dotnav">
-                  {noteWidgets.map((_, i) => (
-                    <button
-                      key={i}
-                      className={`dashboard-ipad-notes-dot${i === noteIndex ? " active" : ""}`}
-                      onClick={() => setNoteIndex(i)}
-                      aria-label={`Note ${i + 1}`}
+          <div className="dashboard-ipad-bottom-row">
+            <div className="dashboard-ipad-placeholder">
+              <p>Placeholder for next stage</p>
+            </div>
+            <div
+              className="dashboard-ipad-notes"
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+            >
+              {noteWidgets.length > 0 ? (
+                <div className="dashboard-ipad-notes-container">
+                  <div className="dashboard-ipad-notes-tabs">
+                    {noteWidgets.map((w, i) => (
+                      <button
+                        key={i}
+                        className={`dashboard-ipad-notes-tab${i === noteIndex ? " active" : ""}`}
+                        onClick={() => setNoteIndex(i)}
+                      >
+                        {(w.config as Record<string, unknown>)?.title as string || `Note ${i + 1}`}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="dashboard-ipad-notes-content">
+                    <DashboardNote
+                      noteId={(noteWidgets[noteIndex]?.config as Record<string, unknown>)?.noteId as string}
+                      title={(noteWidgets[noteIndex]?.config as Record<string, unknown>)?.title as string}
                     />
-                  ))}
+                  </div>
+                  <div className="dashboard-ipad-notes-dotnav">
+                    {noteWidgets.map((_, i) => (
+                      <button
+                        key={i}
+                        className={`dashboard-ipad-notes-dot${i === noteIndex ? " active" : ""}`}
+                        onClick={() => setNoteIndex(i)}
+                        aria-label={`Note ${i + 1}`}
+                      />
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <div className="dashboard-ipad-notes-placeholder">
-                <p>No note widgets configured</p>
-                <p className="dashboard-ipad-hint">Agent will assign notes here</p>
-              </div>
-            )}
+              ) : (
+                <div className="dashboard-ipad-notes-placeholder">
+                  <p>No note widgets configured</p>
+                  <p className="dashboard-ipad-hint">Agent will assign notes here</p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

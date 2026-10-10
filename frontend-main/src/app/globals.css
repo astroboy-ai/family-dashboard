@@ -5550,6 +5550,372 @@ tfoot .table-control-btn {
   cursor: not-allowed;
 }
 
+/* === Dashboard Weather Component === */
+.dashboard-weather {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.dashboard-weather-today {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dashboard-weather-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dashboard-weather-temp {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--foreground);
+  line-height: 1;
+}
+
+.dashboard-weather-detail {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.dashboard-weather-forecast {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.dashboard-weather-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--surface-muted);
+  min-width: 48px;
+}
+
+.dashboard-weather-day-name {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.dashboard-weather-day-temp {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.dashboard-weather-day-rain {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.dashboard-weather-windy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.dashboard-weather-windy:hover {
+  background: var(--surface);
+  color: var(--foreground);
+}
+
+.dashboard-weather-windy-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.dashboard-weather-windy-content {
+  width: 90vw;
+  max-width: 800px;
+  max-height: 80vh;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.dashboard-weather-windy-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dashboard-weather-windy-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.dashboard-weather-windy-header button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.dashboard-weather-windy-map {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 400px;
+  color: var(--muted);
+}
+
+/* Compact weather (for mobile/e-ink) */
+.dashboard-weather-compact {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.dashboard-weather-compact-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dashboard-weather-compact-temp {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--foreground);
+}
+
+.dashboard-weather-compact-rain {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.dashboard-weather-compact-forecast {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+}
+
+.dashboard-weather-compact-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: var(--surface-muted);
+  min-width: 36px;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+/* === iPad Landscape Dashboard === */
+.dashboard-ipad-landscape {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--background);
+}
+
+.dashboard-ipad-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  gap: 16px;
+  color: var(--muted);
+}
+
+.dashboard-ipad-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+
+.dashboard-ipad-date {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dashboard-ipad-date-text {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--foreground);
+}
+
+.dashboard-ipad-time {
+  font-size: 14px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard-ipad-content {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: 16px;
+  padding: 16px 24px;
+}
+
+.dashboard-ipad-calendar {
+  flex: 0 0 40%;
+  min-width: 0;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.dashboard-ipad-notes {
+  flex: 1;
+  min-width: 0;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.dashboard-ipad-calendar-placeholder,
+.dashboard-ipad-notes-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 8px;
+  color: var(--muted);
+  padding: 24px;
+  text-align: center;
+}
+
+.dashboard-ipad-hint {
+  font-size: 13px;
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+.dashboard-ipad-notes-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.dashboard-ipad-notes-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 12px 16px 0;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.dashboard-ipad-notes-tab {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease;
+}
+
+.dashboard-ipad-notes-tab:hover {
+  background: var(--surface-muted);
+}
+
+.dashboard-ipad-notes-tab.active {
+  background: var(--surface);
+  color: var(--foreground);
+  font-weight: 600;
+  border-bottom: 2px solid var(--accent);
+}
+
+.dashboard-ipad-notes-dotnav {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 0;
+}
+
+.dashboard-ipad-notes-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: none;
+  background: var(--border);
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s ease;
+}
+
+.dashboard-ipad-notes-dot.active {
+  background: var(--accent);
+}
+
+.dashboard-ipad-notes-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
 /* === Utilities page (sidebar + content layout) === */
 .utilities-page {
   display: flex;

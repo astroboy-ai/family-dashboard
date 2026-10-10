@@ -10,9 +10,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_actor, get_session
+from app.api.deps import Actor, get_current_actor, get_session
 from app.models.dashboard import Dashboard
-from app.models.identity import Actor
 
 router = APIRouter(prefix="/dashboards", tags=["dashboards"])
 

@@ -5612,8 +5612,30 @@ tfoot .table-control-btn {
     flex: 0 0 60vh;
   }
 
+  .dashboard-ipad-right {
+    flex: 0 0 auto;
+  }
+
+  .dashboard-ipad-top-row {
+    flex-direction: column;
+  }
+
+  .dashboard-ipad-weather-area,
+  .dashboard-ipad-school-area {
+    flex: 0 0 auto;
+  }
+
+  .dashboard-ipad-bottom-row {
+    flex-direction: column;
+  }
+
+  .dashboard-ipad-placeholder,
   .dashboard-ipad-notes {
     flex: 0 0 auto;
+    width: 100%;
+  }
+
+  .dashboard-ipad-notes {
     min-height: 40vh;
   }
 }
@@ -5640,8 +5662,21 @@ tfoot .table-control-btn {
     flex: 0 0 70vh;
   }
 
+  .dashboard-ipad-right,
+  .dashboard-ipad-top-row,
+  .dashboard-ipad-bottom-row {
+    flex-direction: column;
+  }
+
+  .dashboard-ipad-weather-area,
+  .dashboard-ipad-school-area,
+  .dashboard-ipad-placeholder,
   .dashboard-ipad-notes {
     flex: 0 0 auto;
+    width: 100%;
+  }
+
+  .dashboard-ipad-notes {
     min-height: 50vh;
   }
 }

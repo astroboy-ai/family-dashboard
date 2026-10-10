@@ -83,7 +83,7 @@ export function DashboardTimeline({ childName = "Phoebe" }: { childName?: string
     <div className="dashboard-timeline">
       <div className="dashboard-timeline-header">
         <Clock size={16} />
-        <span>{childName}&apos;s Day Timeline</span>
+        <span>Timeline</span>
         {currentIdx >= 0 && (
           <span className="dashboard-timeline-now">
             Now: {MOCK_TIMELINE[currentIdx].title}

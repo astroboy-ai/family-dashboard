@@ -1129,6 +1129,62 @@ export function markNotificationRead(notificationId: string): Promise<Notificati
 
 export function markAllNotificationsRead(): Promise<{ marked: number }> {
   return apiRequest<{ marked: number }>("/notifications/mark-all-read", {
-    method: "POST"
+    method: "POST",
+  });
+}
+
+// ── Dashboards ───────────────────────────────────────────────────────────────
+
+export type Dashboard = {
+  id: string;
+  name: string;
+  description: string | null;
+  layout: string;
+  is_default: boolean;
+  widgets: Record<string, unknown>[];
+  created_at: string;
+  updated_at: string;
+};
+
+export function listDashboards(): Promise<Dashboard[]> {
+  return apiRequest<Dashboard[]>("/dashboards");
+}
+
+export function createDashboard(input: {
+  name: string;
+  description?: string;
+  layout?: string;
+  is_default?: boolean;
+  widgets?: Record<string, unknown>[];
+}): Promise<Dashboard> {
+  return apiRequest<Dashboard>("/dashboards", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function getDashboard(id: string): Promise<Dashboard> {
+  return apiRequest<Dashboard>(`/dashboards/${encodeURIComponent(id)}`);
+}
+
+export function updateDashboard(
+  id: string,
+  input: Partial<{
+    name: string;
+    description: string;
+    layout: string;
+    is_default: boolean;
+    widgets: Record<string, unknown>[];
+  }>,
+): Promise<Dashboard> {
+  return apiRequest<Dashboard>(`/dashboards/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteDashboard(id: string): Promise<void> {
+  return apiRequest<void>(`/dashboards/${encodeURIComponent(id)}`, {
+    method: "DELETE",
   });
 }

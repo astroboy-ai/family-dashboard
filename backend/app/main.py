@@ -22,6 +22,7 @@ from app.agent.mcp_server import (
 )
 from app.api.admin import router as admin_router
 from app.api.agent_tokens import router as agent_tokens_router
+from app.api.dashboard import router as dashboard_router
 from app.api.notifications import router as notifications_router
 from app.api.vault import router as vault_router
 from app.api.auth import router as auth_router
@@ -125,6 +126,7 @@ def create_app(
     app.include_router(transit_router, prefix="/api")
     app.include_router(admin_router, prefix="/api")
     app.include_router(agent_tokens_router, prefix="/api")
+    app.include_router(dashboard_router, prefix="/api")
     app.include_router(notifications_router, prefix="/api")
     app.include_router(vault_router, prefix="/api")
     app.include_router(calendar_router, prefix="/api")

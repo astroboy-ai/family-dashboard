@@ -6446,9 +6446,34 @@ tfoot .table-control-btn {
   font-weight: 700;
 }
 
-.dashboard-calendar-filter-name {
-  font-size: 13px;
-  color: var(--foreground);
+.dashboard-calendar-filter-dots {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.dashboard-calendar-filter-dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.15s ease;
+}
+
+.dashboard-calendar-filter-dot:hover {
+  transform: scale(1.15);
+}
+
+.dashboard-calendar-filter-dot .dashboard-calendar-filter-check-icon {
+  font-size: 10px;
+  font-weight: 700;
+  color: white;
 }
 
 .dashboard-calendar-filters-empty {
@@ -6499,13 +6524,13 @@ tfoot .table-control-btn {
 }
 
 .dashboard-calendar-month {
-  flex: 0 0 60%;
+  flex: 0 0 48%;
   min-height: 0;
   overflow: hidden;
 }
 
 .dashboard-calendar-agenda {
-  flex: 0 0 40%;
+  flex: 0 0 52%;
   min-height: 0;
   overflow-y: auto;
   border-top: 1px solid var(--border);
@@ -6752,13 +6777,28 @@ tfoot .table-control-btn {
 
 .dashboard-calendar-event {
   display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 10px;
+  margin-bottom: 4px;
+  border-radius: 6px;
+  background: var(--surface-muted);
+}
+
+.dashboard-calendar-event-color {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 5px;
+  flex-shrink: 0;
+}
+
+.dashboard-calendar-event-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 8px 12px;
-  margin-bottom: 4px;
-  border-radius: 8px;
-  background: var(--surface-muted);
-  border-left: 3px solid var(--accent);
 }
 
 .dashboard-calendar-event-time {

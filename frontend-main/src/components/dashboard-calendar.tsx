@@ -84,13 +84,18 @@ function MonthGrid({ events, selectedDate, onSelectDate, showFilters, onToggleFi
   );
 }
 
-function AgendaList({ events, selectedDate }: { events: CalendarEvent[]; selectedDate: Date }) {
+function AgendaList({ events, selectedDate, calendars }: { events: CalendarEvent[]; selectedDate: Date; calendars: Calendar[] }) {
   const dayEvents = events.filter((ev) => {
     const start = new Date(ev.start_time);
     return start.toDateString() === selectedDate.toDateString();
   });
 
   const sorted = [...dayEvents].sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
+
+  const getCalendarColor = (calendarId: string) => {
+    const cal = calendars.find((c) => c.id === calendarId);
+    return cal?.color || "#6366f1";
+  };
 
   return (
     <div className="dashboard-cal-agenda">
@@ -103,21 +108,27 @@ function AgendaList({ events, selectedDate }: { events: CalendarEvent[]; selecte
       {sorted.length === 0 ? (
         <p className="dashboard-calendar-empty">No events for this day</p>
       ) : (
-        sorted.map((ev) => (
-          <div key={ev.id} className="dashboard-calendar-event">
-            <div className="dashboard-calendar-event-time">
-              <Clock size={12} />
-              {ev.all_day ? "All day" : new Date(ev.start_time).toLocaleTimeString("en-HK", { hour: "2-digit", minute: "2-digit" })}
-            </div>
-            <div className="dashboard-calendar-event-title">{ev.title}</div>
-            {ev.location && (
-              <div className="dashboard-calendar-event-location">
-                <MapPin size={11} />
-                {ev.location}
+        sorted.map((ev) => {
+          const color = getCalendarColor(ev.calendar_id);
+          return (
+            <div key={ev.id} className="dashboard-calendar-event">
+              <div className="dashboard-calendar-event-color" style={{ backgroundColor: color }} />
+              <div className="dashboard-calendar-event-content">
+                <div className="dashboard-calendar-event-time">
+                  <Clock size={12} />
+                  {ev.all_day ? "All day" : new Date(ev.start_time).toLocaleTimeString("en-HK", { hour: "2-digit", minute: "2-digit" })}
+                </div>
+                <div className="dashboard-calendar-event-title">{ev.title}</div>
+                {ev.location && (
+                  <div className="dashboard-calendar-event-location">
+                    <MapPin size={11} />
+                    {ev.location}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        ))
+            </div>
+          );
+        })
       )}
     </div>
   );
@@ -206,27 +217,25 @@ export function DashboardCalendar({ calendarId, days = 60 }: DashboardCalendarPr
             </button>
           </div>
           <div className="dashboard-calendar-filters-list">
-            {calendars.map((cal) => {
-              const checked = !visibleCalendarIds || visibleCalendarIds.includes(cal.id);
-              return (
-                <button
-                  key={cal.id}
-                  onClick={() => toggleCalendarFilter(cal.id)}
-                  className="dashboard-calendar-filter-item"
-                >
-                  <span
-                    className="dashboard-calendar-filter-check"
+            <div className="dashboard-calendar-filters-dots">
+              {calendars.map((cal) => {
+                const checked = !visibleCalendarIds || visibleCalendarIds.includes(cal.id);
+                return (
+                  <button
+                    key={cal.id}
+                    onClick={() => toggleCalendarFilter(cal.id)}
+                    className={`dashboard-calendar-filter-dot${checked ? " checked" : ""}`}
                     style={{
                       borderColor: cal.color || "#6366f1",
                       backgroundColor: checked ? cal.color || "#6366f1" : "transparent",
                     }}
+                    title={cal.name}
                   >
                     {checked && <span className="dashboard-calendar-filter-check-icon">✓</span>}
-                  </span>
-                  <span className="dashboard-calendar-filter-name">{cal.name}</span>
-                </button>
-              );
-            })}
+                  </button>
+                );
+              })}
+            </div>
             {calendars.length === 0 && (
               <p className="dashboard-calendar-filters-empty">No calendars synced yet.</p>
             )}
@@ -238,7 +247,7 @@ export function DashboardCalendar({ calendarId, days = 60 }: DashboardCalendarPr
           <MonthGrid events={filteredEvents} selectedDate={selectedDate} onSelectDate={setSelectedDate} showFilters={showFilters} onToggleFilters={() => setShowFilters((v) => !v)} hasActiveFilter={visibleCalendarIds !== null && visibleCalendarIds.length < calendars.length} />
         </div>
         <div className="dashboard-calendar-agenda">
-          <AgendaList events={filteredEvents} selectedDate={selectedDate} />
+          <AgendaList events={filteredEvents} selectedDate={selectedDate} calendars={calendars} />
         </div>
       </div>
     </div>

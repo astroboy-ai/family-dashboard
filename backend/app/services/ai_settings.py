@@ -27,6 +27,10 @@ DEFAULTS: dict[str, object] = {
     "llm_model": "gemini/gemini-3.5-flash",
     "vision_model": "",
     "tagging_model": "",
+    "azure_endpoint": "",
+    "azure_api_key": "",
+    "azure_api_version": "2024-02-15-preview",
+    "azure_model": "",
 }
 
 # Environment fallbacks, keyed by the Settings attribute that holds them.
@@ -52,6 +56,10 @@ class AiSettings:
     llm_model: str
     vision_model: str
     tagging_model: str = ""
+    azure_endpoint: str = ""
+    azure_api_key: str = ""
+    azure_api_version: str = ""
+    azure_model: str = ""
 
     @property
     def effective_tagging_model(self) -> str:
@@ -109,6 +117,10 @@ def resolve_ai_settings(household_settings: dict | None) -> AiSettings:
         llm_model=str(pick("llm_model") or DEFAULTS["llm_model"]),
         vision_model=str(pick("vision_model") or DEFAULTS["vision_model"]),
         tagging_model=str(pick("tagging_model") or DEFAULTS["tagging_model"]),
+        azure_endpoint=str(pick("azure_endpoint") or DEFAULTS["azure_endpoint"]),
+        azure_api_key=str(overrides.get("azure_api_key") or ""),
+        azure_api_version=str(pick("azure_api_version") or DEFAULTS["azure_api_version"]),
+        azure_model=str(pick("azure_model") or DEFAULTS["azure_model"]),
     )
 
 
@@ -126,4 +138,8 @@ def mask_ai_settings(settings: AiSettings) -> dict[str, object]:
         "vision_model": settings.vision_model,
         "tagging_model": settings.tagging_model,
         "effective_tagging_model": settings.effective_tagging_model,
+        "azure_endpoint": settings.azure_endpoint,
+        "azure_api_key_set": bool(settings.azure_api_key),
+        "azure_api_version": settings.azure_api_version,
+        "azure_model": settings.azure_model,
     }

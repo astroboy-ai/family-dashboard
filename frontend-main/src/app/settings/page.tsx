@@ -25,6 +25,10 @@ type Settings = {
   vision_model: string;
   tagging_model: string;
   effective_tagging_model: string;
+  azure_endpoint: string;
+  azure_api_key_set: boolean;
+  azure_api_version: string;
+  azure_model: string;
 };
 
 /**
@@ -178,6 +182,10 @@ export default function SettingsPage() {
   const [llmModel, setLlmModel] = useState("gemini/gemini-3.5-flash");
   const [visionModel, setVisionModel] = useState("");
   const [taggingModel, setTaggingModel] = useState("");
+  const [azureEndpoint, setAzureEndpoint] = useState("");
+  const [azureApiKey, setAzureApiKey] = useState("");
+  const [azureApiVersion, setAzureApiVersion] = useState("2024-02-15-preview");
+  const [azureModel, setAzureModel] = useState("");
 
   // Live model catalog from the gateway (drives the dropdowns)
   const [catalog, setCatalog] = useState<Record<string, GatewayModel[]>>({});
@@ -233,6 +241,9 @@ export default function SettingsPage() {
         setLlmModel(value.ai.llm_model);
         setVisionModel(value.ai.vision_model);
         setTaggingModel(value.ai.tagging_model);
+        setAzureEndpoint(value.ai.azure_endpoint);
+        setAzureApiVersion(value.ai.azure_api_version);
+        setAzureModel(value.ai.azure_model);
         if (value.storage) {
           setPublicEndpoint(value.storage.public_endpoint);
           setBucket(value.storage.bucket);
@@ -260,6 +271,9 @@ export default function SettingsPage() {
       setLlmModel(value.ai.llm_model);
       setVisionModel(value.ai.vision_model);
       setTaggingModel(value.ai.tagging_model);
+      setAzureEndpoint(value.ai.azure_endpoint);
+      setAzureApiVersion(value.ai.azure_api_version);
+      setAzureModel(value.ai.azure_model);
     }
     if (value.storage) {
       setPublicEndpoint(value.storage.public_endpoint);
@@ -285,6 +299,10 @@ export default function SettingsPage() {
         llm_model: llmModel.trim(),
         vision_model: visionModel.trim() || undefined,
         tagging_model: taggingModel.trim() || undefined,
+        azure_endpoint: azureEndpoint.trim() || undefined,
+        azure_api_key: azureApiKey.trim() || undefined,
+        azure_api_version: azureApiVersion.trim() || undefined,
+        azure_model: azureModel.trim() || undefined,
         storage: {
           public_endpoint: publicEndpoint.trim() || undefined,
           bucket: bucket.trim() || undefined,
@@ -467,6 +485,30 @@ export default function SettingsPage() {
             catalogOk={catalogOk}
             placeholder="Use Chat Model"
           />
+        </section>
+
+        <section className="settings-section">
+          <h2>Azure Intelligence</h2>
+          <p className="section-hint">
+            Configure Azure AI Vision for document and image analysis.
+            Leave blank to use the default gateway vision model.
+          </p>
+          <label className="field">
+            <span>Azure Endpoint {settings?.azure_api_key_set && <em>(key set)</em>}</span>
+            <input type="url" value={azureEndpoint} onChange={(e) => setAzureEndpoint(e.target.value)} placeholder="https://your-resource.cognitiveservices.azure.com" />
+          </label>
+          <label className="field">
+            <span>Azure API Key {settings?.azure_api_key_set && <em>(set — leave blank to keep)</em>}</span>
+            <input type="password" value={azureApiKey} onChange={(e) => setAzureApiKey(e.target.value)} placeholder="Enter Azure API key" autoComplete="off" />
+          </label>
+          <label className="field">
+            <span>API Version</span>
+            <input type="text" value={azureApiVersion} onChange={(e) => setAzureApiVersion(e.target.value)} placeholder="2024-02-15-preview" />
+          </label>
+          <label className="field">
+            <span>Deployment Model</span>
+            <input type="text" value={azureModel} onChange={(e) => setAzureModel(e.target.value)} placeholder="gpt-4o" />
+          </label>
         </section>
 
         <section className="settings-section">

@@ -658,6 +658,10 @@ export type AdminSettings = {
   vision_model: string;
   tagging_model: string;
   effective_tagging_model: string;
+  azure_endpoint: string;
+  azure_api_key_set: boolean;
+  azure_api_version: string;
+  azure_model: string;
 };
 
 export type GatewayModel = {
@@ -705,7 +709,7 @@ export function getAdminSettings(): Promise<AdminSettingsResponse> {
   return apiRequest<AdminSettingsResponse>("/admin/settings");
 }
 
-export type AdminSettingsPatch = Partial<Omit<AdminSettings, "api_key_set"> & { api_key?: string }> & {
+export type AdminSettingsPatch = Partial<Omit<AdminSettings, "api_key_set" | "azure_api_key_set"> & { api_key?: string; azure_api_key?: string }> & {
   storage?: Partial<Omit<StorageSettings, "browser_reachable">>;
 };
 

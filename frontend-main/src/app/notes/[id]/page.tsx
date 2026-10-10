@@ -41,7 +41,11 @@ export default function NoteDetailPage() {
   // Holds the ids that are currently UNLOCKED; a new block is added on creation
   // so a block you just made is immediately editable.
   const [unlockedBlocks, setUnlockedBlocks] = useState<Set<string>>(new Set());
+  const [galleryIndex, setGalleryIndex] = useState<number | null>(null);
   const openPanel = usePanelStore((state) => state.open);
+
+  /** Open the image gallery at a specific block index. */
+  const openGallery = (blockIndex: number) => setGalleryIndex(blockIndex);
   // Blocks render in list order, so a drag only needs to splice the array and
   // persist the resulting ids; order_index is recomputed server-side.
   const blockIdsRef = useRef<string[]>([]);
@@ -656,7 +660,7 @@ export default function NoteDetailPage() {
             ) : block.type === "password" ? (
               <PasswordBlockView block={block} onUpdate={updateBlockData} />
             ) : block.type === "image" ? (
-              <ImageBlockView block={block} onAnalyse={() => void analyseImage(block)} onRemove={() => void removeBlock(block.id)} />
+              <ImageBlockView block={block} onAnalyse={() => void analyseImage(block)} onRemove={() => void removeBlock(block.id)} onOpenGallery={() => openGallery(index)} />
             ) : block.type === "file" ? (
               <div className="block-media block-file">
                 <a
@@ -925,6 +929,18 @@ export default function NoteDetailPage() {
         />
       )}
 
+      {galleryIndex !== null && note && (() => {
+        const images = note.blocks.map((b, i) => ({ block: b, index: i })).filter(({ block }) => block.type === "image");
+        const start = images.findIndex(({ index }) => index === galleryIndex);
+        return (
+          <ImageGallery
+            images={images.map(({ block }) => block)}
+            initialIndex={start === -1 ? 0 : start}
+            onClose={() => setGalleryIndex(null)}
+          />
+        );
+      })()}
+
       <ToolsDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onSelect={handleToolSelect} />
     </div>
   );
@@ -1159,10 +1175,12 @@ function ImageBlockView({
   block,
   onAnalyse,
   onRemove,
+  onOpenGallery,
 }: {
   block: NoteBlock;
   onAnalyse: () => void;
   onRemove: () => void;
+  onOpenGallery?: () => void;
 }) {
   const assetId = String(block.data?.media_asset_id ?? "");
   const [lightbox, setLightbox] = useState(false);
@@ -1213,6 +1231,17 @@ function ImageBlockView({
           <p className="block-ai-pending">AI analysis queued…</p>
         ) : null}
       </div>
+      {/* Reading control — outside the fieldset so it works when locked */}
+      {onOpenGallery && (
+        <button
+          type="button"
+          className="block-gallery-button"
+          onClick={onOpenGallery}
+          title="View all images in this note"
+        >
+          View gallery
+        </button>
+      )}
       {lightbox && (
         <ImageLightbox
           block={block}
@@ -1276,6 +1305,79 @@ function ImageLightbox({
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Full-screen gallery that navigates all image blocks in the same note.
+ * Clicking any image block opens this; arrows or swipe move between images.
+ */
+function ImageGallery({
+  images,
+  initialIndex,
+  onClose,
+}: {
+  images: NoteBlock[];
+  initialIndex: number;
+  onClose: () => void;
+}) {
+  const [index, setIndex] = useState(initialIndex);
+  const current = images[index];
+  const assetId = String(current?.data?.media_asset_id ?? "");
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+      if (e.key === "ArrowLeft") setIndex((i) => (i > 0 ? i - 1 : images.length - 1));
+      if (e.key === "ArrowRight") setIndex((i) => (i < images.length - 1 ? i + 1 : 0));
+    }
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [images.length, onClose]);
+
+  if (!current) return null;
+
+  return (
+    <div className="image-gallery" role="dialog" aria-modal="true" aria-label="Image gallery" onClick={onClose}>
+      <div className="image-gallery-content" onClick={(e) => e.stopPropagation()}>
+        <div className="image-gallery-head">
+          <span className="image-gallery-counter">{index + 1} / {images.length}</span>
+          <button className="icon-button" onClick={onClose} aria-label="Close gallery"><X size={18} /></button>
+        </div>
+        <div className="image-gallery-body">
+          {images.length > 1 && (
+            <button
+              className="image-gallery-nav image-gallery-prev"
+              onClick={() => setIndex((i) => (i > 0 ? i - 1 : images.length - 1))}
+              aria-label="Previous image"
+            >
+              ‹
+            </button>
+          )}
+          <img
+            src={`/api/media/${encodeURIComponent(assetId)}/download`}
+            alt={current.text_content ?? "Image"}
+            className="image-gallery-img"
+          />
+          {images.length > 1 && (
+            <button
+              className="image-gallery-nav image-gallery-next"
+              onClick={() => setIndex((i) => (i < images.length - 1 ? i + 1 : 0))}
+              aria-label="Next image"
+            >
+              ›
+            </button>
+          )}
+        </div>
+        {current.text_content && (
+          <p className="image-gallery-caption">{current.text_content}</p>
+        )}
       </div>
     </div>
   );

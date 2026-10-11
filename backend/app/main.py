@@ -33,6 +33,7 @@ from app.api.graph_views import router as graph_views_router
 from app.api.graph_artifacts import router as graph_artifacts_router
 from app.api.media import router as media_router
 from app.api.notes import blocks_router, notes_router, tag_proposals_router, tags_router
+from app.api.smart_text import router as smart_text_router
 from app.api.search import router as search_router
 from app.api.transit import router as transit_router
 from app.core.config import Settings, get_settings
@@ -117,6 +118,7 @@ def create_app(
     app.include_router(notes_router, prefix="/api")
     app.include_router(blocks_router, prefix="/api")
     app.include_router(tags_router, prefix="/api")
+    app.include_router(smart_text_router, prefix="/api")
     app.include_router(tag_proposals_router, prefix="/api")
     app.include_router(search_router, prefix="/api")
     app.include_router(internal_agent_router)

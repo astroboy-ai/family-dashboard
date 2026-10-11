@@ -471,6 +471,20 @@ class DetachTagsParams(BaseModel):
     remove: list[str] = Field(min_length=1, max_length=30)
 
 
+class PreviewSmartTextParams(BaseModel):
+    text: str = Field(min_length=1, description="The text to scan for secrets")
+
+
+class SaveSmartTextParams(BaseModel):
+    note_id: uuid.UUID
+    text: str = Field(min_length=1, description="Text with [[secret]]…[[/secret]] around secrets")
+    caption: str | None = Field(default=None, max_length=500)
+    secrets: list[dict] | None = Field(
+        default=None,
+        description="Explicit secret list. If omitted, secrets are extracted from magic tags.",
+    )
+
+
 class CreateSmartTextParams(BaseModel):
     note_id: uuid.UUID
     # The source text with the secrets still in it. Every occurrence of each
@@ -701,6 +715,139 @@ async def detach_tags_tool(params: BaseModel, context: ToolContext) -> ToolResul
         ok=True,
         data=remaining,
         meta={"note_id": str(values.note_id), "removed_count": len(values.remove)},
+    )
+
+
+@register(
+    name="preview_smart_text",
+    description=(
+        "Scan text for secrets and report what was found — the cross-check before "
+        "sending to FamilyOS. The agent prepares text with [[secret]]…[[/secret]] "
+        "around secrets it identified; this endpoint runs the same detector as the "
+        "browser and returns:\n"
+        "- `findings` — all candidates (tagged + untagged)\n"
+        "- `untagged` — secrets the rules found but the agent did not mark\n"
+        "- `tagged_only` — magic-tagged values the rules would not have flagged\n"
+        "- `placeholder_keys` — existing {{secret:…}} placeholders in the text\n\n"
+        "The agent reviews `untagged` and either adds magic tags or confirms the "
+        "text is complete, then calls `save_smart_text`."
+    ),
+    category="vault",
+    params=PreviewSmartTextParams,
+    permissions=("notes.read",),
+    mutates=False,
+)
+async def preview_smart_text_tool(params: BaseModel, context: ToolContext) -> ToolResult:
+    from app.services import secret_detector
+
+    values = PreviewSmartTextParams.model_validate(params)
+    if not values.text.strip():
+        return ToolResult(ok=False, error="Text is required", error_code="invalid_params")
+
+    result = secret_detector.preview(values.text)
+    return ToolResult(ok=True, data=result.to_dict())
+
+
+@register(
+    name="save_smart_text",
+    description=(
+        "Save a Smart Text block with magic-tagged secrets. The flow:\n"
+        "1. Detect all secrets (from magic tags and rules)\n"
+        "2. Extract values from [[secret]]…[[/secret]]\n"
+        "3. Write each value to the vault\n"
+        "4. Replace every occurrence with {{secret:<key>}}\n"
+        "5. Strip magic tag markers\n"
+        "6. Create the Smart Text block\n\n"
+        "If `secrets` is provided, those are used directly (bypassing magic tag "
+        "extraction). If not, the server extracts from magic tags."
+    ),
+    category="vault",
+    params=SaveSmartTextParams,
+    permissions=("notes.write", "secrets.write"),
+    mutates=True,
+)
+async def save_smart_text_tool(params: BaseModel, context: ToolContext) -> ToolResult:
+    from app.schemas.notes import NoteBlockInput
+    from app.services import secret_detector, smart_text
+    from app.services.notes import create_block
+
+    import uuid
+
+    values = SaveSmartTextParams.model_validate(params)
+    if not values.text.strip():
+        return ToolResult(ok=False, error="Text is required", error_code="invalid_params")
+
+    note_uuid = values.note_id
+
+    # Determine secrets: explicit list or extract from magic tags
+    if values.secrets:
+        secrets_in = [smart_text.SecretInput(**s) for s in values.secrets]
+    else:
+        findings = secret_detector.detect_secrets(values.text)
+        tagged = [f for f in findings if f.manual]
+
+        if not tagged:
+            return ToolResult(
+                ok=False,
+                error=(
+                    "No magic-tagged secrets found. Wrap secrets in "
+                    "[[secret]]…[[/secret]] or provide an explicit secrets list."
+                ),
+                error_code="invalid_params",
+            )
+
+        secrets_in = [
+            smart_text.SecretInput(
+                label=f.label,
+                value=f.value,
+                type=f.type if f.type != "manual" else "other",
+            )
+            for f in tagged
+        ]
+
+    try:
+        text_content, built, vault_path = await smart_text.build_smart_text(
+            note_id=note_uuid,
+            text=values.text,
+            secrets_in=secrets_in,
+        )
+    except AppError as error:
+        return ToolResult(ok=False, error=error.message, error_code=error.error_code)
+
+    # Strip magic tag markers (values are now in the vault)
+    text_content = secret_detector.strip_magic_tags(text_content)
+
+    block_input = NoteBlockInput(
+        type="smart_text",
+        text_content=text_content,
+        caption=values.caption,
+        data={"secrets": smart_text.secrets_index(built), "vault_path": vault_path},
+    )
+
+    try:
+        block = await create_block(
+            session=context.session,
+            actor=context.actor,
+            note_id=note_uuid,
+            payload=block_input,
+        )
+    except AppError as error:
+        return ToolResult(ok=False, error=error.message, error_code=error.error_code)
+
+    return ToolResult(
+        ok=True,
+        data={
+            "block_id": str(block.id),
+            "vault_path": vault_path,
+            "secrets": [
+                {
+                    "key": s.key,
+                    "label": s.label,
+                    "placeholder": s.placeholder,
+                }
+                for s in built
+            ],
+        },
     )
 
 

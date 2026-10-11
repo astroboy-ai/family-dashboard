@@ -800,6 +800,23 @@ export function deleteVaultSecret(key: string, path = "/"): Promise<void> {
   );
 }
 
+/**
+ * Write several secrets into one folder at once, creating the folder if needed.
+ *
+ * The Smart Text block uses this when the user approves a paste: every
+ * confirmed finding becomes a secret under `/notes/<note_id>`.
+ */
+export function writeVaultSecretsBatch(input: {
+  path: string;
+  items: { key: string; value: string; comment?: string }[];
+  create_folder?: boolean;
+}): Promise<{ path: string; written: VaultSecret[] }> {
+  return apiRequest<{ path: string; written: VaultSecret[] }>("/vault/secrets/batch", {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
 export function reembedAll(): Promise<{ queued: number }> {
   return apiRequest<{ queued: number }>("/admin/reembed", { method: "POST" });
 }

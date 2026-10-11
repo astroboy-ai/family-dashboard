@@ -7584,3 +7584,305 @@ tfoot .table-control-btn {
 .back-button:hover {
   background: var(--muted);
 }
+
+/* ==========================================================================
+   Smart Text block — free-form text with protected inline secrets
+   --------------------------------------------------------------------------
+   Read view is the important one: it must look like ordinary text with a few
+   masked chips inline, because the user's mental model is "my Notepad page",
+   not "a form of fields". The chips are inline-block so they flow with the
+   text rather than breaking it into rows.
+   ========================================================================== */
+
+.smart-text {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.smart-text-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.7;
+  font-size: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  min-height: 60px;
+}
+
+.smart-text-run {
+  white-space: pre-wrap;
+}
+
+.smart-text-empty {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+
+/* An inline secret: flows with the text, masked until asked for. */
+.smart-text-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 2px;
+  padding: 1px 6px 1px 5px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  color: var(--accent);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  vertical-align: baseline;
+}
+
+.smart-text-chip.revealed {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.smart-text-chip-value {
+  letter-spacing: 1px;
+}
+
+.smart-text-chip.revealed .smart-text-chip-value {
+  letter-spacing: normal;
+}
+
+.smart-text-chip-eye {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 1px;
+  opacity: 0.75;
+}
+
+.smart-text-chip-eye:hover {
+  opacity: 1;
+}
+
+.smart-text-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.smart-text-meta {
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+
+.smart-text-edit {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--foreground);
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.smart-text-edit:hover {
+  background: var(--muted);
+}
+
+/* ---------------------------------------------------------------- edit view */
+
+.smart-text-editing {
+  gap: 12px;
+}
+
+.smart-text-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+  padding: 7px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.smart-text-input {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--foreground);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13px;
+  line-height: 1.65;
+  resize: vertical;
+}
+
+.smart-text-input:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-color: var(--accent);
+}
+
+.smart-text-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.smart-text-primary,
+.smart-text-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 6px;
+  padding: 7px 13px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.smart-text-primary {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-foreground, #fff);
+}
+
+.smart-text-primary:disabled,
+.smart-text-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.smart-text-secondary {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--foreground);
+}
+
+.smart-text-secondary:hover:not(:disabled) {
+  background: var(--muted);
+}
+
+/* ------------------------------------------------------------ review panel */
+
+.smart-text-review {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.smart-text-review-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.smart-text-review-tools {
+  display: flex;
+  gap: 8px;
+}
+
+.smart-text-review-tools button {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.smart-text-findings {
+  display: grid;
+  gap: 6px;
+}
+
+.smart-text-finding {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.smart-text-finding:hover {
+  background: var(--muted);
+}
+
+.smart-text-finding input {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+}
+
+.smart-text-finding-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.smart-text-finding-info strong {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.smart-text-finding-info small {
+  font-size: 11px;
+  color: var(--muted-foreground);
+  text-transform: capitalize;
+}
+
+.smart-text-sev {
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  border-radius: 4px;
+  padding: 3px 6px;
+}
+
+.smart-text-sev-critical {
+  background: #fde9e8;
+  color: #a12c29;
+}
+
+.smart-text-sev-high {
+  background: #fff0dc;
+  color: #94500b;
+}
+
+.smart-text-sev-medium {
+  background: #fff7d6;
+  color: #78600b;
+}
+
+.smart-text-note {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted-foreground);
+}
+
+.smart-text-error {
+  margin: 0;
+  font-size: 12px;
+  color: #a12c29;
+}
+
+.smart-text-message {
+  margin: 0;
+  font-size: 12px;
+  color: #226b43;
+}

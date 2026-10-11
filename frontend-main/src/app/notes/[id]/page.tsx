@@ -9,6 +9,7 @@ import { usePanelStore } from "@/lib/panel-store";
 import { BlockMenu } from "@/components/block-menu";
 import { confirmDialog } from "@/components/confirm-dialog";
 import { DrawingThumb, type ThumbStroke } from "@/components/drawing-thumb";
+import { SmartTextBlockView } from "@/components/smart-text-block";
 import { ToolsDrawer, type Tool } from "@/components/tools-drawer";
 
 export default function NoteDetailPage() {
@@ -245,6 +246,25 @@ export default function NoteDetailPage() {
     }
   }
 
+  /**
+   * Save a Smart Text block's text and its secret index together.
+   *
+   * One PATCH rather than two: the text now contains placeholders that only the
+   * `secrets` index can resolve, so writing the text without the index (or the
+   * reverse) would leave the note showing an unresolvable `{{secret:…}}`. The
+   * vault write already happened before this call, so a failure here means the
+   * values exist but the note does not reference them — recoverable by saving
+   * again, and reported to the user rather than swallowed.
+   */
+  async function saveSmartTextBlock(
+    blockId: string,
+    patch: { text_content: string; data: Record<string, unknown> },
+  ) {
+    const updated = await patchBlock(blockId, patch);
+    setNote((current) => current ? { ...current, blocks: current.blocks.map((b) => b.id === blockId ? updated : b) } : current);
+    setMessage("Smart text saved");
+  }
+
   async function handleToolSelect(tool: Tool) {
     if (!note) return;
     try {
@@ -287,6 +307,16 @@ export default function NoteDetailPage() {
           });
           adoptNewBlock(block);
           setMessage("Password field added");
+          break;
+        }
+        case "smart_text": {
+          const block = await createBlock(note.id, {
+            type: "smart_text",
+            text_content: "",
+            data: { secrets: [] },
+          });
+          adoptNewBlock(block);
+          setMessage("Smart text block added — open it and paste your text");
           break;
         }
         case "photo": {
@@ -659,6 +689,8 @@ export default function NoteDetailPage() {
               </div>
             ) : block.type === "password" ? (
               <PasswordBlockView block={block} onUpdate={updateBlockData} />
+            ) : block.type === "smart_text" ? (
+              <SmartTextBlockView block={block} noteId={note.id} onSave={saveSmartTextBlock} />
             ) : block.type === "image" ? (
               <ImageBlockView block={block} onAnalyse={() => void analyseImage(block)} onRemove={() => void removeBlock(block.id)} onOpenGallery={() => openGallery(index)} onUpdateData={(data) => void updateBlockData(block.id, data)} />
             ) : block.type === "file" ? (

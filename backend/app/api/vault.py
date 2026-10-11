@@ -19,6 +19,7 @@ from app.models import Household, Note, NoteBlock
 from app.services.infisical import (
     InfisicalError,
     delete_secret,
+    ensure_folder,
     get_secret,
     list_folders,
     list_secrets,
@@ -170,6 +171,31 @@ class SecretValueResponse(BaseModel):
     value: str
 
 
+class SecretBatchItem(BaseModel):
+    key: str = Field(min_length=1, max_length=200)
+    value: str = Field(min_length=1)
+    comment: str = ""
+
+
+class SecretBatchRequest(BaseModel):
+    """Write several secrets into one folder in a single call.
+
+    Approving a paste can yield a dozen findings. Sending them one at a time
+    means a dozen round trips, and a failure halfway leaves the note's
+    placeholders pointing at secrets that were never written — so the whole
+    batch shares one folder and one transaction-shaped call.
+    """
+
+    path: str = Field(default="/", max_length=500)
+    items: list[SecretBatchItem] = Field(min_length=1, max_length=50)
+    create_folder: bool = True
+
+
+class SecretBatchResponse(BaseModel):
+    path: str
+    written: list[SecretSummaryResponse]
+
+
 def _require_secrets_scope(actor: Actor) -> None:
     """Guard every secret route.
 
@@ -300,6 +326,42 @@ async def write_vault_secret(
     return SecretSummaryResponse(
         key=saved.key, path=saved.path, comment=saved.comment, updated_at=saved.updated_at
     )
+
+
+@router.put("/secrets/batch", response_model=SecretBatchResponse)
+async def write_vault_secrets_batch(
+    payload: SecretBatchRequest,
+    actor: Annotated[Actor, Depends(get_current_actor)],
+) -> SecretBatchResponse:
+    """Write a set of secrets into one folder, creating the folder if needed.
+
+    Used by the Smart Text block when the user approves a paste: every confirmed
+    finding becomes a secret under ``/notes/<note_id>``, and the note text keeps
+    only the placeholders.
+    """
+
+    _require_secrets_scope(actor)
+    _require_secrets_write(actor)
+
+    try:
+        folder = await ensure_folder(payload.path) if payload.create_folder else payload.path
+        written: list[SecretSummaryResponse] = []
+        for item in payload.items:
+            saved = await set_secret(
+                item.key, item.value, folder, item.comment, create_only=True
+            )
+            written.append(
+                SecretSummaryResponse(
+                    key=saved.key,
+                    path=saved.path,
+                    comment=saved.comment,
+                    updated_at=saved.updated_at,
+                )
+            )
+    except InfisicalError as error:
+        raise _infisical_http_error(error) from error
+
+    return SecretBatchResponse(path=folder, written=written)
 
 
 @router.delete("/secrets", status_code=status.HTTP_204_NO_CONTENT)

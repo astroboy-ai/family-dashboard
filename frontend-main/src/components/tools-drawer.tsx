@@ -16,6 +16,7 @@ import {
   Search,
   Share2,
   ShieldCheck,
+  Sparkles,
   Table,
   X,
 } from "lucide-react";
@@ -30,6 +31,7 @@ export type ToolId =
   | "time"
   | "currency"
   | "password"
+  | "smart_text"
   | "location"
   | "table"
   | "reminder"
@@ -55,6 +57,7 @@ export const tools: Tool[] = [
   { id: "time", label: "Time", icon: Clock, group: "fields" },
   { id: "currency", label: "Money", icon: Coins, group: "fields" },
   { id: "password", label: "Password", icon: ShieldCheck, group: "fields" },
+  { id: "smart_text", label: "Smart Text", icon: Sparkles, group: "fields" },
   { id: "table", label: "Table", icon: Table, group: "structure" },
   { id: "reminder", label: "Reminder", icon: Clock, group: "actions" },
   { id: "link", label: "Link note", icon: Link2, group: "actions" },

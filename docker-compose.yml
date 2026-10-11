@@ -14,7 +14,6 @@ networks:
 volumes:
   pgdata: {}
   redisdata: {}
-  s3data: {}
   ollama: {}
 
 x-backend-env: &backend-env
@@ -72,29 +71,11 @@ services:
         aliases:
           - familyos-redis
 
-  object-storage:
-    image: chrislusf/seaweedfs:4.48
-    command:
-      - mini
-      - -dir=/data
-      - -s3.port=8333
-      - -s3.allowedOrigins=${S3_CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:3001,http://localhost:3002}
-    environment:
-      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY:?Set S3_ACCESS_KEY in .env}
-      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:?Set S3_SECRET_KEY in .env}
-      S3_BUCKET: ${S3_BUCKET:-familyos-media}
-    volumes:
-      - s3data:/data
-    ports:
-      - "${S3_API_PORT:-8333}:8333"
-    networks:
-      familyos:
-        aliases:
-          - familyos-object-storage
-      link01:
-        aliases:
-          - familyos-storage
-    restart: unless-stopped
+  # Object storage is NOT part of this stack. `S3_ENDPOINT` points at the
+  # `familyos-storage` alias on link01, served by the shared rclone S3 gateway.
+  # A bundled SeaweedFS service used to live here; it was removed because it
+  # duplicated that gateway, re-pulled a 687 MB image on every `up`, and its
+  # data volume was never read.
 
   backend:
     build: ./backend
@@ -111,8 +92,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      object-storage:
-        condition: service_started
     command:
       - /bin/sh
       - -ec

@@ -363,6 +363,39 @@ const MAGIC_TAG_CLOSE = "[[/secret]]";
  * The returned spans point at the *value only*, not the markers — so the
  * placeholders that replace them leave the note clean.
  */
+/**
+ * The closest bare-label heading above `start`, if any.
+ *
+ * `Orange system:` on one line, values on the lines below, is how people
+ * actually write a credential block. A magic tag on its own line has no prefix
+ * of its own, so the heading is the only name available — and it beats
+ * "marked by hand".
+ */
+function nearestHeading(text: string, start: number): string | null {
+  const lineStart = text.lastIndexOf("\n", start - 1) + 1;
+  let cursor = lineStart;
+  while (cursor > 0) {
+    const previousEnd = cursor - 1;
+    const previousStart = text.lastIndexOf("\n", previousEnd - 1) + 1;
+    const line = text.slice(previousStart, previousEnd);
+    if (!line.trim()) return null; // a blank line ends the block
+    const header = BARE_LABEL.exec(line);
+    if (header && header[1].trim()) return header[1].trim();
+    cursor = previousStart;
+  }
+  return null;
+}
+
+/**
+ * Magic tags: `[[secret]]…[[/secret]]`.
+ *
+ * The detector will never catch everything, and the user knows their own data
+ * better than any ruleset. Anything wrapped by hand is treated as a secret at
+ * full confidence, which is the escape hatch for the shapes no rule anticipates.
+ *
+ * The returned spans point at the *value only*, not the markers — so the
+ * placeholders that replace them leave the note clean.
+ */
 function detectManualTags(text: string): Finding[] {
   const findings: Finding[] = [];
   let cursor = 0;
@@ -381,11 +414,16 @@ function detectManualTags(text: string): Finding[] {
 
     // The label comes from the line the marker sits on, with the marker itself
     // removed — otherwise `login: [[secret]]x[[/secret]]` is named
-    // "login: [[secret]]" instead of "login".
+    // "login: [[secret]]" instead of "login". When the marker is alone on its
+    // line, fall back to the heading above it: `Orange system:` on one line,
+    // values below, is how a credential block is actually written.
     const rawLabel = deriveLabel(text, start, "marked by hand");
-    const label =
-      rawLabel.replace(MAGIC_TAG_OPEN, "").replace(MAGIC_TAG_CLOSE, "").replace(/[:=\s]+$/, "").trim() ||
-      "marked by hand";
+    const stripped = rawLabel
+      .replace(MAGIC_TAG_OPEN, "")
+      .replace(MAGIC_TAG_CLOSE, "")
+      .replace(/[:=\s]+$/, "")
+      .trim();
+    const label = stripped || nearestHeading(text, start) || "marked by hand";
 
     findings.push({
       id: findingId(start, close, "manual"),

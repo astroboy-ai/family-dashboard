@@ -430,6 +430,30 @@ def _detect_stacked_values(text: str) -> list[Finding]:
     return findings
 
 
+def _nearest_heading(text: str, start: int) -> str | None:
+    """The closest bare-label heading above ``start``, if any.
+
+    `Orange system:` on one line, values on the lines below, is how people
+    actually write a credential block. A magic tag sitting on its own line has no
+    prefix of its own, so the heading is the only name available — and it is a
+    better name than "marked by hand".
+    """
+    line_start = text.rfind("\n", 0, start) + 1
+    cursor = line_start
+    while cursor > 0:
+        previous_end = cursor - 1  # the newline
+        previous_start = text.rfind("\n", 0, previous_end) + 1
+        line = text[previous_start:previous_end]
+        stripped = line.strip()
+        if not stripped:
+            return None  # a blank line ends the block
+        header = BARE_LABEL.match(line)
+        if header and header.group(1).strip():
+            return header.group(1).strip()
+        cursor = previous_start
+    return None
+
+
 def _detect_manual_tags(text: str) -> list[Finding]:
     """Pull out everything wrapped in ``[[secret]]…[[/secret]]``.
 
@@ -460,10 +484,14 @@ def _detect_manual_tags(text: str) -> list[Finding]:
 
         # The label comes from the line the marker sits on, with the marker
         # itself removed — otherwise `login: [[secret]]x[[/secret]]` is named
-        # "login: [[secret]]" instead of "login".
+        # "login: [[secret]]" instead of "login". When the marker is alone on its
+        # line, fall back to the heading above it: `Orange system:` on one line,
+        # values below, is how a credential block is actually written.
         raw_label = _derive_label(text, start, "marked by hand")
         label = raw_label.replace(MAGIC_OPEN, "").replace(MAGIC_CLOSE, "")
-        label = re.sub(r"[:=\s]+$", "", label).strip() or "marked by hand"
+        label = re.sub(r"[:=\s]+$", "", label).strip()
+        if not label:
+            label = _nearest_heading(text, start) or "marked by hand"
 
         findings.append(
             Finding(

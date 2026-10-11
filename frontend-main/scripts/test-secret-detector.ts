@@ -222,6 +222,13 @@ check("magic tag label strips the marker", labelled.label === "manager login", l
 const bare = detectSecrets("[[secret]]hunter2[[/secret]]")[0];
 check("bare magic tag falls back to a default label", bare.label === "marked by hand", bare.label);
 
+// A tag alone on its line takes the heading above it — the real credential-block
+// shape, where `Orange system:` names the values below.
+const underHeading = detectSecrets("Orange system:\nmanager\n[[secret]]HGC@2020[[/secret]]")[0];
+check("magic tag under a heading takes the heading as label", underHeading.label === "Orange system", underHeading.label);
+const afterBlank = detectSecrets("Section:\n\n[[secret]]hunter2[[/secret]]")[0];
+check("blank line stops the heading search", afterBlank.label === "marked by hand", afterBlank.label);
+
 console.log("\n== finding carries its value (for the review list) ==");
 const withValue = detectSecrets("password: hunter2xyz")[0];
 check("value present", withValue.value === "hunter2xyz", withValue.value);

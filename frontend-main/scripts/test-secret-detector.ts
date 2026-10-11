@@ -18,6 +18,8 @@ import {
   segmentText,
   applyPlaceholders,
   extractPlaceholderKeys,
+  stripMagicTags,
+  ruleReason,
 } from "../src/lib/secret-detector.ts";
 
 let passed = 0;
@@ -187,6 +189,39 @@ check(
   detectSecrets("Renewal:\n2026-10-11").length === 0,
   JSON.stringify(typesOf("Renewal:\n2026-10-11")),
 );
+
+console.log("\n== magic tags (manual marking) ==");
+const TAGGED = `Orange system:
+manager
+[[secret]]HGC@2020[[/secret]]
+kinrtic: POST
+dueit73947wuweddnxcc8f938493GhsaggA
+[[secret]]short[[/secret]]`;
+const taggedFindings = detectSecrets(TAGGED);
+const manualOnes = taggedFindings.filter((f) => f.manual);
+for (const f of taggedFindings) {
+  console.log(`  -> ${f.manual ? "MANUAL" : "rule  "} ${f.type.padEnd(8)} "${f.value}"`);
+}
+check("manual tag detected", manualOnes.length === 2, String(manualOnes.length));
+check("manual span excludes the markers", manualOnes.every((f) => !f.value.includes("[[")), JSON.stringify(manualOnes.map((f) => f.value)));
+check("manual value is exact", manualOnes.some((f) => f.value === "HGC@2020"));
+check("short manual value still found", manualOnes.some((f) => f.value === "short"));
+check("manual is full confidence", manualOnes.every((f) => f.confidence === 1));
+check("manual outranks the rule for the same span", taggedFindings.filter((f) => TAGGED.slice(f.start, f.end) === "HGC@2020").length === 1);
+check("manual is selected by default", manualOnes.every((f) => f.selected));
+check("stripMagicTags removes markers", stripMagicTags(TAGGED).includes("HGC@2020") && !stripMagicTags(TAGGED).includes("[[secret]]"));
+check("stripMagicTags keeps the value", stripMagicTags("[[secret]]HGC@2020[[/secret]]") === "HGC@2020", stripMagicTags("[[secret]]HGC@2020[[/secret]]"));
+check("unclosed marker is cleaned up", stripMagicTags("[[secret]]abc") === "abc");
+check("rule reason for manual", ruleReason(manualOnes[0]) === "you marked it by hand");
+check("rule reason for a password rule", ruleReason(detectSecrets("password: hunter2xyz")[0]) === "the word password next to a value");
+
+console.log("\n== finding carries its value (for the review list) ==");
+const withValue = detectSecrets("password: hunter2xyz")[0];
+check("value present", withValue.value === "hunter2xyz", withValue.value);
+check("rule id present", typeof withValue.rule === "string" && withValue.rule.length > 0, String(withValue.rule));
+const stackedValue = detectSecrets("Orange system:\nHGC@2020")[0];
+check("stacked value present", stackedValue.value === "HGC@2020", stackedValue.value);
+check("stacked rule id", stackedValue.rule === "stacked_block", String(stackedValue.rule));
 
 console.log("\n== multi-line / real-world shapes ==");
 check(

@@ -41,14 +41,16 @@
  * The parent decides which to render; this module holds no `editing` state.
  */
 
-import { Eye, EyeOff, LoaderCircle, Lock, Save, ShieldAlert, X } from "lucide-react";
+import { Check, Eye, EyeOff, LoaderCircle, Lock, Pencil, Plus, Save, ShieldAlert, Sparkles, Wand2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
   applyPlaceholders,
   detectSecrets,
   placeholderFor,
+  ruleReason,
   secretKeyFor,
   segmentText,
+  stripMagicTags,
   type Finding,
 } from "@/lib/secret-detector";
 import { revealVaultSecret, writeVaultSecretsBatch, type NoteBlock } from "@/lib/api";
@@ -57,6 +59,10 @@ import { revealVaultSecret, writeVaultSecretsBatch, type NoteBlock } from "@/lib
 export function secretsPathFor(noteId: string): string {
   return `/notes/${noteId}`;
 }
+
+/** The markers the user types to mark a value the detector missed. */
+export const MAGIC_OPEN = "[[secret]]";
+export const MAGIC_CLOSE = "[[/secret]]";
 
 const SEVERITY_CLASS: Record<string, string> = {
   CRITICAL: "smart-text-sev-critical",
@@ -213,6 +219,27 @@ function SecretChip({
 // Editor — INSIDE the fieldset, so the block lock gates it as intended.
 // --------------------------------------------------------------------------
 
+/**
+ * A finding plus the review-time edits the user can make to it.
+ *
+ * `label` and `type` are copied out of the finding so the user can rename a
+ * value before it is stored — the detector's guess ("Orange system") is often
+ * less useful than the user's own words ("Orange ERP manager password").
+ */
+type Draft = Finding & {
+  /** Kept separate from the finding so a rename does not disturb detection. */
+  editLabel: string;
+  editType: string;
+};
+
+function toDrafts(findings: Finding[]): Draft[] {
+  return findings.map((f) => ({
+    ...f,
+    editLabel: f.label,
+    editType: f.type,
+  }));
+}
+
 export function SmartTextEditor({
   block,
   noteId,
@@ -229,17 +256,22 @@ export function SmartTextEditor({
   onDone: () => void;
 }) {
   const [draft, setDraft] = useState(block.text_content ?? "");
-  const [findings, setFindings] = useState<Finding[]>([]);
+  const [findings, setFindings] = useState<Draft[]>([]);
+  const [scanned, setScanned] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  // The finding whose label/type is being edited, if any.
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const stored = useMemo(() => readStored(block), [block.data]);
   const selectedFindings = findings.filter((f) => f.selected);
 
   /** Scan the draft in the browser. Nothing is sent anywhere. */
-  function scan(value: string) {
+  function scan() {
     setError("");
-    setFindings(detectSecrets(value));
+    setFindings(toDrafts(detectSecrets(draft)));
+    setScanned(true);
+    setEditingId(null);
   }
 
   function toggleFinding(id: string, selected: boolean) {
@@ -250,6 +282,53 @@ export function SmartTextEditor({
     setFindings((current) => current.map((f) => ({ ...f, selected })));
   }
 
+  function editField(id: string, patch: Partial<Pick<Draft, "editLabel" | "editType">>) {
+    setFindings((current) => current.map((f) => (f.id === id ? { ...f, ...patch } : f)));
+  }
+
+  /** Wrap the textarea's current selection in magic tags. */
+  function markSelection() {
+    const area = document.getElementById(`smart-text-${block.id}`) as HTMLTextAreaElement | null;
+    if (!area) return;
+    const { selectionStart, selectionEnd, value } = area;
+    if (selectionStart === selectionEnd) {
+      setError("Select the value you want to protect first, then press Mark.");
+      return;
+    }
+    setError("");
+    const selected = value.slice(selectionStart, selectionEnd);
+    const next =
+      value.slice(0, selectionStart) +
+      MAGIC_OPEN + selected + MAGIC_CLOSE +
+      value.slice(selectionEnd);
+    setDraft(next);
+    setScanned(false);
+    setFindings([]);
+    // Put the caret after the closing marker so typing continues naturally.
+    requestAnimationFrame(() => {
+      const pos = selectionStart + MAGIC_OPEN.length + selected.length + MAGIC_CLOSE.length;
+      area.focus();
+      area.setSelectionRange(pos, pos);
+    });
+  }
+
+  /** Insert empty magic tags at the caret, ready to type a value into. */
+  function insertMarkers() {
+    const area = document.getElementById(`smart-text-${block.id}`) as HTMLTextAreaElement | null;
+    const at = area ? area.selectionStart : draft.length;
+    const next = draft.slice(0, at) + MAGIC_OPEN + MAGIC_CLOSE + draft.slice(at);
+    setDraft(next);
+    setScanned(false);
+    setFindings([]);
+    requestAnimationFrame(() => {
+      const pos = at + MAGIC_OPEN.length;
+      if (area) {
+        area.focus();
+        area.setSelectionRange(pos, pos);
+      }
+    });
+  }
+
   /** Approve: write the ticked values to the vault, then placeholder them. */
   async function protectSelected() {
     if (selectedFindings.length === 0) return;
@@ -257,7 +336,7 @@ export function SmartTextEditor({
     setError("");
     try {
       const items = selectedFindings.map((finding) => {
-        const key = secretKeyFor(finding.label, finding.type);
+        const key = secretKeyFor(finding.editLabel, finding.editType);
         return {
           finding,
           key,
@@ -271,12 +350,14 @@ export function SmartTextEditor({
         items: items.map((item) => ({
           key: item.key,
           value: item.value,
-          comment: item.finding.label,
+          comment: item.finding.editLabel,
         })),
         create_folder: true,
       });
 
-      const newText = applyPlaceholders(
+      // Replace the values, then drop the markers — the tag has done its job
+      // once the value is in the vault, and leaving it in the note is noise.
+      const withPlaceholders = applyPlaceholders(
         draft,
         items.map((item) => ({
           start: item.finding.start,
@@ -284,14 +365,15 @@ export function SmartTextEditor({
           placeholder: item.placeholder,
         })),
       );
+      const newText = stripMagicTags(withPlaceholders);
 
       const newSecrets: StoredSecret[] = [
         ...stored,
         ...items.map((item) => ({
           placeholder: item.placeholder,
           key: item.key,
-          label: item.finding.label,
-          type: item.finding.type,
+          label: item.finding.editLabel,
+          type: item.finding.editType,
           severity: item.finding.severity,
         })),
       ];
@@ -312,7 +394,10 @@ export function SmartTextEditor({
     setSaving(true);
     setError("");
     try {
-      await onSave(block.id, { text_content: draft, data: { ...block.data } });
+      await onSave(block.id, {
+        text_content: stripMagicTags(draft),
+        data: { ...block.data },
+      });
       onDone();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save.");
@@ -329,14 +414,16 @@ export function SmartTextEditor({
       </div>
 
       <textarea
+        id={`smart-text-${block.id}`}
         className="smart-text-input"
         value={draft}
         rows={12}
         spellCheck={false}
-        placeholder={"Google account : abc@gmail.com\ngoogle password: ...\nrobot key : ..."}
+        placeholder={"Orange system:\nmanager\nHGC@2020\nrobot key: xxxxxx-99999999999"}
         onChange={(event) => {
           setDraft(event.target.value);
           setFindings([]);
+          setScanned(false);
         }}
       />
 
@@ -344,11 +431,31 @@ export function SmartTextEditor({
         <button
           type="button"
           className="smart-text-primary"
-          onClick={() => scan(draft)}
+          onClick={scan}
           disabled={saving || !draft.trim()}
         >
           <ShieldAlert size={13} />
           Scan for secrets
+        </button>
+        <button
+          type="button"
+          className="smart-text-secondary"
+          onClick={markSelection}
+          disabled={saving}
+          title="Wrap the selected text in markers so it is always detected"
+        >
+          <Wand2 size={13} />
+          Mark selection
+        </button>
+        <button
+          type="button"
+          className="smart-text-secondary"
+          onClick={insertMarkers}
+          disabled={saving}
+          title={`Insert ${MAGIC_OPEN}${MAGIC_CLOSE} at the cursor`}
+        >
+          <Plus size={13} />
+          Insert markers
         </button>
         <button
           type="button"
@@ -363,6 +470,12 @@ export function SmartTextEditor({
           <X size={13} /> Cancel
         </button>
       </div>
+
+      <p className="smart-text-note smart-text-taghelp">
+        <Sparkles size={11} /> Something not detected? Select it and press{" "}
+        <strong>Mark selection</strong>, or type <code>{MAGIC_OPEN}</code> before it and{" "}
+        <code>{MAGIC_CLOSE}</code> after, then Scan again.
+      </p>
 
       {findings.length > 0 && (
         <div className="smart-text-review">
@@ -382,29 +495,85 @@ export function SmartTextEditor({
 
           <div className="smart-text-findings">
             {findings.map((finding) => (
-              <label key={finding.id} className="smart-text-finding">
+              <div
+                key={finding.id}
+                className={`smart-text-finding${finding.manual ? " manual" : ""}`}
+              >
                 <input
                   type="checkbox"
                   checked={finding.selected}
                   onChange={(event) => toggleFinding(finding.id, event.target.checked)}
+                  aria-label={`Protect ${finding.editLabel}`}
                 />
-                <span className="smart-text-finding-info">
-                  <strong>{finding.label}</strong>
+
+                <div className="smart-text-finding-info">
+                  {editingId === finding.id ? (
+                    <div className="smart-text-finding-edit">
+                      <input
+                        className="smart-text-finding-labelinput"
+                        value={finding.editLabel}
+                        onChange={(event) =>
+                          editField(finding.id, { editLabel: event.target.value })
+                        }
+                        placeholder="Name for this secret"
+                        autoFocus
+                      />
+                      <select
+                        className="smart-text-finding-typeinput"
+                        value={finding.editType}
+                        onChange={(event) =>
+                          editField(finding.id, { editType: event.target.value })
+                        }
+                        aria-label="Secret type"
+                      >
+                        {["password", "api_key", "token", "private_key", "manual", "other"].map(
+                          (option) => (
+                            <option key={option} value={option}>
+                              {option.replace(/_/g, " ")}
+                            </option>
+                          ),
+                        )}
+                      </select>
+                      <button
+                        type="button"
+                        className="smart-text-finding-done"
+                        onClick={() => setEditingId(null)}
+                        title="Done editing"
+                      >
+                        <Check size={13} />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="smart-text-finding-nameline"
+                      onClick={() => setEditingId(finding.id)}
+                      title="Rename or change the type"
+                    >
+                      <strong>{finding.editLabel}</strong>
+                      <Pencil size={11} />
+                    </button>
+                  )}
                   <small>
-                    {finding.type.replace(/_/g, " ")} ·{" "}
-                    {Math.round(finding.confidence * 100)}% confidence
+                    {finding.editType.replace(/_/g, " ")} ·{" "}
+                    {Math.round(finding.confidence * 100)}% — {ruleReason(finding)}
                   </small>
-                </span>
+                  {/* The value itself. It is already visible in the textarea
+                      above; hiding it here only made the panel unreadable,
+                      especially on mobile where the panel covers the text. */}
+                  <code className="smart-text-finding-value">{finding.value}</code>
+                </div>
+
                 <span className={`smart-text-sev ${SEVERITY_CLASS[finding.severity] ?? ""}`}>
                   {finding.severity}
                 </span>
-              </label>
+              </div>
             ))}
           </div>
 
           <p className="smart-text-note">
-            Confidence is a rule-based estimate, not proof. Unticked values stay as ordinary
-            text. Values are never shown back to you here.
+            Confidence is a rule-based estimate, not proof. Untick anything that is not a
+            secret — it stays as ordinary text.
           </p>
 
           <button
@@ -419,10 +588,10 @@ export function SmartTextEditor({
         </div>
       )}
 
-      {findings.length === 0 && draft.trim() && (
+      {scanned && findings.length === 0 && draft.trim() && (
         <p className="smart-text-note">
-          No secrets detected yet — press Scan. Values you already protected appear as
-          placeholders and are not re-detected.
+          Nothing detected. If a value here is a secret, select it and press{" "}
+          <strong>Mark selection</strong>, then Scan again.
         </p>
       )}
 

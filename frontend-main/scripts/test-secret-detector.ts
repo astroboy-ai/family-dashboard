@@ -139,6 +139,55 @@ const replaced = applyPlaceholders(
 );
 check("both replaced", replaced === "password: {{secret:k0}}\npassword: {{secret:k1}}", replaced);
 
+console.log("\n== stacked label/value block (the shape that was missed) ==");
+const STACKED = `Orange system:
+manager
+HGC@2020
+kinrtic: POST
+dueit73947wuweddnxcc8f938493GhsaggA
+ERP_DEMO
+https://ERPPordK10.hkg.com.hk`;
+
+const stackedFindings = detectSecrets(STACKED);
+for (const f of stackedFindings) {
+  console.log(
+    `  -> ${f.type.padEnd(10)} conf=${f.confidence.toFixed(2)} label="${f.label}" value="${STACKED.slice(f.start, f.end)}"`,
+  );
+}
+check("finds the password", stackedFindings.some((f) => STACKED.slice(f.start, f.end) === "HGC@2020"));
+check("finds the token", stackedFindings.some((f) => STACKED.slice(f.start, f.end) === "dueit73947wuweddnxcc8f938493GhsaggA"));
+check("does NOT flag the username", !stackedFindings.some((f) => STACKED.slice(f.start, f.end) === "manager"));
+check("does NOT flag ERP_DEMO", !stackedFindings.some((f) => STACKED.slice(f.start, f.end) === "ERP_DEMO"));
+check("does NOT flag the URL", !stackedFindings.some((f) => STACKED.slice(f.start, f.end).startsWith("https://")));
+check("does NOT flag the HTTP method line", !stackedFindings.some((f) => STACKED.slice(f.start, f.end) === "POST"));
+check("label is the heading", stackedFindings.every((f) => f.label === "Orange system"));
+check("exactly 2 findings", stackedFindings.length === 2, JSON.stringify(stackedFindings.map((f) => STACKED.slice(f.start, f.end))));
+
+console.log("\n== stacked block: other real shapes ==");
+check(
+  "blank line ends the block",
+  detectSecrets("Server:\nHGC@2020\n\nnote: just a note").length === 1,
+  JSON.stringify(typesOf("Server:\nHGC@2020\n\nnote: just a note")),
+);
+check(
+  "inline form still works alongside",
+  detectSecrets("password: hunter2xyz").length === 1,
+);
+check(
+  "two stacked sections both scanned",
+  detectSecrets("Box A:\nPw1234!\nBox B:\nZz9988@").length === 2,
+  JSON.stringify(typesOf("Box A:\nPw1234!\nBox B:\nZz9988@")),
+);
+check(
+  "plain prose under a heading is not flagged",
+  detectSecrets("Notes:\nremember to call the plumber").length === 0,
+);
+check(
+  "a date is not a password",
+  detectSecrets("Renewal:\n2026-10-11").length === 0,
+  JSON.stringify(typesOf("Renewal:\n2026-10-11")),
+);
+
 console.log("\n== multi-line / real-world shapes ==");
 check(
   "dotenv style",

@@ -458,12 +458,19 @@ def _detect_manual_tags(text: str) -> list[Finding]:
         if not value.strip():
             continue
 
+        # The label comes from the line the marker sits on, with the marker
+        # itself removed — otherwise `login: [[secret]]x[[/secret]]` is named
+        # "login: [[secret]]" instead of "login".
+        raw_label = _derive_label(text, start, "marked by hand")
+        label = raw_label.replace(MAGIC_OPEN, "").replace(MAGIC_CLOSE, "")
+        label = re.sub(r"[:=\s]+$", "", label).strip() or "marked by hand"
+
         findings.append(
             Finding(
                 start=start,
                 end=close_at,
                 value=value,
-                label=_derive_label(text, start, "marked by hand"),
+                label=label,
                 type="manual",
                 # The author asserted this is a secret, so it outranks any guess.
                 severity="HIGH",

@@ -379,13 +379,21 @@ function detectManualTags(text: string): Finding[] {
 
     if (!value.trim()) continue;
 
+    // The label comes from the line the marker sits on, with the marker itself
+    // removed — otherwise `login: [[secret]]x[[/secret]]` is named
+    // "login: [[secret]]" instead of "login".
+    const rawLabel = deriveLabel(text, start, "marked by hand");
+    const label =
+      rawLabel.replace(MAGIC_TAG_OPEN, "").replace(MAGIC_TAG_CLOSE, "").replace(/[:=\s]+$/, "").trim() ||
+      "marked by hand";
+
     findings.push({
       id: findingId(start, close, "manual"),
       start,
       end: close,
       value,
       // The heading above the marker names it, same as any other finding.
-      label: deriveLabel(text, start, "marked by hand"),
+      label,
       type: "manual",
       // The user asserted this is a secret, so it outranks any guess.
       severity: "HIGH",

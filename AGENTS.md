@@ -146,8 +146,23 @@ attempt is recorded in the audit log either way.
     `checkbox`, `table`, `password`, `location`, `drawing`, `reminder`,
     `smart_text`
   - Attach an uploaded file by passing its `asset_id` as `media_asset_id`.
-  - **`smart_text` blocks must be built with `create_smart_text_block`**, not
-    assembled by hand — see the Smart Text section below.
+  - **`smart_text` blocks must be built with `preview_smart_text` +
+    `save_smart_text`** (or `create_smart_text_block`), not assembled by hand —
+    see the Smart Text section below.
+
+- **preview_smart_text** — Scan text for secrets and report what was found
+  - Parameters: `text` (string, with `[[secret]]…[[/secret]]` around secrets you
+    identified)
+  - Returns: `findings`, `untagged` (your misses), `tagged_only`, `placeholder_keys`
+  - **Read-only.** Call it as many times as you like while preparing.
+  - Scope: `notes.read`
+
+- **save_smart_text** — Save a Smart Text block from magic-tagged text
+  - Parameters: `note_id`, `text`, `caption` (optional), `secrets` (optional)
+  - Without `secrets`, values are extracted from `[[secret]]…[[/secret]]`.
+  - Writes to the vault, replaces every occurrence with `{{secret:<key>}}`,
+    strips the markers, creates the block.
+  - Scope: `notes.write` + `secrets.write`
 
 ### The vault (requires `secrets.read` / `secrets.write`)
 
@@ -235,40 +250,69 @@ first, and be sure the id is the one you mean.
 This is the main job: 子樂 pastes a disorganised page — accounts, passwords, old
 passwords, API keys, URLs, notes — and you turn it into a note.
 
-**Never put a secret in a plain text block.** Use `create_smart_text_block`.
+**Never put a secret in a plain text block.** Use the two-step flow below.
 
-### The workflow
+### Step 1 — mark the secrets, then preview
 
-1. **Read the paste and identify the secrets.** For each one decide a `label`
-   (what it is, in words — this becomes the visible name) and a `type`
-   (`password`, `api_key`, `token`, `private_key`, `other`).
+Wrap every secret you identified in magic tags, in place:
 
-2. **Call `create_smart_text_block`** with the original text and your list:
-
-```json
-{
-  "note_id": "<uuid>",
-  "text": "Orange system:\nmanager\nHGC@2020\nERP_DEMO\nhttps://ERPPordK10.hkg.com.hk",
-  "secrets": [
-    { "label": "Orange ERP manager password", "value": "HGC@2020", "type": "password" }
-  ]
-}
+```
+Orange system:
+manager
+[[secret]]HGC@2020[[/secret]]
+kinrtic: POST
+ERP_DEMO
+https://ERPPordK10.hkg.com.hk
 ```
 
-3. **The tool does the rest.** It writes each value to the vault, replaces
-   **every occurrence** in the text with `{{secret:<key>}}`, and returns the
-   block id plus the label→key mapping.
+Then call **`preview_smart_text`** with that text. It runs the same detector the
+browser uses and reports:
 
-4. **Report back with labels, never values.** The user knows what they pasted;
-   echoing a secret into a chat log defeats the purpose.
+- `findings` — everything the rules found, tagged or not
+- `untagged` — **secrets the rules found that you did not mark**
+- `tagged_only` — values you marked that the rules would not have flagged
+- `placeholder_keys` — existing `{{secret:…}}` already in the text
 
-### Choosing a label
+**Read `untagged` carefully.** Those are your misses. Either wrap them in magic
+tags too, or — if the rule is wrong and the value is not a secret — leave it and
+say so. Iterate until you are satisfied; preview changes nothing.
 
-The label is embedded in the search index, so make it useful and **never put the
-value in it**:
+`tagged_only` is not an error. You have judgement the rules do not: you can tell
+`HGC@2020` is a password from the surrounding conversation, where a regex only
+sees a shape. Marking it is correct.
+
+### Step 2 — save
+
+Call **`save_smart_text`** with the same text. It:
+
+1. Extracts each `[[secret]]…[[/secret]]` value
+2. Writes it to the vault
+3. Replaces **every occurrence** with `{{secret:<key>}}`
+4. Strips the magic markers
+5. Creates the block
+
+Alternatively, pass `secrets` explicitly — a list of `{label, value, type}` — and
+skip the markers entirely. Use this when you already have a clean list and the
+text needs no in-place annotation.
+
+**Set the label deliberately.** The label is embedded in the search index, so:
 
 - Good: `Orange ERP manager password`, `Kurintic API key`, `Router admin login`
 - Bad: `HGC@2020`, `password: HGC@2020`
+
+If you tag inline, the heading above the marker becomes the label — `manager
+login:` gives you "manager login". Check the returned mapping and rename if it
+came out poorly.
+
+### Which of the two tools?
+
+| | `preview_smart_text` | `save_smart_text` |
+| --- | --- | --- |
+| Scope | `notes.read` | `notes.write` + `secrets.write` |
+| Changes anything | No | Yes — writes to the vault and creates a block |
+| Use it to | check your work | commit it |
+
+Preview as many times as you like. Save once.
 
 ### What not to file as a secret
 
@@ -285,6 +329,15 @@ a key, then insert `{{secret:<key>}}` into the text and save with `update_block`
 
 Never resolve a placeholder with `get_vault_secret` in order to write it back as
 plaintext. That is the one thing this design exists to prevent.
+
+### Why two passes
+
+The rules are a floor, not a ceiling. You catch what a regex cannot — a password
+in a sentence, a value whose meaning comes from context. The rules catch what an
+LLM is prone to miss — a token shape buried in a wall of text, a second
+occurrence of a value you already handled.
+
+Neither side is trusted alone. Run both.
 
 ## Permissions
 

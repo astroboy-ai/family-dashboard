@@ -170,7 +170,10 @@ function InstallAppSection() {
   );
 }
 
+type SettingsTab = 'ai' | 'azure' | 'storage' | 'install';
+
 export default function SettingsPage() {
+  const [activeTab, setActiveTab] = useState<SettingsTab>('ai');
   const [actor, setActor] = useState<Actor | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [enabled, setEnabled] = useState(true);

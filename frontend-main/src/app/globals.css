@@ -4481,7 +4481,76 @@ html[data-theme="forest"] .brand-mark {
   }
 }
 
-/* === Vault page === */
+/* Settings page tabs */
+.settings-layout {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.settings-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 200px;
+  position: sticky;
+  top: 24px;
+}
+
+.settings-tab {
+  padding: 10px 16px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.settings-tab:hover {
+  background: var(--surface-muted);
+  color: var(--foreground);
+}
+
+.settings-tab.active {
+  background: var(--accent);
+  color: white;
+}
+
+.settings-content {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Vault Infisical iframe */
+.vault-infisical-section {
+  margin-bottom: 24px;
+}
+
+.vault-infisical-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.vault-infisical-header h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.vault-infisical-frame {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+/* Vault page */
 .vault-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));

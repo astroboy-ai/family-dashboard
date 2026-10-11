@@ -261,14 +261,42 @@ async def write_vault_secret(
     payload: SecretWriteRequest,
     actor: Annotated[Actor, Depends(get_current_actor)],
 ) -> SecretSummaryResponse:
-    """Create or update one secret."""
+    """Create or update one secret.
+
+    A blank value on an existing key keeps the current value rather than
+    overwriting it with an empty string — the editor says so, so the server
+    has to mean it. A blank value on a *new* key is rejected outright, because
+    a secret with no value is never what anyone wanted.
+    """
 
     _require_secrets_scope(actor)
     _require_secrets_write(actor)
+
+    has_value = payload.value != ""
     try:
-        saved = await set_secret(payload.key, payload.value, payload.path, payload.comment)
+        existing = {item.key for item in await list_secrets(payload.path)}
+        if payload.key in existing:
+            if not has_value:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"{payload.key} already exists. Enter a new value to update it — "
+                        "a blank value would clear the secret."
+                    ),
+                )
+            saved = await set_secret(payload.key, payload.value, payload.path, payload.comment)
+        else:
+            if not has_value:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="A value is required for a new secret.",
+                )
+            saved = await set_secret(
+                payload.key, payload.value, payload.path, payload.comment, create_only=True
+            )
     except InfisicalError as error:
         raise _infisical_http_error(error) from error
+
     return SecretSummaryResponse(
         key=saved.key, path=saved.path, comment=saved.comment, updated_at=saved.updated_at
     )

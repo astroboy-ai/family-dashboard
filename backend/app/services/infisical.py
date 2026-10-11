@@ -249,21 +249,33 @@ async def get_secret(key: str, path: str = "/") -> str:
     return value
 
 
-async def set_secret(key: str, value: str, path: str = "/", comment: str = "") -> SecretSummary:
+async def set_secret(
+    key: str,
+    value: str,
+    path: str = "/",
+    comment: str = "",
+    *,
+    create_only: bool = False,
+) -> SecretSummary:
     """Create or overwrite one secret.
 
-    Infisical returns 409 when the key already exists, so an update is a second
-    call with PUT rather than a separate code path at the caller.
+    Infisical answers 400 when the key already exists, so an update is a second
+    call with PATCH rather than a separate code path at the caller.
+
+    ``create_only`` refuses to touch an existing key: the editor's "leave blank
+    to keep the current value" promise depends on it, because a blank value sent
+    to PATCH would overwrite the secret with an empty string.
     """
 
-    if len(value.encode("utf-8")) > MAX_SECRET_VALUE_BYTES:
-        raise InfisicalError(
-            f"Value is too large ({len(value.encode('utf-8'))} bytes); the limit is {MAX_SECRET_VALUE_BYTES}."
-        )
     if not key.strip():
         raise InfisicalError("A key is required.")
     if "/" in key or "\\" in key:
         raise InfisicalError("A key cannot contain a slash.")
+
+    if not create_only and len(value.encode("utf-8")) > MAX_SECRET_VALUE_BYTES:
+        raise InfisicalError(
+            f"Value is too large ({len(value.encode('utf-8'))} bytes); the limit is {MAX_SECRET_VALUE_BYTES}."
+        )
 
     _, project_id, environment = _target()
     folder = _normalise_path(path)
@@ -277,12 +289,24 @@ async def set_secret(key: str, value: str, path: str = "/", comment: str = "") -
     if folder != "/":
         body["secretPath"] = folder
 
+    if create_only:
+        payload = await _request("POST", f"{SECRETS_PATH}/{key}", json_body=body)
+        secret = payload.get("secret") or {}
+        return SecretSummary(
+            key=secret.get("secretKey") or key,
+            path=secret.get("secretPath") or folder,
+            comment=secret.get("secretComment") or "",
+            updated_at=secret.get("updatedAt") or "",
+        )
+
     try:
         payload = await _request("POST", f"{SECRETS_PATH}/{key}", json_body=body)
     except InfisicalError as error:
-        if error.status_code != 409:
+        # Infisical answers 400 (not 409) when the key already exists, and
+        # updates go through PATCH — PUT is not routed at all.
+        if error.status_code != 400 or "already exists" not in str(error):
             raise
-        payload = await _request("PUT", f"{SECRETS_PATH}/{key}", json_body=body)
+        payload = await _request("PATCH", f"{SECRETS_PATH}/{key}", json_body=body)
 
     secret = payload.get("secret") or {}
     return SecretSummary(

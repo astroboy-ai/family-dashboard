@@ -311,7 +311,10 @@ export default function NoteDetailPage() {
           const block = await createBlock(note.id, {
             type: "password",
             text_content: "",
-            data: { value: "", masked: true },
+            // No `masked` here: the flag means "a secret exists that you may not
+            // read", and the backend sets it only for a caller without the
+            // scope. Sending it on create made the new field readOnly.
+            data: { value: "" },
           });
           adoptNewBlock(block);
           setMessage("Password field added");
@@ -1006,13 +1009,22 @@ export default function NoteDetailPage() {
 /**
  * Password block with reveal toggle, copy, and label.
  *
- * The backend stores `data.value` as AES-GCM ciphertext and only returns the
- * plaintext when the caller holds `notes.read.secrets`. Without that scope the
- * value arrives as "••••••••" with `data.masked: true` — the UI must not try to
- * edit a masked value, or it would overwrite the real secret with the dots.
+ * The value lives in the vault, not in the block row: the backend stores only a
+ * `data.vault_key` reference and fetches the secret on read. It returns the
+ * plaintext only when the caller holds `notes.read.secrets`; without that scope
+ * the value arrives as "••••••••" with `data.masked: true`, and the UI must not
+ * try to edit a masked value or it would overwrite the real secret with dots.
  *
- * A legacy plaintext row (written before encryption existed) comes back with
- * `data.encrypted: false`; the UI offers to re-save it, which encrypts it.
+ * **Editing saves on blur, never on keystroke.** The old AES-GCM path rewrote a
+ * local column, so per-keystroke saves were merely wasteful. Every save is now a
+ * vault write, so a per-keystroke save would fire one Infisical request per
+ * character — and each intermediate string would be stored as a revision of the
+ * secret. Local draft state keeps typing responsive; the write happens once the
+ * field loses focus.
+ *
+ * A legacy row (ciphertext or plaintext written before the vault existed) comes
+ * back with `data.encrypted: false` and no `vault_key`; saving it moves the value
+ * into the vault, which is the migration path.
  */
 function PasswordBlockView({
   block,
@@ -1027,14 +1039,32 @@ function PasswordBlockView({
   const masked = Boolean(block.data?.masked);
   const decryptError = Boolean(block.data?.decrypt_error);
   const encrypted = block.data?.encrypted !== false;
-  const value = String(block.data?.value ?? "");
+  const storedValue = String(block.data?.value ?? "");
+
+  // The in-progress edit. `null` means "not editing" — the field shows whatever
+  // the server sent. Keeping it separate is what allows saving on blur: the
+  // input is uncontrolled by the server during a typing session.
+  const [draft, setDraft] = useState<string | null>(null);
+  const value = draft ?? storedValue;
 
   async function copy() {
     try {
-      await navigator.clipboard.writeText(value);
+      await navigator.clipboard.writeText(storedValue);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch { /* clipboard unavailable */ }
+  }
+
+  /** Persist the draft, once, when the field is done being edited. */
+  async function commitValue() {
+    if (draft === null || draft === storedValue) {
+      setDraft(null);
+      return;
+    }
+    try {
+      await onUpdate(block.id, { ...block.data, value: draft });
+    } catch { /* keep the draft so the user does not lose what they typed */ return; }
+    setDraft(null);
   }
 
   return (
@@ -1046,11 +1076,8 @@ function PasswordBlockView({
           placeholder="Enter secret…"
           value={masked ? "" : value}
           readOnly={masked}
-          onChange={async (e) => {
-            try {
-              await onUpdate(block.id, { ...block.data, value: e.target.value });
-            } catch { /* ignore */ }
-          }}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => void commitValue()}
         />
         <button
           type="button"
@@ -1071,10 +1098,10 @@ function PasswordBlockView({
           {copied ? <Check size={14} /> : <Copy size={14} />}
         </button>
       </div>
-      {decryptError && <p className="block-password-error">Could not decrypt — wrong key or corrupted data.</p>}
+      {decryptError && <p className="block-password-error">Could not read from the vault — the secret may have been deleted or the vault is unreachable.</p>}
       {!encrypted && !masked && (
         <p className="block-password-hint">
-          <Lock size={12} /> Stored in plaintext. Re-enter and save to encrypt.
+          <Lock size={12} /> Not in the vault yet. Edit and leave the field to move it there.
         </p>
       )}
       <div className="block-password-label-row">

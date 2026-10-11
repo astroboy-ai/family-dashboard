@@ -11,11 +11,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = structlog.get_logger(__name__)
 
+# The placeholder shown in place of a secret the caller may not read. Defined
+# once here because both the masking and the write path compare against it: the
+# write path must never store the mask as if it were a password.
+_MASKED_VALUE = "••••••••"
+
 from app.api.deps import Actor
 from app.core import secrets
 from app.core.errors import AppError
 from app.core.text import build_search_text
 from app.models import AuditLog, FamilyMember, JobOutbox, MediaAsset, Note, NoteBlock, Tag, TagAuditLog, TagExclusion, note_tags
+from app.services import infisical
 from app.schemas.notes import (
     NoteBlockInput,
     NoteBlockPatchRequest,
@@ -330,7 +336,7 @@ async def _load_tags(session: AsyncSession, note_id: uuid.UUID) -> list[Tag]:
     return list(result.scalars().all())
 
 
-def _note_response(
+async def _note_response(
     note: Note, blocks: list[NoteBlock], tags: list[Tag], *, can_read_secrets: bool = False
 ) -> NoteResponse:
     """Build the note response, masking password values the caller may not see.
@@ -344,7 +350,8 @@ def _note_response(
     return NoteResponse.model_validate(note).model_copy(
         update={
             "blocks": [
-                _serialize_block(block, can_read_secrets=can_read_secrets) for block in blocks
+                await _serialize_block(block, can_read_secrets=can_read_secrets)
+                for block in blocks
             ],
             "tags": [TagResponse.model_validate(tag) for tag in tags],
         }
@@ -401,7 +408,7 @@ async def list_notes(
     result = await session.execute(statement)
     notes = list(result.scalars().all())
     items = [
-        _note_response(
+        await _note_response(
             note,
             await _load_blocks(session, note.id),
             await _load_tags(session, note.id),
@@ -416,7 +423,7 @@ async def get_note(
     *, session: AsyncSession, actor: Actor, note_id: uuid.UUID
 ) -> NoteResponse:
     note = await _get_note(session=session, actor=actor, note_id=note_id)
-    return _note_response(
+    return await _note_response(
         note,
         await _load_blocks(session, note.id),
         await _load_tags(session, note.id),
@@ -496,21 +503,23 @@ async def create_note(
             household_id=actor.household_id,
             media_asset_id=block_payload.media_asset_id,
         )
+        # The id has to exist before the data is stored, because the vault key is
+        # derived from it — generate it here rather than inline in the constructor.
+        block_id = uuid.uuid4()
+        block_data = block_payload.data
+        if block_payload.type == "password":
+            # Inline password blocks must reach the vault like ones created
+            # through create_block — otherwise the value lands in the row.
+            block_data = await _password_data_to_vault(
+                note_id=note.id,
+                block_id=block_id,
+                data=block_payload.data or {},
+            )
         block = NoteBlock(
-            id=uuid.uuid4(),
+            id=block_id,
             note_id=note.id,
             order_index=index * 1000,
-            **{
-                **block_payload.model_dump(),
-                # A password block created inline must be encrypted like one
-                # created through create_block — otherwise the value lands in
-                # the row as plaintext and never gets wrapped.
-                "data": (
-                    _encrypt_password_data(block_payload.data or {})
-                    if block_payload.type == "password"
-                    else block_payload.data
-                ),
-            },
+            **{**block_payload.model_dump(), "data": block_data},
             created_at=now,
             updated_at=now,
         )
@@ -553,7 +562,7 @@ async def create_note(
         after={"type": note.type, "visibility": note.visibility},
     )
     await session.commit()
-    return _note_response(
+    return await _note_response(
         note, blocks, tags, can_read_secrets="notes.read.secrets" in actor.scopes
     )
 
@@ -615,7 +624,7 @@ async def update_note(
         after={"updated_fields": sorted(changes)},
     )
     await session.commit()
-    return _note_response(
+    return await _note_response(
         note,
         await _load_blocks(session, note.id),
         await _load_tags(session, note.id),
@@ -640,16 +649,146 @@ async def delete_note(
     await session.commit()
 
 
-def _encrypt_password_data(data: dict[str, Any]) -> dict[str, Any]:
-    """Encrypt ``data.value`` in place if it is plaintext.
+def _password_secret_key(block_id: uuid.UUID) -> str:
+    """The vault key a password block's value lives under.
 
-    Idempotent: an already-encrypted value is left alone, so re-saving a block
-    does not double-encrypt. Other keys (``label``, ``masked``) are preserved.
+    Derived from the block id so the mapping is deterministic and needs no extra
+    column: the block row already knows its own id, so nothing has to be looked
+    up to find the secret.
+    """
+    return f"pw-{block_id}"
+
+
+def _password_secret_path(note_id: uuid.UUID) -> str:
+    """The vault folder for a note's password blocks.
+
+    One folder per note mirrors the Smart Text layout, so deleting a note can
+    drop its folder and take every one of its secrets with it.
+    """
+    return f"/notes/{note_id}"
+
+
+async def _password_data_to_vault(
+    *, note_id: uuid.UUID, block_id: uuid.UUID, data: dict[str, Any]
+) -> dict[str, Any]:
+    """Move ``data.value`` into the vault, leaving a reference behind.
+
+    This replaces the old AES-GCM-at-rest scheme. The row no longer holds the
+    secret in any form — not ciphertext, not plaintext — only the vault key that
+    names it. That is the whole point of the change: a database dump, a backup or
+    a log line now yields nothing, and an operator can read and rotate the value
+    from the vault UI without touching the note.
+
+    Handles both directions, because the update path cannot be told apart from
+    the create path by shape alone:
+
+    * **Create** — no ``vault_key`` yet: mint the key, write, keep the reference.
+    * **Update** — ``vault_key`` present *and* a new plaintext ``value`` present:
+      push the new value to that same key. The editor sends the whole ``data``
+      object back, so a vault-backed block arrives here looking "already done";
+      treating that as a no-op would silently drop every edit.
+
+    Idempotent for the unchanged case: if the value is absent or is the mask, the
+    existing secret is left alone.
+
+    Raises ``InfisicalError`` if the vault refuses, and the caller surfaces that
+    rather than silently falling back to storing the value locally — a password
+    that quietly stays in the row is worse than an error the user can see.
     """
 
     value = data.get("value")
-    if value and not secrets.is_encrypted(value):
-        data = {**data, "value": secrets.encrypt(value), "encrypted": True}
+    existing_key = data.get("vault_key")
+
+    # A masked placeholder is not a value. Writing it would destroy the secret,
+    # so a caller without the read scope can re-save a block without harm.
+    if value == _MASKED_VALUE:
+        return {k: v for k, v in data.items() if k != "value"}
+
+    # Nothing to store and nothing to update.
+    if not value:
+        return data
+
+    key = str(existing_key) if existing_key else _password_secret_key(block_id)
+    path = str(data.get("vault_path") or _password_secret_path(note_id))
+    await infisical.ensure_folder(path)
+    await infisical.set_secret(key, value, path=path, comment=str(data.get("label") or ""))
+
+    # ``value`` is dropped entirely — not blanked, removed — so no code path can
+    # mistake an empty string for a real secret. The reference is the only
+    # handle left.
+    updated = {k: v for k, v in data.items() if k != "value"}
+    updated["vault_key"] = key
+    updated["vault_path"] = path
+    # Retained so the UI and the vault list can describe the block without
+    # fetching it, and so a migration can tell vault-backed rows from old ones.
+    updated["encrypted"] = True
+    return updated
+
+
+async def _resolve_password_value(
+    *, data: dict[str, Any], block_id: uuid.UUID, can_read_secrets: bool
+) -> dict[str, Any]:
+    """Fill in ``data.value`` for a password block, or mask it.
+
+    Three shapes have to be handled, because the migration is lazy:
+
+    * **Vault-backed** (``vault_key`` present) — the current scheme. Fetch from
+      the vault when the caller has the scope.
+    * **Legacy ciphertext** — a value written by the old AES-GCM code and not yet
+      migrated. Still decryptable with ``FAMILYOS_SECRET_KEY``, so it keeps
+      working until the block is next saved.
+    * **Legacy plaintext** — a row older still. Readable only with the scope.
+
+    Every branch masks without the scope. A vault failure is reported as a
+    distinct ``decrypt_error`` rather than an empty field, so the user can tell
+    "this is broken" from "there is no password here".
+    """
+
+    data = dict(data)
+
+    if not can_read_secrets:
+        # A secret is present in every shape, so the mask is the same. Only the
+        # flag differs, and the UI needs it to render.
+        if data.get("vault_key") or data.get("value"):
+            data["value"] = _MASKED_VALUE
+            data["masked"] = True
+        return data
+
+    # We are handing out (or trying to hand out) the real value, so no stale mask
+    # may survive. A block created empty stores ``masked: true`` from the client's
+    # initial state; leaving it set makes the input readOnly and the user cannot
+    # type the very password the block exists to hold.
+    data.pop("masked", None)
+
+    vault_key = data.get("vault_key")
+    if vault_key:
+        path = str(data.get("vault_path") or _password_secret_path(block_id))
+        try:
+            data["value"] = await infisical.get_secret(str(vault_key), path=path)
+            data["encrypted"] = True
+        except Exception as error:  # noqa: BLE001 — any vault failure is the same to the user
+            logger.warning(
+                "vault_secret_read_failed",
+                block_id=str(block_id),
+                vault_key=str(vault_key),
+                error=str(error),
+            )
+            data["value"] = None
+            data["decrypt_error"] = True
+        return data
+
+    # Legacy path: the value is still in the row.
+    stored = data.get("value")
+    if stored and secrets.is_encrypted(stored):
+        try:
+            data["value"] = secrets.decrypt(stored)
+        except ValueError as error:
+            logger.warning("secret_decrypt_failed", block_id=str(block_id), error=str(error))
+            data["value"] = None
+            data["decrypt_error"] = True
+        data["encrypted"] = True
+    else:
+        data["encrypted"] = False
     return data
 
 
@@ -668,10 +807,15 @@ async def create_block(
     max_order = result.scalar_one_or_none() or 0
     now = datetime.now(UTC)
     fields = payload.model_dump()
+    block_id = uuid.uuid4()
     if fields.get("type") == "password":
-        fields["data"] = _encrypt_password_data(fields.get("data") or {})
+        fields["data"] = await _password_data_to_vault(
+            note_id=note.id,
+            block_id=block_id,
+            data=fields.get("data") or {},
+        )
     block = NoteBlock(
-        id=uuid.uuid4(),
+        id=block_id,
         note_id=note.id,
         order_index=max_order + 1000,
         **fields,
@@ -690,7 +834,7 @@ async def create_block(
         after={"type": block.type, "order_index": block.order_index},
     )
     await session.commit()
-    return _serialize_block(block, can_read_secrets="notes.read.secrets" in actor.scopes)
+    return await _serialize_block(block, can_read_secrets="notes.read.secrets" in actor.scopes)
 
 
 async def list_blocks(
@@ -700,47 +844,31 @@ async def list_blocks(
     blocks = await _load_blocks(session, note.id)
     can_read_secrets = "notes.read.secrets" in actor.scopes
     return [
-        _serialize_block(block, can_read_secrets=can_read_secrets) for block in blocks
+        await _serialize_block(block, can_read_secrets=can_read_secrets) for block in blocks
     ]
 
 
-def _serialize_block(block: NoteBlock, *, can_read_secrets: bool) -> NoteBlockResponse:
+async def _serialize_block(block: NoteBlock, *, can_read_secrets: bool) -> NoteBlockResponse:
     """Build the response, masking password values the caller may not see.
 
-    A password block stores ``data.value`` as AES-GCM ciphertext. Without the
-    ``notes.read.secrets`` scope the caller gets a masked placeholder and a flag
-    saying a secret is present — enough to render the block, not enough to read
-    it. With the scope, the plaintext is decrypted into ``data.value``.
+    Async because a password block's value now lives in the vault, so filling it
+    in is a network call. Only password blocks pay that cost — every other block
+    type returns straight through.
 
-    A legacy plaintext value (written before encryption existed) is treated as
-    readable only with the scope, and is reported via ``data.encrypted=False``
-    so the UI can offer to re-save it encrypted.
+    Without ``notes.read.secrets`` the caller gets a masked placeholder and a flag
+    saying a secret is present: enough to render the block, not enough to read it.
+    With the scope, the value is fetched into ``data.value``.
+
+    Legacy rows are still handled — see :func:`_resolve_password_value`.
     """
 
     data = dict(block.data or {})
-    if block.type == "password" and "value" in data:
-        stored = data["value"]
-        if secrets.is_encrypted(stored):
-            if can_read_secrets:
-                try:
-                    data["value"] = secrets.decrypt(stored)
-                except ValueError as error:
-                    # Wrong key or tampered ciphertext. Show a distinct marker
-                    # rather than a wrong password — the user must be able to tell
-                    # "this is broken" from "this is not the password".
-                    logger.warning("secret_decrypt_failed", block_id=str(block.id), error=str(error))
-                    data["value"] = None
-                    data["decrypt_error"] = True
-            else:
-                data["value"] = "••••••••"
-                data["masked"] = True
-            data["encrypted"] = True
-        else:
-            # Legacy plaintext row. Never hand it out without the scope.
-            data["encrypted"] = False
-            if not can_read_secrets:
-                data["value"] = "••••••••"
-                data["masked"] = True
+    if block.type == "password":
+        data = await _resolve_password_value(
+            data=data,
+            block_id=block.id,
+            can_read_secrets=can_read_secrets,
+        )
     # Validate from the ORM object, not ``block.__dict__``: a freshly
     # constructed instance only has the attributes that were set on it, so
     # ``__dict__`` is missing any column left at its default (ai_description,
@@ -763,7 +891,15 @@ async def update_block(
     if changes.get("type") == "password" or block.type == "password":
         new_data = changes.get("data")
         if new_data is not None:
-            changes["data"] = _encrypt_password_data(new_data)
+            # Merge over the stored data so the vault reference survives an edit
+            # that only changes the label. The editor round-trips ``data``, but a
+            # partial patch must not orphan the secret by dropping ``vault_key``.
+            merged = {**(block.data or {}), **new_data}
+            changes["data"] = await _password_data_to_vault(
+                note_id=note.id,
+                block_id=block.id,
+                data=merged,
+            )
     if "media_asset_id" in changes:
         await _validate_media(
             session=session,
@@ -790,7 +926,7 @@ async def update_block(
         after={"updated_fields": sorted(changes)},
     )
     await session.commit()
-    return _serialize_block(block, can_read_secrets="notes.read.secrets" in actor.scopes)
+    return await _serialize_block(block, can_read_secrets="notes.read.secrets" in actor.scopes)
 
 
 async def delete_block(

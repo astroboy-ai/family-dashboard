@@ -233,6 +233,49 @@ async def list_folders() -> list[str]:
     return sorted(paths)
 
 
+async def ensure_folder(path: str) -> str:
+    """Create a folder path (and its parents) if absent. Returns the path.
+
+    Infisical has no "mkdir -p": each segment is created with its parent named,
+    and creating one that already exists is an error we must tolerate — the
+    caller only cares that the folder exists at the end. Walking the segments
+    keeps a two-level path like ``/notes/<note_id>`` working without the caller
+    knowing the intermediate ``/notes`` had to exist first.
+    """
+
+    folder = _normalise_path(path)
+    if folder == "/":
+        return folder
+
+    _, project_id, environment = _target()
+    existing = set(await list_folders())
+
+    parent = "/"
+    for segment in [part for part in folder.strip("/").split("/") if part]:
+        current = (parent.rstrip("/") + "/" + segment) if parent != "/" else "/" + segment
+        if current in existing:
+            parent = current
+            continue
+        body: dict[str, Any] = {
+            "workspaceId": project_id,
+            "environment": environment,
+            "name": segment,
+        }
+        if parent != "/":
+            body["path"] = parent
+        try:
+            await _request("POST", FOLDERS_PATH, json_body=body)
+        except InfisicalError as error:
+            # A concurrent create (or a folder list that was stale) answers with
+            # a duplicate error. That is success for our purpose.
+            if error.status_code not in (400, 409):
+                raise
+        existing.add(current)
+        parent = current
+
+    return folder
+
+
 async def get_secret(key: str, path: str = "/") -> str:
     """Read one secret's value. Only called for an explicit reveal."""
 

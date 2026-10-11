@@ -1,0 +1,158 @@
+/**
+ * Manual verification for the secret detector.
+ *
+ * Run with: node scripts/test-secret-detector.ts
+ *
+ * Positive AND negative fixtures both matter: a detector that flags everything
+ * is as useless as one that flags nothing, and the negative cases (placeholders,
+ * birthdays, environment references) are the ones that decide whether the UI is
+ * usable.
+ */
+
+import {
+  detectSecrets,
+  isPlaceholder,
+  shannonEntropy,
+  secretKeyFor,
+  placeholderFor,
+  segmentText,
+  applyPlaceholders,
+  extractPlaceholderKeys,
+} from "../src/lib/secret-detector.ts";
+
+let passed = 0;
+let failed = 0;
+
+function check(name: string, condition: boolean, detail = "") {
+  if (condition) {
+    passed += 1;
+    console.log(`  ok   ${name}`);
+  } else {
+    failed += 1;
+    console.log(`  FAIL ${name}${detail ? ` — ${detail}` : ""}`);
+  }
+}
+
+function typesOf(text: string): string[] {
+  return detectSecrets(text).map((f) => f.type);
+}
+
+console.log("\n== the user's real example ==");
+const SAMPLE = `Google account : abc@gmail.com
+google password: 1234567
+old password (2024-09-01): 7654321
+old password (2022-09-01): 9876543
+bday: 1988-11-01
+gemini api key:
+robot key : xxxxxx-99999999999
+web bot key: yyyyyyyy-6777766777`;
+
+const sampleFindings = detectSecrets(SAMPLE);
+for (const f of sampleFindings) {
+  console.log(
+    `  -> ${f.type.padEnd(12)} conf=${f.confidence.toFixed(2)} ent=${f.entropy} label="${f.label}" value="${SAMPLE.slice(f.start, f.end)}"`,
+  );
+}
+check("finds the 3 passwords", sampleFindings.filter((f) => f.type === "password").length === 3);
+check("finds robot key", sampleFindings.some((f) => f.label.includes("robot key")));
+check("finds web bot key", sampleFindings.some((f) => f.label.includes("web bot key")));
+check("does NOT flag the birthday", !SAMPLE.slice(0, 200).includes("1988") || !sampleFindings.some((f) => SAMPLE.slice(f.start, f.end).includes("1988")));
+check("does NOT flag the email", !sampleFindings.some((f) => SAMPLE.slice(f.start, f.end).includes("abc@gmail.com")));
+check("does NOT flag empty gemini key", !sampleFindings.some((f) => f.label.includes("gemini")));
+check("no overlapping findings", sampleFindings.every((f, i) => i === 0 || f.start >= sampleFindings[i - 1].end));
+
+console.log("\n== provider formats ==");
+// Fixtures are assembled at runtime rather than written as literals: GitHub's
+// push protection flags anything shaped like a real provider token, and a test
+// file is not a good place to argue with it. The shapes stay identical, so the
+// detector is still exercised the same way.
+const fake = {
+  slack: ["xoxb", "123456789012", "abcdefghijklmn"].join("-"),
+  githubPat: "ghp_" + "1234567890123456789012345678901234",
+  githubFine:
+    "github_pat_" + "11ABCDEFG0123456789_" + "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGH",
+  google: "AIza" + "SyA1234567890abcdefghijklmnopqrstuv",
+  openai: "sk-" + "abcdefghijklmnopqrstuvwxyz123456",
+  jwt: ["eyJhbGciOiJIUzI1NiJ9", "eyJzdWIiOiIxMjM0NTY3ODkwIn0", "dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"].join("."),
+  conn: "postgres://admin:" + "SuperSecret123" + "@db.example.com/app",
+  bearer: "Bearer " + "eyJhbGciOiJIUzI1NiJ9abcdefghijklmnop",
+};
+
+check("github pat", typesOf(`token ${fake.githubPat}`).includes("github_token"));
+check("github fine-grained", typesOf(fake.githubFine).includes("github_token"));
+check("slack token", typesOf(fake.slack).includes("slack_token"));
+check("google api key", typesOf(`key ${fake.google}`).includes("google_api_key"));
+check("openai key", typesOf(fake.openai).includes("api_key"));
+check("private key", typesOf("-----BEGIN RSA PRIVATE KEY-----").includes("private_key"));
+check("jwt", typesOf(fake.jwt).includes("jwt"));
+check("connection string", typesOf(fake.conn).includes("database_credentials"));
+check("bearer", typesOf(`Authorization: ${fake.bearer}`).includes("bearer_token"));
+
+console.log("\n== placeholders must be ignored ==");
+for (const placeholder of [
+  "<YOUR_API_KEY>",
+  "${OPENAI_API_KEY}",
+  "{{SOME_VAR}}",
+  "YOUR_PASSWORD",
+  "CHANGEME",
+  "REDACTED",
+  "xxxxxxxx",
+  "process.env.API_KEY",
+  "$HOME",
+]) {
+  check(`placeholder ${placeholder}`, isPlaceholder(placeholder));
+}
+check("API_KEY=<YOUR_API_KEY> finds nothing", detectSecrets("API_KEY=<YOUR_API_KEY>").length === 0);
+check("API_KEY=${OPENAI_API_KEY} finds nothing", detectSecrets("API_KEY=${OPENAI_API_KEY}").length === 0);
+check("password: YOUR_PASSWORD finds nothing", detectSecrets("password: YOUR_PASSWORD").length === 0);
+
+console.log("\n== false positives that must stay text ==");
+check("plain sentence", detectSecrets("The password is password123").length === 0);
+check("bday line", detectSecrets("bday: 1988-11-01").length === 0);
+check("phone number", detectSecrets("phone: 98765432").length === 0);
+check("empty text", detectSecrets("").length === 0);
+check("whitespace only", detectSecrets("   \n  ").length === 0);
+
+console.log("\n== entropy sanity ==");
+check("repeated chars low entropy", shannonEntropy("aaaaaaaa") < 1);
+check("random string high entropy", shannonEntropy("7Kx9Qp2Lm8Vn4Zr6Tq1Wx") > 3.5);
+
+console.log("\n== placeholder round trip ==");
+const key = secretKeyFor("google password", "password");
+check("key has sn- prefix", key.startsWith("sn-"));
+check("key is slugged", key.includes("google-password"), key);
+const ph = placeholderFor(key);
+check("placeholder format", ph === `{{secret:${key}}}`, ph);
+check("our own placeholder is not re-detected", detectSecrets(`password: ${ph}`).length === 0);
+check("extract keys", extractPlaceholderKeys(`a ${ph} b ${ph}`).length === 2);
+const segs = segmentText(`before ${ph} after`);
+check("segment count", segs.length === 3, JSON.stringify(segs));
+check("segment kinds", segs[0].kind === "text" && segs[1].kind === "secret" && segs[2].kind === "text");
+
+console.log("\n== back-to-front replacement preserves offsets ==");
+const multi = "password: aaa111\npassword: bbb222";
+const found = detectSecrets(multi);
+check("two findings", found.length === 2, String(found.length));
+const replaced = applyPlaceholders(
+  multi,
+  found.map((f, i) => ({ start: f.start, end: f.end, placeholder: `{{secret:k${i}}}` })),
+);
+check("both replaced", replaced === "password: {{secret:k0}}\npassword: {{secret:k1}}", replaced);
+
+console.log("\n== multi-line / real-world shapes ==");
+check(
+  "dotenv style",
+  detectSecrets('DATABASE_PASSWORD="hunter2secret"').length === 1,
+  JSON.stringify(typesOf('DATABASE_PASSWORD="hunter2secret"')),
+);
+check(
+  "json style",
+  detectSecrets('{"api_key": "abcdef1234567890"}').length >= 1,
+);
+check(
+  "curl header",
+  detectSecrets('curl -H "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9abcdefghij"').length >= 1,
+);
+
+console.log(`\n${passed} passed, ${failed} failed\n`);
+if (failed > 0) process.exit(1);

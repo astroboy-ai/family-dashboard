@@ -268,6 +268,151 @@ async def create_note_tool(params: BaseModel, context: ToolContext) -> ToolResul
     return ToolResult(ok=True, data=note, meta={"note_id": str(note.id)})
 
 
+# ── Vault tools ──────────────────────────────────────────────────────────────
+#
+# The household secret vault (Infisical). Scopes here are ``secrets.read`` and
+# ``secrets.write`` — deliberately NOT ``notes.read.secrets``, which gates the
+# *password blocks inside notes* and is a different surface. A token that may
+# read a note's password block is not automatically allowed to enumerate the
+# whole vault.
+#
+# **There is no delete tool.** The operator's decision: an agent may add and
+# update secrets but never remove one. Revocation stays a human action in the
+# vault UI. Do not add a delete tool without asking again.
+#
+# ``value`` is in the redaction list in ``executor._redact_params`` — the audit
+# row must never hold a plaintext secret.
+
+
+class ListVaultSecretsParams(BaseModel):
+    path: str = Field(default="/", max_length=500)
+
+
+class GetVaultSecretParams(BaseModel):
+    key: str = Field(min_length=1, max_length=255)
+    path: str = Field(default="/", max_length=500)
+
+
+class SetVaultSecretParams(BaseModel):
+    key: str = Field(min_length=1, max_length=255)
+    # Named ``value`` rather than ``secret_value`` so it lands on the redaction
+    # list; the audit row stores "[redacted]".
+    value: str = Field(min_length=1, max_length=64 * 1024)
+    path: str = Field(default="/", max_length=500)
+    comment: str = Field(default="", max_length=500)
+
+
+@register(
+    name="list_vault_secrets",
+    description=(
+        "List secrets in the household vault folder. Returns keys, comments and "
+        "update times — never values. Use this to discover what exists before "
+        "reading or writing. Path '/' is the root; note folders are '/notes/<note_id>'."
+    ),
+    category="vault",
+    params=ListVaultSecretsParams,
+    permissions=("secrets.read",),
+)
+async def list_vault_secrets_tool(params: BaseModel, context: ToolContext) -> ToolResult:
+    from app.services import infisical
+
+    values = ListVaultSecretsParams.model_validate(params)
+    try:
+        summaries = await infisical.list_secrets(values.path)
+    except infisical.InfisicalError as error:
+        return ToolResult(ok=False, error=str(error), error_code="vault_error")
+    return ToolResult(
+        ok=True,
+        data=[
+            {"key": s.key, "path": s.path, "comment": s.comment, "updated_at": s.updated_at}
+            for s in summaries
+        ],
+        meta={"count": len(summaries), "path": values.path},
+    )
+
+
+@register(
+    name="get_vault_secret",
+    description=(
+        "Read one secret's value from the household vault. Requires the "
+        "secrets.read scope. Every read is recorded in the audit log. Only call "
+        "this when the value is actually needed for the task at hand."
+    ),
+    category="vault",
+    params=GetVaultSecretParams,
+    permissions=("secrets.read",),
+)
+async def get_vault_secret_tool(params: BaseModel, context: ToolContext) -> ToolResult:
+    from app.services import infisical
+
+    values = GetVaultSecretParams.model_validate(params)
+    try:
+        value = await infisical.get_secret(values.key, path=values.path)
+    except infisical.InfisicalError as error:
+        return ToolResult(ok=False, error=str(error), error_code="vault_error")
+    return ToolResult(
+        ok=True,
+        data={"key": values.key, "path": values.path, "value": value},
+        meta={"key": values.key, "path": values.path},
+    )
+
+
+@register(
+    name="set_vault_secret",
+    description=(
+        "Create or update one secret in the household vault. Requires the "
+        "secrets.write scope. Overwrites an existing key — read it first if you "
+        "are not certain. There is no delete tool: removing a secret is a human "
+        "action in the vault UI."
+    ),
+    category="vault",
+    params=SetVaultSecretParams,
+    permissions=("secrets.write",),
+    mutates=True,
+)
+async def set_vault_secret_tool(params: BaseModel, context: ToolContext) -> ToolResult:
+    from app.services import infisical
+
+    values = SetVaultSecretParams.model_validate(params)
+    try:
+        summary = await infisical.set_secret(
+            values.key,
+            values.value,
+            path=values.path,
+            comment=values.comment,
+        )
+    except infisical.InfisicalError as error:
+        return ToolResult(ok=False, error=str(error), error_code="vault_error")
+    # Never echo the value back — the caller already has it.
+    return ToolResult(
+        ok=True,
+        data={
+            "key": summary.key,
+            "path": summary.path,
+            "comment": summary.comment,
+            "updated_at": summary.updated_at,
+        },
+        meta={"key": summary.key, "path": summary.path},
+    )
+
+
+@register(
+    name="list_vault_folders",
+    description="List the folder paths in the household vault, root first.",
+    category="vault",
+    params=NoParams,
+    permissions=("secrets.read",),
+)
+async def list_vault_folders_tool(params: BaseModel, context: ToolContext) -> ToolResult:
+    from app.services import infisical
+
+    try:
+        folders = await infisical.list_folders()
+    except infisical.InfisicalError as error:
+        return ToolResult(ok=False, error=str(error), error_code="vault_error")
+    return ToolResult(ok=True, data=folders, meta={"count": len(folders)})
+
+
 @register(
     name="append_block",
     description=(

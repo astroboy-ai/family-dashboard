@@ -199,6 +199,136 @@ const CONTEXT_RULES: Rule[] = [
 const ALL_RULES: Rule[] = [...PROVIDER_RULES, ...CONTEXT_RULES];
 
 /**
+ * A line that is only a label — `Orange system:` with nothing after the colon.
+ *
+ * This shape is how people actually write a credential block in a text file:
+ * a heading, then one value per line. The inline rules above cannot see it,
+ * because there is no `label: value` on any single line.
+ */
+const BARE_LABEL = /^[ \t]*([^\n:]{1,40}?)[ \t]*:[ \t]*$/;
+
+/** Schemes that make a value a URL rather than a credential. */
+const URL_SHAPE = /^[a-z][a-z0-9+.-]*:\/\//i;
+
+/**
+ * Values that have a digit and a separator but are dates or times, not secrets.
+ *
+ * `Renewal:` / `2026-10-11` otherwise reads as "short, has a digit, has a
+ * symbol" — the password shape. A date is one of the commonest things to write
+ * under a heading, so it has to be excluded explicitly.
+ */
+const DATE_OR_TIME = /^(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}|\d{1,2}:\d{2}(?::\d{2})?)$/;
+
+/**
+ * Classify one value that sits under a bare label.
+ *
+ * The signals are weaker here than for an inline `password: x`, because the
+ * label is on a different line — so this errs towards MEDIUM and lets the user
+ * decide. Returns null when the value looks like ordinary text, which is the
+ * common case (`manager`, `ERP_DEMO` are identifiers, not credentials).
+ */
+function classifyStackedValue(value: string): { type: string; severity: Severity; confidence: number } | null {
+  if (!value || isPlaceholder(value)) return null;
+
+  // A URL is an address, not a secret. One that carries `user:pass@` is a
+  // credential, and the connection-string rule already catches that shape.
+  if (URL_SHAPE.test(value)) return null;
+
+  // A date or a clock time is data, not a credential.
+  if (DATE_OR_TIME.test(value)) return null;
+
+  // Anything with whitespace is prose or a `label: value` line, not a value.
+  if (/\s/.test(value)) return null;
+
+  const length = value.length;
+  const hasDigit = /\d/.test(value);
+  const hasSpecial = /[^A-Za-z0-9]/.test(value);
+  const hasLower = /[a-z]/.test(value);
+  const hasUpper = /[A-Z]/.test(value);
+  const entropy = shannonEntropy(value);
+
+  // Long, high-entropy, mixed alphanumeric: the shape of a generated token.
+  // This is what catches `dueit73947wuweddnxcc8f938493GhsaggA`.
+  if (length >= 20 && hasDigit && entropy >= 3.5 && (hasLower || hasUpper)) {
+    return { type: "api_key", severity: "HIGH", confidence: 0.8 };
+  }
+
+  // A password shape: short-ish, has a digit, and either a symbol or mixed
+  // case. `HGC@2020` qualifies; `ERP_DEMO` and `manager` do not.
+  if (length >= 6 && length <= 40 && hasDigit && (hasSpecial || (hasLower && hasUpper))) {
+    return {
+      type: "password",
+      severity: hasSpecial ? "HIGH" : "MEDIUM",
+      confidence: hasSpecial ? 0.78 : 0.7,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Find secrets written as a labelled block, one value per line.
+ *
+ * ```
+ * Orange system:
+ * manager
+ * HGC@2020
+ * ```
+ *
+ * Everything from the line after the label to the next blank line or the next
+ * bare label is a candidate value. The label names the findings, because the
+ * user's own heading ("Orange system") is a better name than anything derived
+ * from the value.
+ */
+function detectStackedValues(text: string): Finding[] {
+  const lines = text.split("\n");
+  const lineStarts: number[] = [];
+  let offset = 0;
+  for (const line of lines) {
+    lineStarts.push(offset);
+    offset += line.length + 1;
+  }
+
+  const findings: Finding[] = [];
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const header = BARE_LABEL.exec(lines[i]);
+    if (!header) continue;
+    const label = header[1].trim();
+    if (!label) continue;
+
+    for (let j = i + 1; j < lines.length; j += 1) {
+      const raw = lines[j];
+      const value = raw.trim();
+      if (!value) break; // a blank line ends the block
+      if (BARE_LABEL.test(raw)) break; // the next section starts
+
+      const classified = classifyStackedValue(value);
+      if (!classified) continue;
+
+      // Offset of the value within its own line, so the span points at the
+      // value and not at the leading whitespace.
+      const start = lineStarts[j] + raw.indexOf(value);
+      const end = start + value.length;
+
+      findings.push({
+        id: findingId(start, end, classified.type),
+        start,
+        end,
+        label,
+        type: classified.type,
+        severity: classified.severity,
+        confidence: classified.confidence,
+        entropy: Number(shannonEntropy(value).toFixed(2)),
+        selected: classified.severity !== "MEDIUM",
+      });
+    }
+  }
+
+  return findings;
+}
+
+/**
  * Values that look like secrets but are documentation.
  *
  * This is the single most valuable false-positive control for an agent-heavy
@@ -339,7 +469,7 @@ export function detectSecrets(text: string): Finding[] {
     }
   }
 
-  return resolveOverlaps(candidates);
+  return resolveOverlaps([...candidates, ...detectStackedValues(text)]);
 }
 
 /**

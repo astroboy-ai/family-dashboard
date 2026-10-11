@@ -5619,6 +5619,10 @@ tfoot .table-control-btn {
 
   .dashboard-ipad-top-row {
     flex-direction: column;
+    flex: 0 0 auto;
+    min-height: 0;
+    max-height: none;
+    height: auto;
   }
 
   .dashboard-ipad-weather-area,
@@ -5629,6 +5633,7 @@ tfoot .table-control-btn {
   .dashboard-school {
     height: auto;
     min-height: 200px;
+    overflow: visible;
   }
 
   .dashboard-ipad-bottom-row {

@@ -44,6 +44,15 @@ export type Finding = {
   /** Character offsets into the source text, half-open `[start, end)`. */
   start: number;
   end: number;
+  /**
+   * The matched text itself.
+   *
+   * Shown in the review list. Hiding it was the wrong call: the value is
+   * already visible in the textarea the user just pasted into, so masking it
+   * bought no secrecy and cost comprehension — worse on mobile, where the
+   * review panel covers the text and the user cannot see which value matched.
+   */
+  value: string;
   /** Human label taken from the surrounding line, e.g. "google password". */
   label: string;
   /** Machine type, e.g. `password`, `github_token`. */
@@ -55,6 +64,10 @@ export type Finding = {
   entropy: number;
   /** Whether the value should be protected by default. */
   selected: boolean;
+  /** True when the user marked this span by hand with `[[secret]]…[[/secret]]`. */
+  manual?: boolean;
+  /** Which rule produced it, for the "why was this flagged?" line. */
+  rule?: string;
 };
 
 type Rule = {
@@ -315,17 +328,107 @@ function detectStackedValues(text: string): Finding[] {
         id: findingId(start, end, classified.type),
         start,
         end,
+        value,
         label,
         type: classified.type,
         severity: classified.severity,
         confidence: classified.confidence,
         entropy: Number(shannonEntropy(value).toFixed(2)),
         selected: classified.severity !== "MEDIUM",
+        rule: "stacked_block",
       });
     }
   }
 
   return findings;
+}
+
+/**
+ * Magic tags: `[[secret]]…[[/secret]]`.
+ *
+ * The detector will never catch everything, and the user knows their own data
+ * better than any ruleset. Rather than adding a form field and wiring it into
+ * the save path, they wrap a value in place and press Scan — the marker is
+ * plain text in the note, so nothing new has to be stored, and the existing
+ * detect → approve → protect flow does the rest.
+ *
+ * Nested markers are not supported; the first closing tag ends the span.
+ */
+const MAGIC_TAG_OPEN = "[[secret]]";
+const MAGIC_TAG_CLOSE = "[[/secret]]";
+
+/**
+ * Pull out everything the user wrapped in magic tags.
+ *
+ * The returned spans point at the *value only*, not the markers — so the
+ * placeholders that replace them leave the note clean.
+ */
+function detectManualTags(text: string): Finding[] {
+  const findings: Finding[] = [];
+  let cursor = 0;
+
+  while (cursor < text.length) {
+    const open = text.indexOf(MAGIC_TAG_OPEN, cursor);
+    if (open === -1) break;
+    const close = text.indexOf(MAGIC_TAG_CLOSE, open + MAGIC_TAG_OPEN.length);
+    if (close === -1) break;
+
+    const start = open + MAGIC_TAG_OPEN.length;
+    const value = text.slice(start, close);
+    cursor = close + MAGIC_TAG_CLOSE.length;
+
+    if (!value.trim()) continue;
+
+    findings.push({
+      id: findingId(start, close, "manual"),
+      start,
+      end: close,
+      value,
+      // The heading above the marker names it, same as any other finding.
+      label: deriveLabel(text, start, "marked by hand"),
+      type: "manual",
+      // The user asserted this is a secret, so it outranks any guess.
+      severity: "HIGH",
+      confidence: 1,
+      entropy: Number(shannonEntropy(value).toFixed(2)),
+      selected: true,
+      manual: true,
+      rule: "magic_tag",
+    });
+  }
+
+  return findings;
+}
+
+/**
+ * Remove the magic markers, keeping the values.
+ *
+ * Called after the placeholders are applied, so `[[secret]]{{secret:k}}[[/secret]]`
+ * becomes just `{{secret:k}}` — the marker has done its job once the value is in
+ * the vault, and leaving it in the note would be noise.
+ *
+ * No offset remapping is needed: detection runs on the original text and
+ * `resolveOverlaps` keeps the manual finding (confidence 1) over anything it
+ * overlaps.
+ */
+export function stripMagicTags(text: string): string {
+  let result = text;
+  let removed = 0;
+
+  while (removed < 500) {
+    const open = result.indexOf(MAGIC_TAG_OPEN);
+    if (open === -1) break;
+    const close = result.indexOf(MAGIC_TAG_CLOSE, open + MAGIC_TAG_OPEN.length);
+    if (close === -1) break;
+    result =
+      result.slice(0, open) + result.slice(open + MAGIC_TAG_OPEN.length, close) +
+      result.slice(close + MAGIC_TAG_CLOSE.length);
+    removed += 1;
+  }
+
+  // An unclosed marker is a typo, not content — drop it so it cannot sit in the
+  // note forever looking meaningful.
+  return result.split(MAGIC_TAG_OPEN).join("").split(MAGIC_TAG_CLOSE).join("");
 }
 
 /**
@@ -457,6 +560,7 @@ export function detectSecrets(text: string): Finding[] {
         id: findingId(start, end, rule.type),
         start,
         end,
+        value: raw,
         label: deriveLabel(text, start, rule.type.replace(/_/g, " ")),
         type: rule.type,
         severity: rule.severity,
@@ -465,11 +569,12 @@ export function detectSecrets(text: string): Finding[] {
         // MEDIUM findings are plausible but not certain — let the user opt in
         // rather than pre-selecting something we are not sure about.
         selected: rule.severity !== "MEDIUM",
+        rule: rule.id,
       });
     }
   }
 
-  return resolveOverlaps([...candidates, ...detectStackedValues(text)]);
+  return resolveOverlaps([...candidates, ...detectStackedValues(text), ...detectManualTags(text)]);
 }
 
 /**
@@ -497,6 +602,44 @@ function resolveOverlaps(findings: Finding[]): Finding[] {
   }
 
   return accepted.sort((a, b) => a.start - b.start);
+}
+
+/**
+ * A short human explanation of why a finding was flagged.
+ *
+ * The review list shows this so the user can judge a MEDIUM finding instead of
+ * trusting a bare percentage.
+ */
+export function ruleReason(finding: Finding): string {
+  switch (finding.rule) {
+    case "magic_tag":
+      return "you marked it by hand";
+    case "stacked_block":
+      return "a value on its own line under a heading";
+    case "private_key":
+      return "a private-key header";
+    case "github_pat":
+    case "github_pat_fine":
+      return "a GitHub token format";
+    case "slack_token":
+      return "a Slack token format";
+    case "google_api_key":
+      return "a Google API key format";
+    case "openai_key":
+      return "an OpenAI key format";
+    case "jwt":
+      return "a JWT format";
+    case "connection_string":
+      return "a connection string with a password";
+    case "bearer":
+      return "a Bearer token in a header";
+    case "password_assignment":
+      return "the word password next to a value";
+    case "key_assignment":
+      return "a key/token label next to a value";
+    default:
+      return "a secret-like pattern";
+  }
 }
 
 /** The `sn-…` key a finding is stored under in Infisical. */

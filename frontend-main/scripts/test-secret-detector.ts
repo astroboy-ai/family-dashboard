@@ -215,6 +215,13 @@ check("unclosed marker is cleaned up", stripMagicTags("[[secret]]abc") === "abc"
 check("rule reason for manual", ruleReason(manualOnes[0]) === "you marked it by hand");
 check("rule reason for a password rule", ruleReason(detectSecrets("password: hunter2xyz")[0]) === "the word password next to a value");
 
+// The label names the finding in the review list. It must be the heading the
+// user wrote, not the marker itself — "login: [[secret]]" is unreadable.
+const labelled = detectSecrets("manager login: [[secret]]hunter2[[/secret]]")[0];
+check("magic tag label strips the marker", labelled.label === "manager login", labelled.label);
+const bare = detectSecrets("[[secret]]hunter2[[/secret]]")[0];
+check("bare magic tag falls back to a default label", bare.label === "marked by hand", bare.label);
+
 console.log("\n== finding carries its value (for the review list) ==");
 const withValue = detectSecrets("password: hunter2xyz")[0];
 check("value present", withValue.value === "hunter2xyz", withValue.value);

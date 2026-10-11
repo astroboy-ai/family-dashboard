@@ -9,7 +9,7 @@ import { usePanelStore } from "@/lib/panel-store";
 import { BlockMenu } from "@/components/block-menu";
 import { confirmDialog } from "@/components/confirm-dialog";
 import { DrawingThumb, type ThumbStroke } from "@/components/drawing-thumb";
-import { SmartTextBlockView } from "@/components/smart-text-block";
+import { SmartTextEditor, SmartTextReadView } from "@/components/smart-text-block";
 import { ToolsDrawer, type Tool } from "@/components/tools-drawer";
 
 export default function NoteDetailPage() {
@@ -30,6 +30,14 @@ export default function NoteDetailPage() {
   // renders outside every block's <fieldset> and stays interactive when the
   // block it belongs to is locked.
   const [textOverlay, setTextOverlay] = useState<NoteBlock | null>(null);
+  // Which Smart Text block is being edited, if any.
+  //
+  // Held at page level because the editor renders inside the block's <fieldset>
+  // while the read view (with its Edit button) renders outside it — a locked
+  // fieldset makes every descendant inert, so the button that opens the editor
+  // cannot live inside the thing the editor lives in. Same reason `textOverlay`
+  // is here.
+  const [smartTextEditingId, setSmartTextEditingId] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   // Per-block edit lock — a UI guard only, never persisted.
@@ -689,8 +697,13 @@ export default function NoteDetailPage() {
               </div>
             ) : block.type === "password" ? (
               <PasswordBlockView block={block} onUpdate={updateBlockData} />
-            ) : block.type === "smart_text" ? (
-              <SmartTextBlockView block={block} noteId={note.id} onSave={saveSmartTextBlock} />
+            ) : block.type === "smart_text" && smartTextEditingId === block.id ? (
+              <SmartTextEditor
+                block={block}
+                noteId={note.id}
+                onSave={saveSmartTextBlock}
+                onDone={() => setSmartTextEditingId(null)}
+              />
             ) : block.type === "image" ? (
               <ImageBlockView block={block} onAnalyse={() => void analyseImage(block)} onRemove={() => void removeBlock(block.id)} onOpenGallery={() => openGallery(index)} onUpdateData={(data) => void updateBlockData(block.id, data)} />
             ) : block.type === "file" ? (
@@ -898,14 +911,26 @@ export default function NoteDetailPage() {
                   }}
                 />
               </div>
+            ) : block.type === "smart_text" ? (
+              // Read-only for this block: the read view (with reveal and Edit)
+              // renders after </fieldset> so a locked block stays readable.
+              null
             ) : <pre>{JSON.stringify(block.data, null, 2)}</pre>}
             {block.caption && <p className="block-caption">{block.caption}</p>}
             </fieldset>
             {/*
-              Reading controls live OUTSIDE the <fieldset> on purpose: row height
-              and full screen must keep working on a locked block. The lock gates
-              editing, not looking at your own note.
+              Reading controls live OUTSIDE the <fieldset> on purpose: reveal and
+              Edit must keep working on a locked block. The lock gates editing,
+              not looking at your own note.
             */}
+            {block.type === "smart_text" && smartTextEditingId !== block.id && (
+              <SmartTextReadView
+                block={block}
+                noteId={note.id}
+                canEdit={isUnlocked(block.id)}
+                onEdit={() => setSmartTextEditingId(block.id)}
+              />
+            )}
             {block.type === "text" && (
               <div className="text-block-toolbar">
                 <button

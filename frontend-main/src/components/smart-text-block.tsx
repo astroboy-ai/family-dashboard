@@ -21,6 +21,24 @@
  *
  * 3. **Reveal is per-secret and on demand.** Nothing is decrypted in bulk; a
  *    value is fetched only when the user asks for that one.
+ *
+ * Why this module exports two components
+ * --------------------------------------
+ * The note page wraps every block in a `<fieldset>` that is `disabled` while the
+ * block is locked. A disabled fieldset makes **every descendant inert** — a
+ * button inside it does not merely look disabled, it cannot be clicked, and
+ * `el.disabled` on the child still reads `false` because the child has no such
+ * attribute. Measured on the live page: `.smart-text-edit` and
+ * `.smart-text-chip-eye` both reported `matches(':disabled') === true` and
+ * clicking them did nothing.
+ *
+ * Reading your own note has to survive the lock, so the two halves live on
+ * opposite sides of the fieldset:
+ *
+ *   - `SmartTextReadView` renders OUTSIDE it — reveal and Edit always work.
+ *   - `SmartTextEditor` renders INSIDE it — the lock gates editing, as intended.
+ *
+ * The parent decides which to render; this module holds no `editing` state.
  */
 
 import { Eye, EyeOff, LoaderCircle, Lock, Save, ShieldAlert, X } from "lucide-react";
@@ -46,13 +64,6 @@ const SEVERITY_CLASS: Record<string, string> = {
   MEDIUM: "smart-text-sev-medium",
 };
 
-type Props = {
-  block: NoteBlock;
-  noteId: string;
-  /** Persist new text_content + data. Supplied by the note page. */
-  onSave: (blockId: string, patch: { text_content: string; data: Record<string, unknown> }) => Promise<void>;
-};
-
 type StoredSecret = {
   placeholder: string;
   key: string;
@@ -61,62 +72,189 @@ type StoredSecret = {
   severity: string;
 };
 
-export function SmartTextBlockView({ block, noteId, onSave }: Props) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(block.text_content ?? "");
-  const [findings, setFindings] = useState<Finding[]>([]);
-  const [scanning, setScanning] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
-  // Which secret keys the user has chosen to reveal, and their values. Revealed
-  // values are held in memory only — never written back to the note.
+function readStored(block: NoteBlock): StoredSecret[] {
+  const raw = block.data?.secrets as StoredSecret[] | undefined;
+  return Array.isArray(raw) ? raw : [];
+}
+
+// --------------------------------------------------------------------------
+// Read view — OUTSIDE the fieldset, so reveal and Edit work on a locked block.
+// --------------------------------------------------------------------------
+
+export function SmartTextReadView({
+  block,
+  noteId,
+  canEdit,
+  onEdit,
+}: {
+  block: NoteBlock;
+  noteId: string;
+  /** False while the block is locked — Edit stays disabled, reveal does not. */
+  canEdit: boolean;
+  onEdit: () => void;
+}) {
+  // Revealed values live in memory only and are never written back to the note.
   const [revealed, setRevealed] = useState<Record<string, string>>({});
   const [revealing, setRevealing] = useState<string | null>(null);
+  const [error, setError] = useState("");
 
   const text = block.text_content ?? "";
-  const stored = useMemo<StoredSecret[]>(() => {
-    const raw = (block.data?.secrets as StoredSecret[] | undefined) ?? [];
-    return Array.isArray(raw) ? raw : [];
-  }, [block.data]);
-
+  const stored = useMemo(() => readStored(block), [block.data]);
   const segments = useMemo(() => segmentText(text), [text]);
-  const secretByPlaceholder = useMemo(() => {
+  const metaByPlaceholder = useMemo(() => {
     const map = new Map<string, StoredSecret>();
     for (const item of stored) map.set(item.placeholder, item);
     return map;
   }, [stored]);
 
-  /** Scan the draft in the browser. Nothing is sent anywhere. */
-  function scan(value: string) {
-    setScanning(true);
+  async function toggleReveal(key: string) {
+    if (revealed[key] !== undefined) {
+      setRevealed((current) => {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+      return;
+    }
+    setRevealing(key);
     setError("");
-    setMessage("");
     try {
-      setFindings(detectSecrets(value));
+      const result = await revealVaultSecret(key, secretsPathFor(noteId));
+      setRevealed((current) => ({ ...current, [key]: result.value }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not read the secret.");
     } finally {
-      setScanning(false);
+      setRevealing(null);
     }
   }
 
+  return (
+    <div className="smart-text">
+      <div className="smart-text-body">
+        {segments.length === 0 && (
+          <p className="smart-text-empty">Empty. Unlock the block, then press Edit.</p>
+        )}
+        {segments.map((segment, index) =>
+          segment.kind === "text" ? (
+            <span key={index} className="smart-text-run">
+              {segment.value}
+            </span>
+          ) : (
+            <SecretChip
+              key={index}
+              meta={metaByPlaceholder.get(segment.raw)}
+              value={revealed[segment.key]}
+              busy={revealing === segment.key}
+              onToggle={() => void toggleReveal(segment.key)}
+            />
+          ),
+        )}
+      </div>
+
+      <div className="smart-text-footer">
+        <span className="smart-text-meta">
+          {stored.length > 0
+            ? `${stored.length} protected secret${stored.length === 1 ? "" : "s"} · values in vault`
+            : "No protected secrets yet"}
+        </span>
+        <button
+          type="button"
+          className="smart-text-edit"
+          onClick={onEdit}
+          disabled={!canEdit}
+          title={canEdit ? "Edit this block" : "Unlock this block to edit"}
+        >
+          Edit
+        </button>
+      </div>
+
+      {error && <p className="smart-text-error">{error}</p>}
+    </div>
+  );
+}
+
+/** One inline secret: masked by default, revealed only on request. */
+function SecretChip({
+  meta,
+  value,
+  busy,
+  onToggle,
+}: {
+  meta: StoredSecret | undefined;
+  value: string | undefined;
+  busy: boolean;
+  onToggle: () => void;
+}) {
+  const shown = value !== undefined;
+  return (
+    <span className={`smart-text-chip${shown ? " revealed" : ""}`} title={meta?.label ?? "Secret"}>
+      <Lock size={10} />
+      <span className="smart-text-chip-value">{shown ? value : "••••••••"}</span>
+      <button
+        type="button"
+        className="smart-text-chip-eye"
+        onClick={onToggle}
+        aria-label={shown ? "Hide secret" : "Reveal secret"}
+        title={shown ? "Hide" : "Reveal"}
+      >
+        {busy ? (
+          <LoaderCircle size={11} className="spin" />
+        ) : shown ? (
+          <EyeOff size={11} />
+        ) : (
+          <Eye size={11} />
+        )}
+      </button>
+    </span>
+  );
+}
+
+// --------------------------------------------------------------------------
+// Editor — INSIDE the fieldset, so the block lock gates it as intended.
+// --------------------------------------------------------------------------
+
+export function SmartTextEditor({
+  block,
+  noteId,
+  onSave,
+  onDone,
+}: {
+  block: NoteBlock;
+  noteId: string;
+  onSave: (
+    blockId: string,
+    patch: { text_content: string; data: Record<string, unknown> },
+  ) => Promise<void>;
+  /** Close the editor after a successful save. */
+  onDone: () => void;
+}) {
+  const [draft, setDraft] = useState(block.text_content ?? "");
+  const [findings, setFindings] = useState<Finding[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const stored = useMemo(() => readStored(block), [block.data]);
+  const selectedFindings = findings.filter((f) => f.selected);
+
+  /** Scan the draft in the browser. Nothing is sent anywhere. */
+  function scan(value: string) {
+    setError("");
+    setFindings(detectSecrets(value));
+  }
+
   function toggleFinding(id: string, selected: boolean) {
-    setFindings((current) =>
-      current.map((f) => (f.id === id ? { ...f, selected } : f)),
-    );
+    setFindings((current) => current.map((f) => (f.id === id ? { ...f, selected } : f)));
   }
 
   function selectAll(selected: boolean) {
     setFindings((current) => current.map((f) => ({ ...f, selected })));
   }
 
-  const selectedFindings = findings.filter((f) => f.selected);
-
   /** Approve: write the ticked values to the vault, then placeholder them. */
   async function protectSelected() {
     if (selectedFindings.length === 0) return;
     setSaving(true);
     setError("");
-    setMessage("");
     try {
       const items = selectedFindings.map((finding) => {
         const key = secretKeyFor(finding.label, finding.type);
@@ -138,7 +276,6 @@ export function SmartTextBlockView({ block, noteId, onSave }: Props) {
         create_folder: true,
       });
 
-      // The server may normalise the folder; trust what it reports.
       const newText = applyPlaceholders(
         draft,
         items.map((item) => ({
@@ -163,12 +300,7 @@ export function SmartTextBlockView({ block, noteId, onSave }: Props) {
         text_content: newText,
         data: { ...block.data, secrets: newSecrets, vault_path: result.path },
       });
-
-      setDraft(newText);
-      setFindings(detectSecrets(newText));
-      setMessage(
-        `${items.length} secret${items.length === 1 ? "" : "s"} protected in ${result.path}`,
-      );
+      onDone();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not write to the vault.");
     } finally {
@@ -181,9 +313,7 @@ export function SmartTextBlockView({ block, noteId, onSave }: Props) {
     setError("");
     try {
       await onSave(block.id, { text_content: draft, data: { ...block.data } });
-      setEditing(false);
-      setFindings([]);
-      setMessage("Saved");
+      onDone();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save.");
     } finally {
@@ -191,91 +321,11 @@ export function SmartTextBlockView({ block, noteId, onSave }: Props) {
     }
   }
 
-  async function toggleReveal(key: string) {
-    if (revealed[key] !== undefined) {
-      setRevealed((current) => {
-        const next = { ...current };
-        delete next[key];
-        return next;
-      });
-      return;
-    }
-    setRevealing(key);
-    setError("");
-    try {
-      const result = await revealVaultSecret(key, secretsPathFor(noteId));
-      setRevealed((current) => ({ ...current, [key]: result.value }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not read the secret.");
-    } finally {
-      setRevealing(null);
-    }
-  }
-
-  const startEditing = () => {
-    setDraft(text);
-    setEditing(true);
-    setMessage("");
-    setError("");
-  };
-
-  const cancelEditing = () => {
-    setEditing(false);
-    setFindings([]);
-    setDraft(text);
-    setError("");
-  };
-
-  // ---------------------------------------------------------------- read view
-
-  if (!editing) {
-    return (
-      <div className="smart-text">
-        <div className="smart-text-body">
-          {segments.length === 0 && (
-            <p className="smart-text-empty">Empty. Click Edit and paste your text.</p>
-          )}
-          {segments.map((segment, index) =>
-            segment.kind === "text" ? (
-              <span key={index} className="smart-text-run">
-                {segment.value}
-              </span>
-            ) : (
-              <SecretChip
-                key={index}
-                meta={secretByPlaceholder.get(segment.raw)}
-                value={revealed[segment.key]}
-                busy={revealing === segment.key}
-                onToggle={() => void toggleReveal(segment.key)}
-              />
-            ),
-          )}
-        </div>
-
-        <div className="smart-text-footer">
-          <span className="smart-text-meta">
-            {stored.length > 0
-              ? `${stored.length} protected secret${stored.length === 1 ? "" : "s"} · values in vault`
-              : "No protected secrets yet"}
-          </span>
-          <button type="button" className="smart-text-edit" onClick={startEditing}>
-            Edit
-          </button>
-        </div>
-
-        {error && <p className="smart-text-error">{error}</p>}
-        {message && <p className="smart-text-message">{message}</p>}
-      </div>
-    );
-  }
-
-  // --------------------------------------------------------------- edit view
-
   return (
     <div className="smart-text smart-text-editing">
       <div className="smart-text-hint">
-        <Lock size={12} /> Paste anything. Detection runs in this browser — nothing is
-        sent to a server or an AI until you approve.
+        <Lock size={12} /> Paste anything. Detection runs in this browser — nothing is sent
+        to a server or an AI until you approve.
       </div>
 
       <textarea
@@ -287,7 +337,6 @@ export function SmartTextBlockView({ block, noteId, onSave }: Props) {
         onChange={(event) => {
           setDraft(event.target.value);
           setFindings([]);
-          setMessage("");
         }}
       />
 
@@ -296,16 +345,21 @@ export function SmartTextBlockView({ block, noteId, onSave }: Props) {
           type="button"
           className="smart-text-primary"
           onClick={() => scan(draft)}
-          disabled={scanning || !draft.trim()}
+          disabled={saving || !draft.trim()}
         >
-          {scanning ? <LoaderCircle size={13} className="spin" /> : <ShieldAlert size={13} />}
+          <ShieldAlert size={13} />
           Scan for secrets
         </button>
-        <button type="button" className="smart-text-secondary" onClick={() => void savePlain()} disabled={saving}>
+        <button
+          type="button"
+          className="smart-text-secondary"
+          onClick={() => void savePlain()}
+          disabled={saving}
+        >
           {saving ? <LoaderCircle size={13} className="spin" /> : <Save size={13} />}
           Save as plain text
         </button>
-        <button type="button" className="smart-text-secondary" onClick={cancelEditing} disabled={saving}>
+        <button type="button" className="smart-text-secondary" onClick={onDone} disabled={saving}>
           <X size={13} /> Cancel
         </button>
       </div>
@@ -349,8 +403,8 @@ export function SmartTextBlockView({ block, noteId, onSave }: Props) {
           </div>
 
           <p className="smart-text-note">
-            Confidence is a rule-based estimate, not proof. Unticked values stay as
-            ordinary text. Values are never shown back to you here.
+            Confidence is a rule-based estimate, not proof. Unticked values stay as ordinary
+            text. Values are never shown back to you here.
           </p>
 
           <button
@@ -367,43 +421,12 @@ export function SmartTextBlockView({ block, noteId, onSave }: Props) {
 
       {findings.length === 0 && draft.trim() && (
         <p className="smart-text-note">
-          No secrets detected yet — press Scan. If you have already protected values,
-          they appear as placeholders and are not re-detected.
+          No secrets detected yet — press Scan. Values you already protected appear as
+          placeholders and are not re-detected.
         </p>
       )}
 
       {error && <p className="smart-text-error">{error}</p>}
-      {message && <p className="smart-text-message">{message}</p>}
     </div>
-  );
-}
-
-/** One inline secret: masked by default, revealed only on request. */
-function SecretChip({
-  meta,
-  value,
-  busy,
-  onToggle,
-}: {
-  meta: StoredSecret | undefined;
-  value: string | undefined;
-  busy: boolean;
-  onToggle: () => void;
-}) {
-  const shown = value !== undefined;
-  return (
-    <span className={`smart-text-chip${shown ? " revealed" : ""}`} title={meta?.label ?? "Secret"}>
-      <Lock size={10} />
-      <span className="smart-text-chip-value">{shown ? value : "••••••••"}</span>
-      <button
-        type="button"
-        className="smart-text-chip-eye"
-        onClick={onToggle}
-        aria-label={shown ? "Hide secret" : "Reveal secret"}
-        title={shown ? "Hide" : "Reveal"}
-      >
-        {busy ? <LoaderCircle size={11} className="spin" /> : shown ? <EyeOff size={11} /> : <Eye size={11} />}
-      </button>
-    </span>
   );
 }

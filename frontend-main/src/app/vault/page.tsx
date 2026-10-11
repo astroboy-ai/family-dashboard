@@ -22,7 +22,6 @@ type PasswordBlockDetail = PasswordBlock & {
 export default function VaultPage() {
   const [actor, setActor] = useState<Actor | null>(null);
   const [blocks, setBlocks] = useState<PasswordBlock[]>([]);
-  const [showInfisical, setShowInfisical] = useState(true);
   const [consoleUrl, setConsoleUrl] = useState("");
   const [selected, setSelected] = useState<PasswordBlockDetail | null>(null);
   const [revealed, setRevealed] = useState(false);
@@ -83,36 +82,29 @@ export default function VaultPage() {
       {error && <div className="inline-state" role="alert">{error}</div>}
 
       <section className="vault-infisical-section">
-        <div className="vault-infisical-header">
-          <h2>Infisical Secrets</h2>
-          <div className="inline-actions">
-            {consoleUrl && (
-              <a className="secondary-button" href={consoleUrl} target="_blank" rel="noreferrer">
-                Open in new tab
-              </a>
-            )}
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={() => setShowInfisical((v) => !v)}
-            >
-              {showInfisical ? 'Hide' : 'Show'} Infisical
-            </button>
-          </div>
-        </div>
-        {showInfisical && (
-          consoleUrl ? (
-            <div className="vault-infisical-frame">
-              <iframe
-                src={consoleUrl}
-                title="Infisical Secrets Management"
-                style={{ width: '100%', height: '600px', border: 'none', borderRadius: '8px' }}
-              />
+        <div className="vault-console-card">
+          <div className="vault-console-body">
+            <span className="vault-console-mark"><ShieldCheck size={22} /></span>
+            <div>
+              <h2>Infisical Secrets</h2>
+              <p className="vault-console-text">
+                Tokens, keys and credentials for this household live in Infisical.
+                It opens in its own tab — the console refuses to be embedded in a frame
+                (<code>x-frame-options: SAMEORIGIN</code>), and that protection is worth keeping.
+              </p>
+              {consoleUrl && (
+                <p className="vault-console-url"><code>{consoleUrl}</code></p>
+              )}
             </div>
+          </div>
+          {consoleUrl ? (
+            <a className="primary-button" href={consoleUrl} target="_blank" rel="noreferrer">
+              Open Infisical
+            </a>
           ) : (
-            <div className="inline-state">Loading secrets console…</div>
-          )
-        )}
+            <span className="muted">Loading…</span>
+          )}
+        </div>
       </section>
 
       <section className="list-results">

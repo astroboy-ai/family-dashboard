@@ -4525,29 +4525,58 @@ html[data-theme="forest"] .brand-mark {
   min-width: 0;
 }
 
-/* Vault Infisical iframe */
+/* Vault — secrets console card */
 .vault-infisical-section {
   margin-bottom: 24px;
 }
 
-.vault-infisical-header {
+.vault-console-card {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  gap: 20px;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  flex-wrap: wrap;
 }
 
-.vault-infisical-header h2 {
-  font-size: 18px;
+.vault-console-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  min-width: 0;
+  flex: 1;
+}
+
+.vault-console-mark {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: var(--surface-muted);
+  color: var(--accent);
+}
+
+.vault-console-body h2 {
+  font-size: 16px;
   font-weight: 600;
+  margin: 0 0 4px;
+}
+
+.vault-console-text {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
   margin: 0;
 }
 
-.vault-infisical-frame {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  overflow: hidden;
-  background: var(--surface);
+.vault-console-url {
+  font-size: 12px;
+  margin: 6px 0 0;
 }
 
 /* Vault page */

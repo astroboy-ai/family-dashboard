@@ -10,8 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import Actor, get_current_actor
 from app.core.db import get_session
-from app.models import Note, NoteBlock
+from app.models import Household, Note, NoteBlock
 from app.services.notes import _serialize_block
+from app.services.secrets_settings import resolve_secrets_settings
 
 router = APIRouter(prefix="/vault", tags=["vault"])
 
@@ -29,6 +30,31 @@ class PasswordBlockResponse(BaseModel):
 
 class PasswordBlockDetailResponse(PasswordBlockResponse):
     value: str | None = None
+
+
+@router.get("/console")
+async def get_secrets_console(
+    actor: Annotated[Actor, Depends(get_current_actor)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, object]:
+    """Where to load the embedded secrets console from.
+
+    Readable by any signed-in member — unlike ``/admin/settings``, which is
+    parent-only — because the vault page is visible to the whole household.
+    Only the location of the store is returned, never a secret value.
+    """
+
+    household = (
+        await session.execute(select(Household).where(Household.id == actor.household_id))
+    ).scalar_one_or_none()
+    resolved = resolve_secrets_settings(household.settings if household else None)
+    return {
+        "public_url": resolved.public_url,
+        "internal_url": resolved.internal_url,
+        "project_slug": resolved.project_slug,
+        "environment": resolved.environment,
+        "browser_reachable": resolved.browser_reachable,
+    }
 
 
 @router.get("/password-blocks", response_model=list[PasswordBlockResponse])

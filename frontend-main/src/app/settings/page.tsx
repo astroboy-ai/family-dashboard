@@ -170,7 +170,7 @@ function InstallAppSection() {
   );
 }
 
-type SettingsTab = 'ai' | 'azure' | 'storage' | 'install';
+type SettingsTab = 'ai' | 'azure' | 'storage' | 'secrets' | 'install';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('ai');
@@ -189,6 +189,13 @@ export default function SettingsPage() {
   const [azureApiKey, setAzureApiKey] = useState("");
   const [azureApiVersion, setAzureApiVersion] = useState("2024-02-15-preview");
   const [azureModel, setAzureModel] = useState("");
+  // Secrets (Infisical) section
+  const [secretsInternalUrl, setSecretsInternalUrl] = useState("");
+  const [secretsPublicUrl, setSecretsPublicUrl] = useState("");
+  const [secretsProjectId, setSecretsProjectId] = useState("");
+  const [secretsProjectSlug, setSecretsProjectSlug] = useState("");
+  const [secretsEnvironment, setSecretsEnvironment] = useState("");
+  const [secretsBrowserReachable, setSecretsBrowserReachable] = useState(true);
 
   // Live model catalog from the gateway (drives the dropdowns)
   const [catalog, setCatalog] = useState<Record<string, GatewayModel[]>>({});
@@ -253,6 +260,14 @@ export default function SettingsPage() {
           setRegion(value.storage.region);
           setBrowserReachable(value.storage.browser_reachable);
         }
+        if (value.secrets) {
+          setSecretsInternalUrl(value.secrets.internal_url);
+          setSecretsPublicUrl(value.secrets.public_url);
+          setSecretsProjectId(value.secrets.project_id);
+          setSecretsProjectSlug(value.secrets.project_slug);
+          setSecretsEnvironment(value.secrets.environment);
+          setSecretsBrowserReachable(value.secrets.browser_reachable);
+        }
       })
       .catch((reason: unknown) => {
         if (active) setError(reason instanceof Error ? reason.message : "Unable to load settings.");
@@ -284,6 +299,14 @@ export default function SettingsPage() {
       setRegion(value.storage.region);
       setBrowserReachable(value.storage.browser_reachable);
     }
+    if (value.secrets) {
+      setSecretsInternalUrl(value.secrets.internal_url);
+      setSecretsPublicUrl(value.secrets.public_url);
+      setSecretsProjectId(value.secrets.project_id);
+      setSecretsProjectSlug(value.secrets.project_slug);
+      setSecretsEnvironment(value.secrets.environment);
+      setSecretsBrowserReachable(value.secrets.browser_reachable);
+    }
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -310,6 +333,13 @@ export default function SettingsPage() {
           public_endpoint: publicEndpoint.trim() || undefined,
           bucket: bucket.trim() || undefined,
           region: region.trim() || undefined,
+        },
+        secrets: {
+          internal_url: secretsInternalUrl.trim() || undefined,
+          public_url: secretsPublicUrl.trim() || undefined,
+          project_id: secretsProjectId.trim() || undefined,
+          project_slug: secretsProjectSlug.trim() || undefined,
+          environment: secretsEnvironment.trim() || undefined,
         },
       });
       setSaved(true);
@@ -399,20 +429,42 @@ export default function SettingsPage() {
     );
   }
 
+  const tabs: [SettingsTab, string][] = [
+    ['ai', 'AI & Embedding'],
+    ['azure', 'Azure Intelligence'],
+    ['storage', 'Storage'],
+    ['secrets', 'Secrets'],
+    ['install', 'Install'],
+  ];
+
   return (
     <main className="page-wrap">
       <div className="settings-block">
         <p className="eyebrow">ADMINISTRATION</p>
-        <h1>AI, Embedding & Storage Settings</h1>
-        <p className="muted">Changes apply immediately — no restart needed.</p>
+        <h1>Settings</h1>
+        <p className="muted">Configure FamilyOS system settings.</p>
       </div>
 
       {error && <div className="form-error">{error}</div>}
       {saved && <div className="form-success">Settings saved.</div>}
 
-      <InstallAppSection />
+      <div className="settings-layout">
+        <nav className="settings-sidebar">
+          {tabs.map(([key, label]) => (
+            <button
+              key={key}
+              className={`settings-tab${activeTab === key ? ' active' : ''}`}
+              onClick={() => setActiveTab(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
 
-      <form onSubmit={submit} className="settings-form" noValidate>
+        <div className="settings-content">
+          <form onSubmit={submit} className="settings-form" noValidate>
+            {activeTab === 'ai' && (
+              <>
         <section className="settings-section">
           <h2>Gateway</h2>
           <label className="field">
@@ -489,7 +541,10 @@ export default function SettingsPage() {
             placeholder="Use Chat Model"
           />
         </section>
+              </>
+            )}
 
+            {activeTab === 'azure' && (
         <section className="settings-section">
           <h2>Azure Intelligence</h2>
           <p className="section-hint">
@@ -513,7 +568,9 @@ export default function SettingsPage() {
             <input type="text" value={azureModel} onChange={(e) => setAzureModel(e.target.value)} placeholder="gpt-4o" />
           </label>
         </section>
+            )}
 
+            {activeTab === 'storage' && (
         <section className="settings-section">
           <h2>Storage</h2>
           <p className="section-hint">
@@ -576,18 +633,91 @@ export default function SettingsPage() {
             </div>
           )}
         </section>
+            )}
 
-        <div className="settings-actions">
-          <button type="submit" className="primary-button" disabled={pending}>
-            {pending ? <LoaderCircle size={16} className="spin" /> : <Save size={16} />}
-            {pending ? "Saving…" : "Save settings"}
-          </button>
-          <button type="button" className="secondary-button" onClick={triggerReembed} disabled={reembedPending}>
-            {reembedPending ? <LoaderCircle size={16} className="spin" /> : <ShieldCheck size={16} />}
-            {reembedPending ? "Re-embedding…" : "Re-embed all notes"}
-          </button>
+            {activeTab === 'secrets' && (
+              <section className="settings-section">
+                <h2>Secrets (Infisical)</h2>
+                <p className="section-hint">
+                  Infisical is the default store for tokens, keys and credentials.
+                  Two addresses are needed: the <strong>internal</strong> Docker-network URL the
+                  backend uses, and the <strong>public</strong> HTTPS hostname a browser loads for
+                  the embedded console on the Vault page.
+                </p>
+                {!secretsBrowserReachable && (
+                  <p className="inline-warning">
+                    <TriangleAlert size={14} /> The public URL is not an HTTPS host, so the embedded
+                    console will not load.
+                  </p>
+                )}
+                <label className="field">
+                  <span>Internal URL <em>(Docker network — backend only)</em></span>
+                  <input
+                    type="text"
+                    value={secretsInternalUrl}
+                    onChange={(e) => setSecretsInternalUrl(e.target.value)}
+                    placeholder="http://172.18.0.26:8080"
+                  />
+                </label>
+                <label className="field">
+                  <span>Public URL <em>(browser — embedded console)</em></span>
+                  <input
+                    type="url"
+                    value={secretsPublicUrl}
+                    onChange={(e) => setSecretsPublicUrl(e.target.value)}
+                    placeholder="https://pizza.pointdowncreative.com"
+                  />
+                </label>
+                <label className="field">
+                  <span>Project Slug</span>
+                  <input
+                    type="text"
+                    value={secretsProjectSlug}
+                    onChange={(e) => setSecretsProjectSlug(e.target.value)}
+                    placeholder="logeebox"
+                  />
+                </label>
+                <label className="field">
+                  <span>Project ID</span>
+                  <input
+                    type="text"
+                    value={secretsProjectId}
+                    onChange={(e) => setSecretsProjectId(e.target.value)}
+                    placeholder="da76df22-…"
+                  />
+                </label>
+                <label className="field">
+                  <span>Environment</span>
+                  <input
+                    type="text"
+                    value={secretsEnvironment}
+                    onChange={(e) => setSecretsEnvironment(e.target.value)}
+                    placeholder="prod"
+                  />
+                </label>
+                <p className="section-hint">
+                  Machine-identity client IDs and secrets are deliberately not editable here —
+                  they live in <code>agent-credentials.md</code> on the server and are never sent
+                  to a browser.
+                </p>
+              </section>
+            )}
+
+            {activeTab === 'install' && <InstallAppSection />}
+
+            <div className="settings-actions">
+              <button type="submit" className="primary-button" disabled={pending}>
+                {pending ? <LoaderCircle size={16} className="spin" /> : <Save size={16} />}
+                {pending ? "Saving…" : "Save settings"}
+              </button>
+              <button type="button" className="secondary-button" onClick={triggerReembed} disabled={reembedPending}>
+                {reembedPending ? <LoaderCircle size={16} className="spin" /> : <ShieldCheck size={16} />}
+                {reembedPending ? "Re-embedding…" : "Re-embed all notes"}
+              </button>
+            </div>
+          </form>
         </div>
-      </form>
+      </div>
     </main>
   );
 }

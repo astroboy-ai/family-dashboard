@@ -23,6 +23,7 @@ export default function VaultPage() {
   const [actor, setActor] = useState<Actor | null>(null);
   const [blocks, setBlocks] = useState<PasswordBlock[]>([]);
   const [showInfisical, setShowInfisical] = useState(true);
+  const [consoleUrl, setConsoleUrl] = useState("");
   const [selected, setSelected] = useState<PasswordBlockDetail | null>(null);
   const [revealed, setRevealed] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -33,6 +34,16 @@ export default function VaultPage() {
       .then(setActor)
       .catch(() => setActor(null));
   }, []);
+
+  useEffect(() => {
+    if (!actor) return;
+    fetch("/api/vault/console", { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { public_url?: string } | null) => {
+        if (data?.public_url) setConsoleUrl(data.public_url);
+      })
+      .catch(() => {});
+  }, [actor]);
 
   useEffect(() => {
     if (!actor) return;
@@ -74,22 +85,33 @@ export default function VaultPage() {
       <section className="vault-infisical-section">
         <div className="vault-infisical-header">
           <h2>Infisical Secrets</h2>
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() => setShowInfisical((v) => !v)}
-          >
-            {showInfisical ? 'Hide' : 'Show'} Infisical
-          </button>
+          <div className="inline-actions">
+            {consoleUrl && (
+              <a className="secondary-button" href={consoleUrl} target="_blank" rel="noreferrer">
+                Open in new tab
+              </a>
+            )}
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => setShowInfisical((v) => !v)}
+            >
+              {showInfisical ? 'Hide' : 'Show'} Infisical
+            </button>
+          </div>
         </div>
         {showInfisical && (
-          <div className="vault-infisical-frame">
-            <iframe
-              src="https://pizza.pointdowncreative.com"
-              title="Infisical Secrets Management"
-              style={{ width: '100%', height: '600px', border: 'none', borderRadius: '8px' }}
-            />
-          </div>
+          consoleUrl ? (
+            <div className="vault-infisical-frame">
+              <iframe
+                src={consoleUrl}
+                title="Infisical Secrets Management"
+                style={{ width: '100%', height: '600px', border: 'none', borderRadius: '8px' }}
+              />
+            </div>
+          ) : (
+            <div className="inline-state">Loading secrets console…</div>
+          )
         )}
       </section>
 

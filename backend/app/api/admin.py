@@ -29,6 +29,11 @@ from app.services.storage_settings import (
     mask_storage_settings,
     resolve_storage_settings,
 )
+from app.services.secrets_settings import (
+    SETTINGS_KEY as SECRETS_SETTINGS_KEY,
+    mask_secrets_settings,
+    resolve_secrets_settings,
+)
 
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -46,6 +51,23 @@ class StorageSettingsPatch(BaseModel):
     def empty_to_none(cls, v: object) -> object:
         """Treat blank strings as "not set" so they don't overwrite with empty."""
 
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
+
+class SecretsSettingsPatch(BaseModel):
+    """Partial update for the secrets (Infisical) section. Omitted fields are untouched."""
+
+    internal_url: str | None = Field(default=None, max_length=500)
+    public_url: str | None = Field(default=None, max_length=500)
+    project_id: str | None = Field(default=None, max_length=120)
+    project_slug: str | None = Field(default=None, max_length=120)
+    environment: str | None = Field(default=None, max_length=64)
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def empty_to_none(cls, v: object) -> object:
         if isinstance(v, str) and not v.strip():
             return None
         return v
@@ -70,6 +92,7 @@ class AiSettingsPatch(BaseModel):
     # Nested rather than a second body parameter: two Pydantic params would make
     # FastAPI expect an embedded body and break the existing flat client payload.
     storage: StorageSettingsPatch | None = None
+    secrets: SecretsSettingsPatch | None = None
 
 
 def require_admin(actor: Actor) -> None:
@@ -97,6 +120,7 @@ async def get_admin_settings(
     return {
         "ai": mask_ai_settings(resolved),
         "storage": mask_storage_settings(resolve_storage_settings(household.settings)),
+        "secrets": mask_secrets_settings(resolve_secrets_settings(household.settings)),
         "household": {
             "name": household.name,
             "timezone": household.timezone,
@@ -133,11 +157,19 @@ async def patch_admin_settings(
         else {}
     )
     changes.pop("storage", None)
+    secrets_field = payload.secrets
+    secrets_changes = (
+        secrets_field.model_dump(exclude_unset=True, exclude_none=False)
+        if secrets_field is not None
+        else {}
+    )
+    changes.pop("secrets", None)
 
-    if not changes and not storage_changes:
+    if not changes and not storage_changes and not secrets_changes:
         return {
             "ai": mask_ai_settings(resolve_ai_settings(household.settings)),
             "storage": mask_storage_settings(resolve_storage_settings(household.settings)),
+            "secrets": mask_secrets_settings(resolve_secrets_settings(household.settings)),
             "changed": [],
         }
 
@@ -161,6 +193,13 @@ async def patch_admin_settings(
         storage_current.update(storage_changes)
         settings[STORAGE_SETTINGS_KEY] = storage_current
 
+    if secrets_changes:
+        secrets_current = settings.get(SECRETS_SETTINGS_KEY)
+        if not isinstance(secrets_current, dict):
+            secrets_current = {}
+        secrets_current.update(secrets_changes)
+        settings[SECRETS_SETTINGS_KEY] = secrets_current
+
     # Reassign (rather than mutate) so SQLAlchemy notices the JSONB change.
     household.settings = settings
     # Force SQLAlchemy to detect the JSONB change — assigning a new dict does
@@ -176,7 +215,8 @@ async def patch_admin_settings(
     response: dict[str, Any] = {
         "ai": mask_ai_settings(resolve_ai_settings(household.settings)),
         "storage": mask_storage_settings(resolve_storage_settings(household.settings)),
-        "changed": sorted([*changes, *storage_changes]),
+        "secrets": mask_secrets_settings(resolve_secrets_settings(household.settings)),
+        "changed": sorted([*changes, *storage_changes, *secrets_changes]),
     }
     if model_changed:
         response["reembed_required"] = True

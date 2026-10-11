@@ -691,9 +691,20 @@ export type StorageSettings = {
   browser_reachable: boolean;
 };
 
+/** Where the secrets store lives. No secret values pass through the admin API. */
+export type SecretsSettings = {
+  internal_url: string;
+  public_url: string;
+  project_id: string;
+  project_slug: string;
+  environment: string;
+  browser_reachable: boolean;
+};
+
 export type AdminSettingsResponse = {
   ai: AdminSettings;
   storage?: StorageSettings;
+  secrets?: SecretsSettings;
   household?: {
     name: string;
     timezone: string;
@@ -711,6 +722,7 @@ export function getAdminSettings(): Promise<AdminSettingsResponse> {
 
 export type AdminSettingsPatch = Partial<Omit<AdminSettings, "api_key_set" | "azure_api_key_set"> & { api_key?: string; azure_api_key?: string }> & {
   storage?: Partial<Omit<StorageSettings, "browser_reachable">>;
+  secrets?: Partial<Omit<SecretsSettings, "browser_reachable">>;
 };
 
 export function patchAdminSettings(input: AdminSettingsPatch): Promise<AdminSettingsResponse> {

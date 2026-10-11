@@ -134,7 +134,8 @@ attempt is recorded in the audit log either way.
     `expires_at` (optional), `occurred_at` (optional), `blocks` (array),
     `tags` (array)
   - `owner_member_id` names the member the note is for. Omit it for the
-    household in general. Get member IDs from the household admin page.
+    household in general. **Get member IDs from `list_members`** — it is the only
+    way to learn one.
   - Agents can only create **family-visible** notes. A request for
     `visibility: "parents"` is refused.
 
@@ -142,8 +143,11 @@ attempt is recorded in the audit log either way.
   - Parameters: `note_id`, `type`, `text_content`, `media_asset_id` (optional),
     `data` (object), `caption`, `expires_at` (optional), `importance` (0–5)
   - Block types: `text`, `image`, `file`, `audio`, `date`, `time`, `currency`,
-    `checkbox`, `table`, `password`, `location`, `drawing`, `reminder`
+    `checkbox`, `table`, `password`, `location`, `drawing`, `reminder`,
+    `smart_text`
   - Attach an uploaded file by passing its `asset_id` as `media_asset_id`.
+  - **`smart_text` blocks must be built with `create_smart_text_block`**, not
+    assembled by hand — see the Smart Text section below.
 
 ### The vault (requires `secrets.read` / `secrets.write`)
 
@@ -196,12 +200,91 @@ Rules for handling one:
 The key format is `sn-<label-slug>-<6hex>` for Smart Text and `pw-<block_id>` for
 password blocks. Both live under `/notes/<note_id>`.
 
+### Editing and tidying
+
+- **update_note** — Change a note's own fields: `title`, `summary`, `status`
+  (`inbox`/`active`/`done`/`archived`/`expired`), `type`, `owner_member_id`,
+  `pinned`, `occurred_at`, `expires_at`. Only the fields you pass change.
+- **update_block** — Change one block's `text_content`, `data`, `caption` or
+  `importance`. Use it to fix a typo or rewrite a summary.
+- **delete_block** — Remove one block (`block_id`). For duplicates and strays.
+- **delete_note** — Remove a whole note and its blocks (`note_id`).
+- **attach_tags** — Add tags to a note (`add: [...]`). Missing tags are created.
+  Never removes anything.
+- **detach_tags** — Remove named tags (`remove: ["<slug>", ...]`).
+
+`delete_block` and `delete_note` cannot be undone from the API. Search and read
+first, and be sure the id is the one you mean.
+
+### Household
+
+- **list_members** — Family members with their `member_id`, `display_name` and
+  `role`. **Call this before using `owner_member_id`** — there is no other way to
+  learn a member's id, and `create_note` needs it to file a note against a
+  particular person.
+
 ### Calendar (Coming Soon)
 
 - **list_events** — List calendar events
 - **create_event** — Create a new event
 - **update_event** — Update an existing event
 - **delete_event** — Delete an event
+
+## Filing messy text that contains secrets
+
+This is the main job: 子樂 pastes a disorganised page — accounts, passwords, old
+passwords, API keys, URLs, notes — and you turn it into a note.
+
+**Never put a secret in a plain text block.** Use `create_smart_text_block`.
+
+### The workflow
+
+1. **Read the paste and identify the secrets.** For each one decide a `label`
+   (what it is, in words — this becomes the visible name) and a `type`
+   (`password`, `api_key`, `token`, `private_key`, `other`).
+
+2. **Call `create_smart_text_block`** with the original text and your list:
+
+```json
+{
+  "note_id": "<uuid>",
+  "text": "Orange system:\nmanager\nHGC@2020\nERP_DEMO\nhttps://ERPPordK10.hkg.com.hk",
+  "secrets": [
+    { "label": "Orange ERP manager password", "value": "HGC@2020", "type": "password" }
+  ]
+}
+```
+
+3. **The tool does the rest.** It writes each value to the vault, replaces
+   **every occurrence** in the text with `{{secret:<key>}}`, and returns the
+   block id plus the label→key mapping.
+
+4. **Report back with labels, never values.** The user knows what they pasted;
+   echoing a secret into a chat log defeats the purpose.
+
+### Choosing a label
+
+The label is embedded in the search index, so make it useful and **never put the
+value in it**:
+
+- Good: `Orange ERP manager password`, `Kurintic API key`, `Router admin login`
+- Bad: `HGC@2020`, `password: HGC@2020`
+
+### What not to file as a secret
+
+Dates, birthdays, URLs, usernames, and HTTP methods are not secrets. Filing them
+adds noise and hides the real credentials. A URL with embedded credentials
+(`https://user:pass@host`) is a secret — file the whole thing.
+
+### Editing an existing Smart Text block
+
+Use `update_block` with the full new `text_content`. **Preserve every
+`{{secret:…}}` placeholder you are not changing** — copy them through verbatim.
+If you need to add a secret to an existing block, call `set_vault_secret` to mint
+a key, then insert `{{secret:<key>}}` into the text and save with `update_block`.
+
+Never resolve a placeholder with `get_vault_secret` in order to write it back as
+plaintext. That is the one thing this design exists to prevent.
 
 ## Permissions
 

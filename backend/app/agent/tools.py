@@ -418,6 +418,367 @@ async def list_vault_folders_tool(params: BaseModel, context: ToolContext) -> To
     return ToolResult(ok=True, data=folders, meta={"count": len(folders)})
 
 
+# ── Editing tools ────────────────────────────────────────────────────────────
+#
+# The operator's agent has full access by explicit decision: she tidies a messy
+# household, which means correcting, reorganising and removing. That is why
+# ``delete_note`` and ``delete_block`` exist here while the *vault* deliberately
+# has no delete tool — deleting a note is recoverable housekeeping, deleting a
+# credential is not.
+
+
+class UpdateNoteParams(BaseModel):
+    note_id: uuid.UUID
+    title: str | None = Field(default=None, max_length=500)
+    summary: str | None = None
+    status: str | None = Field(default=None, max_length=20)
+    type: str | None = Field(default=None, max_length=40)
+    owner_member_id: uuid.UUID | None = None
+    pinned: bool | None = None
+    occurred_at: datetime | None = None
+    expires_at: datetime | None = None
+
+
+class UpdateBlockParams(BaseModel):
+    block_id: uuid.UUID
+    text_content: str | None = None
+    data: dict | None = None
+    caption: str | None = None
+    importance: int | None = Field(default=None, ge=0, le=5)
+
+
+class BlockIdParams(BaseModel):
+    block_id: uuid.UUID
+
+
+class DeleteNoteParams(BaseModel):
+    note_id: uuid.UUID
+
+
+class ListMembersParams(BaseModel):
+    include_inactive: bool = False
+
+
+class AttachTagsParams(BaseModel):
+    note_id: uuid.UUID
+    # Added; tags not named here are left alone. Removal has its own tool so a
+    # call cannot accidentally drop tags the caller never mentioned.
+    add: list[str] = Field(default_factory=list, max_length=30)
+
+
+class DetachTagsParams(BaseModel):
+    note_id: uuid.UUID
+    remove: list[str] = Field(min_length=1, max_length=30)
+
+
+class CreateSmartTextParams(BaseModel):
+    note_id: uuid.UUID
+    # The source text with the secrets still in it. Every occurrence of each
+    # value is replaced by a placeholder.
+    text: str = Field(min_length=1)
+    secrets: list[dict] = Field(min_length=1, max_length=100)
+    caption: str | None = Field(default=None, max_length=500)
+    importance: int = Field(default=0, ge=0, le=5)
+
+
+@register(
+    name="update_note",
+    description=(
+        "Change a note's own fields: title, summary, status, type, owner, pinned, "
+        "dates. Does not touch its blocks — use update_block for those. Only the "
+        "fields you pass are changed."
+    ),
+    category="notes",
+    params=UpdateNoteParams,
+    permissions=("notes.write",),
+    mutates=True,
+)
+async def update_note_tool(params: BaseModel, context: ToolContext) -> ToolResult:
+    from app.schemas.notes import NotePatchRequest
+    from app.services.notes import update_note
+
+    values = UpdateNoteParams.model_validate(params)
+    payload = NotePatchRequest(**values.model_dump(exclude_unset=True, exclude={"note_id"}))
+    try:
+        note = await update_note(
+            session=context.session,
+            actor=context.actor,
+            note_id=values.note_id,
+            payload=payload,
+        )
+    except AppError as error:
+        return ToolResult(ok=False, error=error.message, error_code=error.error_code)
+    return ToolResult(ok=True, data=note, meta={"note_id": str(note.id)})
+
+
+@register(
+    name="update_block",
+    description=(
+        "Change one block's content: its text, its structured data, its caption, "
+        "or its importance. Use this to fix a typo, rewrite a summary or correct "
+        "an image caption. Only the fields you pass are changed."
+    ),
+    category="notes",
+    params=UpdateBlockParams,
+    permissions=("notes.write",),
+    mutates=True,
+)
+async def update_block_tool(params: BaseModel, context: ToolContext) -> ToolResult:
+    from app.schemas.notes import NoteBlockPatchRequest
+    from app.services.notes import update_block
+
+    values = UpdateBlockParams.model_validate(params)
+    payload = NoteBlockPatchRequest(**values.model_dump(exclude_unset=True, exclude={"block_id"}))
+    try:
+        block = await update_block(
+            session=context.session,
+            actor=context.actor,
+            block_id=values.block_id,
+            payload=payload,
+        )
+    except AppError as error:
+        return ToolResult(ok=False, error=error.message, error_code=error.error_code)
+    return ToolResult(ok=True, data=block, meta={"block_id": str(block.id)})
+
+
+@register(
+    name="delete_block",
+    description=(
+        "Delete one block from a note. Use this to remove a duplicate or a block "
+        "that no longer belongs. This cannot be undone from the API — check the "
+        "block_id is the one you mean before calling."
+    ),
+    category="notes",
+    params=BlockIdParams,
+    permissions=("notes.write",),
+    mutates=True,
+)
+async def delete_block_tool(params: BaseModel, context: ToolContext) -> ToolResult:
+    from app.services.notes import delete_block
+
+    values = BlockIdParams.model_validate(params)
+    try:
+        await delete_block(session=context.session, actor=context.actor, block_id=values.block_id)
+    except AppError as error:
+        return ToolResult(ok=False, error=error.message, error_code=error.error_code)
+    return ToolResult(ok=True, data={"deleted": True}, meta={"block_id": str(values.block_id)})
+
+
+@register(
+    name="delete_note",
+    description=(
+        "Delete a whole note and its blocks. Use this only when the note is "
+        "genuinely unwanted — to tidy up a duplicate or something you created by "
+        "mistake. Check with search_notes and get_note first; this cannot be "
+        "undone from the API."
+    ),
+    category="notes",
+    params=DeleteNoteParams,
+    permissions=("notes.write",),
+    mutates=True,
+)
+async def delete_note_tool(params: BaseModel, context: ToolContext) -> ToolResult:
+    from app.services.notes import delete_note
+
+    values = DeleteNoteParams.model_validate(params)
+    try:
+        await delete_note(session=context.session, actor=context.actor, note_id=values.note_id)
+    except AppError as error:
+        return ToolResult(ok=False, error=error.message, error_code=error.error_code)
+    return ToolResult(ok=True, data={"deleted": True}, meta={"note_id": str(values.note_id)})
+
+
+@register(
+    name="list_members",
+    description=(
+        "List the household's family members with their IDs and roles. Call this "
+        "to get the member_id that create_note and update_note expect in "
+        "owner_member_id — for example to file a note against a particular child."
+    ),
+    category="household",
+    params=ListMembersParams,
+    permissions=("notes.read",),
+)
+async def list_members_tool(params: BaseModel, context: ToolContext) -> ToolResult:
+    from sqlalchemy import select
+
+    from app.models import FamilyMember
+
+    values = ListMembersParams.model_validate(params)
+    statement = select(FamilyMember).where(FamilyMember.household_id == context.actor.household_id)
+    if not values.include_inactive:
+        statement = statement.where(FamilyMember.is_active.is_(True))
+    rows = (await context.session.execute(statement.order_by(FamilyMember.display_name))).scalars().all()
+    return ToolResult(
+        ok=True,
+        data=[
+            {
+                "member_id": str(m.id),
+                "display_name": m.display_name,
+                "role": m.role,
+                "is_active": m.is_active,
+            }
+            for m in rows
+        ],
+        meta={"count": len(rows)},
+    )
+
+
+@register(
+    name="attach_tags",
+    description=(
+        "Add tags to a note. Existing tags are kept — this only adds. A tag that "
+        "does not exist yet is created. Tags not named here are never removed; use "
+        "detach_tags for that."
+    ),
+    category="notes",
+    params=AttachTagsParams,
+    permissions=("notes.write",),
+    mutates=True,
+)
+async def attach_tags_tool(params: BaseModel, context: ToolContext) -> ToolResult:
+    from app.schemas.notes import NoteTagRequest
+    from app.services.notes import add_tag
+
+    values = AttachTagsParams.model_validate(params)
+    # The service takes one tag per call, so loop. A failure part-way leaves the
+    # tags already added in place — that is the honest outcome, and the meta
+    # count tells the caller how far it got.
+    added: list[dict[str, str]] = []
+    for name in values.add:
+        try:
+            tags = await add_tag(
+                session=context.session,
+                actor=context.actor,
+                note_id=values.note_id,
+                payload=NoteTagRequest(name=name),
+            )
+        except AppError as error:
+            return ToolResult(
+                ok=False,
+                error=error.message,
+                error_code=error.error_code,
+                meta={"note_id": str(values.note_id), "added": added, "failed_on": name},
+            )
+        added = [{"slug": t.slug, "name": t.name} for t in tags]
+    return ToolResult(
+        ok=True,
+        data=added,
+        meta={"note_id": str(values.note_id), "added_count": len(values.add)},
+    )
+
+
+@register(
+    name="detach_tags",
+    description="Remove named tags from a note. Other tags are left alone.",
+    category="notes",
+    params=DetachTagsParams,
+    permissions=("notes.write",),
+    mutates=True,
+)
+async def detach_tags_tool(params: BaseModel, context: ToolContext) -> ToolResult:
+    from app.services.notes import remove_tag
+
+    values = DetachTagsParams.model_validate(params)
+    remaining: list[dict[str, str]] = []
+    for slug in values.remove:
+        try:
+            tags = await remove_tag(
+                session=context.session,
+                actor=context.actor,
+                note_id=values.note_id,
+                tag_slug=slug,
+            )
+        except AppError as error:
+            return ToolResult(
+                ok=False,
+                error=error.message,
+                error_code=error.error_code,
+                meta={"note_id": str(values.note_id), "failed_on": slug},
+            )
+        remaining = [{"slug": t.slug, "name": t.name} for t in tags]
+    return ToolResult(
+        ok=True,
+        data=remaining,
+        meta={"note_id": str(values.note_id), "removed_count": len(values.remove)},
+    )
+
+
+@register(
+    name="create_smart_text_block",
+    description=(
+        "Append a Smart Text block: free-form text where the secrets you name are "
+        "replaced by {{secret:<key>}} placeholders, with the values written to the "
+        "vault. This is the correct way to file pasted text that contains "
+        "passwords or keys — do NOT put a secret in a plain text block.\n\n"
+        "`text` is the source with the secrets still in it; `secrets` is the list "
+        "you identified, each {label, value, type, severity}. Every occurrence of "
+        "each value is replaced. The stored note contains no secret — only labels "
+        "and placeholders — so it stays safe to search and embed."
+    ),
+    category="vault",
+    params=CreateSmartTextParams,
+    permissions=("notes.write", "secrets.write"),
+    mutates=True,
+)
+async def create_smart_text_block_tool(params: BaseModel, context: ToolContext) -> ToolResult:
+    from app.schemas.notes import NoteBlockInput
+    from app.services import smart_text
+    from app.services.notes import create_block
+
+    values = CreateSmartTextParams.model_validate(params)
+    try:
+        secrets_in = [smart_text.SecretInput(**item) for item in values.secrets]
+    except TypeError as error:
+        return ToolResult(
+            ok=False,
+            error=f"Each secret needs label and value ({error})",
+            error_code="invalid_params",
+        )
+
+    try:
+        text_content, built, vault_path = await smart_text.build_smart_text(
+            note_id=values.note_id,
+            text=values.text,
+            secrets_in=secrets_in,
+        )
+    except AppError as error:
+        return ToolResult(ok=False, error=error.message, error_code=error.error_code)
+
+    payload = NoteBlockInput(
+        type="smart_text",
+        text_content=text_content,
+        caption=values.caption,
+        importance=values.importance,
+        data={"secrets": smart_text.secrets_index(built), "vault_path": vault_path},
+    )
+    try:
+        block = await create_block(
+            session=context.session,
+            actor=context.actor,
+            note_id=values.note_id,
+            payload=payload,
+        )
+    except AppError as error:
+        return ToolResult(ok=False, error=error.message, error_code=error.error_code)
+
+    # Never echo the values. The caller supplied them; what it needs back is the
+    # mapping it will use to talk about them later.
+    return ToolResult(
+        ok=True,
+        data={
+            "block_id": str(block.id),
+            "note_id": str(values.note_id),
+            "vault_path": vault_path,
+            "secrets": [
+                {"label": b.label, "key": b.key, "placeholder": b.placeholder, "type": b.type}
+                for b in built
+            ],
+        },
+        meta={"block_id": str(block.id), "secret_count": len(built)},
+    )
+
+
 @register(
     name="append_block",
     description=(

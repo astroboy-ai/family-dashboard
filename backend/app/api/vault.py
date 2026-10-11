@@ -1,16 +1,29 @@
-"""Vault API — list and manage password blocks across all notes."""
+"""Vault API — list and manage password blocks across all notes.
+
+Also the write path into Infisical: the vault page's secret editor is a thin UI
+over the household secret store, so these routes call ``services.infisical``
+rather than keeping a second copy of anything.
+"""
 
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import Actor, get_current_actor
 from app.core.db import get_session
 from app.models import Household, Note, NoteBlock
+from app.services.infisical import (
+    InfisicalError,
+    delete_secret,
+    get_secret,
+    list_folders,
+    list_secrets,
+    set_secret,
+)
 from app.services.notes import _serialize_block
 from app.services.secrets_settings import resolve_secrets_settings
 
@@ -128,3 +141,150 @@ async def get_password_block(
         updated_at=block.updated_at.isoformat(),
         value=serialized.data.get("value") if can_read_secrets else None,
     )
+
+
+# --- Infisical secrets -------------------------------------------------------
+#
+# The vault page's secret editor. Every route here is a pass-through to
+# services.infisical; nothing is cached or duplicated locally, so the console,
+# the CLI and this page always agree.
+
+
+class SecretSummaryResponse(BaseModel):
+    key: str
+    path: str
+    comment: str
+    updated_at: str
+
+
+class SecretWriteRequest(BaseModel):
+    key: str = Field(min_length=1, max_length=200)
+    value: str
+    path: str = "/"
+    comment: str = ""
+
+
+class SecretValueResponse(BaseModel):
+    key: str
+    path: str
+    value: str
+
+
+def _require_secrets_scope(actor: Actor) -> None:
+    """Guard every secret route.
+
+    Read and write are separate scopes: a member who may see the vault list
+    still cannot reveal or change a value without the matching scope.
+    """
+
+    if "secrets.read" not in actor.scopes:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Secrets scope required",
+        )
+
+
+def _require_secrets_write(actor: Actor) -> None:
+    if "secrets.write" not in actor.scopes:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Secrets write scope required",
+        )
+
+
+def _infisical_http_error(error: InfisicalError) -> HTTPException:
+    """Map an Infisical failure onto a status the page can act on."""
+
+    if error.status_code == 404:
+        return HTTPException(status_code=404, detail=str(error))
+    if error.status_code in (401, 403):
+        # The machine identity is misconfigured, not the caller: say so plainly
+        # instead of returning a 403 that looks like a permission problem.
+        return HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Secret store rejected the service identity: {error}",
+        )
+    return HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(error))
+
+
+@router.get("/secrets", response_model=list[SecretSummaryResponse])
+async def list_vault_secrets(
+    actor: Annotated[Actor, Depends(get_current_actor)],
+    path: Annotated[str, Query(max_length=500)] = "/",
+) -> list[SecretSummaryResponse]:
+    """List secrets in one folder. Values are never included."""
+
+    _require_secrets_scope(actor)
+    try:
+        secrets = await list_secrets(path)
+    except InfisicalError as error:
+        raise _infisical_http_error(error) from error
+    return [
+        SecretSummaryResponse(
+            key=item.key, path=item.path, comment=item.comment, updated_at=item.updated_at
+        )
+        for item in secrets
+    ]
+
+
+@router.get("/secrets/folders", response_model=list[str])
+async def list_vault_folders(
+    actor: Annotated[Actor, Depends(get_current_actor)],
+) -> list[str]:
+    """Folder paths available in the environment, root first."""
+
+    _require_secrets_scope(actor)
+    try:
+        return await list_folders()
+    except InfisicalError as error:
+        raise _infisical_http_error(error) from error
+
+
+@router.get("/secrets/value", response_model=SecretValueResponse)
+async def reveal_vault_secret(
+    actor: Annotated[Actor, Depends(get_current_actor)],
+    key: Annotated[str, Query(min_length=1, max_length=200)],
+    path: Annotated[str, Query(max_length=500)] = "/",
+) -> SecretValueResponse:
+    """Read one secret's value. This is the only route that returns a value."""
+
+    _require_secrets_scope(actor)
+    try:
+        value = await get_secret(key, path)
+    except InfisicalError as error:
+        raise _infisical_http_error(error) from error
+    return SecretValueResponse(key=key, path=path, value=value)
+
+
+@router.put("/secrets", response_model=SecretSummaryResponse)
+async def write_vault_secret(
+    payload: SecretWriteRequest,
+    actor: Annotated[Actor, Depends(get_current_actor)],
+) -> SecretSummaryResponse:
+    """Create or update one secret."""
+
+    _require_secrets_scope(actor)
+    _require_secrets_write(actor)
+    try:
+        saved = await set_secret(payload.key, payload.value, payload.path, payload.comment)
+    except InfisicalError as error:
+        raise _infisical_http_error(error) from error
+    return SecretSummaryResponse(
+        key=saved.key, path=saved.path, comment=saved.comment, updated_at=saved.updated_at
+    )
+
+
+@router.delete("/secrets", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_vault_secret(
+    actor: Annotated[Actor, Depends(get_current_actor)],
+    key: Annotated[str, Query(min_length=1, max_length=200)],
+    path: Annotated[str, Query(max_length=500)] = "/",
+) -> None:
+    """Delete one secret."""
+
+    _require_secrets_scope(actor)
+    _require_secrets_write(actor)
+    try:
+        await delete_secret(key, path)
+    except InfisicalError as error:
+        raise _infisical_http_error(error) from error

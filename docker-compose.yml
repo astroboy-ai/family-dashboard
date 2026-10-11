@@ -33,6 +33,15 @@ x-backend-env: &backend-env
   ENVIRONMENT: ${ENVIRONMENT:-development}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
   DOCKER_NETWORK: familyos
+  # Infisical — the household secret store behind the vault page. Values are
+  # substituted from .env at `up` time, so the machine identity's client secret
+  # never lands in git. The internal URL is the Docker-network address; the
+  # browser-facing console URL lives in households.settings['secrets'].
+  INFISICAL_INTERNAL_URL: ${INFISICAL_INTERNAL_URL:?Set INFISICAL_INTERNAL_URL in .env}
+  INFISICAL_PROJECT_ID: ${INFISICAL_PROJECT_ID:?Set INFISICAL_PROJECT_ID in .env}
+  INFISICAL_ENVIRONMENT: ${INFISICAL_ENVIRONMENT:-prod}
+  INFISICAL_CLIENT_ID: ${INFISICAL_CLIENT_ID:?Set INFISICAL_CLIENT_ID in .env}
+  INFISICAL_CLIENT_SECRET: ${INFISICAL_CLIENT_SECRET:?Set INFISICAL_CLIENT_SECRET in .env}
 
 services:
   postgres:

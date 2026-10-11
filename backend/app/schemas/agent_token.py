@@ -18,6 +18,8 @@ from pydantic import BaseModel, Field, field_validator
 KNOWN_SCOPES: dict[str, str] = {
     "notes.read": "Search and read family-visible notes",
     "notes.write": "Create notes, append blocks, upload media",
+    "secrets.read": "List and reveal secrets in the household vault",
+    "secrets.write": "Create, update and delete secrets in the household vault",
     "calendar.read": "Read calendar events",
     "calendar.write": "Create and modify calendar events",
 }

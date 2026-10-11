@@ -51,6 +51,17 @@ class Settings(BaseSettings):
     google_client_secret: str = ""
     google_redirect_uri: str = "https://familyos.logeebox.com/api/calendar/oauth/callback"
 
+    # Infisical — the household secret store. The vault page reads and writes
+    # through the `familyos-site` machine identity, so these three values are
+    # what a rotation needs to change; nothing is hard-coded in the client.
+    # `internal_url` is the Docker-network address: the browser never needs it,
+    # and the public console URL lives in households.settings['secrets'].
+    infisical_internal_url: str = "http://172.18.0.26:8080"
+    infisical_project_id: str = ""
+    infisical_environment: str = "prod"
+    infisical_client_id: str = ""
+    infisical_client_secret: str = ""
+
     @model_validator(mode="after")
     def validate_jwt_secret(self) -> "Settings":
         if self.environment.lower() not in {"development", "test"}:

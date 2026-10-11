@@ -748,6 +748,58 @@ export function testStorageSettings(): Promise<StorageTestResult> {
   return apiRequest<StorageTestResult>("/admin/storage/test", { method: "POST" });
 }
 
+/** A secret in the household vault, without its value. */
+export type VaultSecret = {
+  key: string;
+  path: string;
+  comment: string;
+  updated_at: string;
+};
+
+export type VaultSecretValue = {
+  key: string;
+  path: string;
+  value: string;
+};
+
+/** List secrets in one folder. Values are never returned by this call. */
+export function listVaultSecrets(path = "/"): Promise<VaultSecret[]> {
+  return apiRequest<VaultSecret[]>(`/vault/secrets?path=${encodeURIComponent(path)}`);
+}
+
+/** Folder paths in the vault environment, root first. */
+export function listVaultFolders(): Promise<string[]> {
+  return apiRequest<string[]>("/vault/secrets/folders");
+}
+
+/** Read one secret's value — the only call that returns a value. */
+export function revealVaultSecret(key: string, path = "/"): Promise<VaultSecretValue> {
+  return apiRequest<VaultSecretValue>(
+    `/vault/secrets/value?key=${encodeURIComponent(key)}&path=${encodeURIComponent(path)}`,
+  );
+}
+
+/** Create or update one secret. */
+export function writeVaultSecret(input: {
+  key: string;
+  value: string;
+  path?: string;
+  comment?: string;
+}): Promise<VaultSecret> {
+  return apiRequest<VaultSecret>("/vault/secrets", {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+/** Delete one secret. */
+export function deleteVaultSecret(key: string, path = "/"): Promise<void> {
+  return apiRequest<void>(
+    `/vault/secrets?key=${encodeURIComponent(key)}&path=${encodeURIComponent(path)}`,
+    { method: "DELETE" },
+  );
+}
+
 export function reembedAll(): Promise<{ queued: number }> {
   return apiRequest<{ queued: number }>("/admin/reembed", { method: "POST" });
 }

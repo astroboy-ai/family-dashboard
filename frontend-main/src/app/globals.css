@@ -6220,11 +6220,12 @@ tfoot .table-control-btn {
 }
 
 .dashboard-school-grid {
-  display: flex;
+  flex: 0 0 auto;
   gap: 4px;
   padding: 4px 0;
-  flex: 0 0 auto;
-  overflow-x: auto;
+  display: flex;
+  flex-wrap: wrap;
+  overflow: visible;
 }
 
 .dashboard-school-item {
@@ -6238,7 +6239,7 @@ tfoot .table-control-btn {
   cursor: pointer;
   transition: background 0.15s ease;
   flex-shrink: 0;
-  min-width: 32px;
+  min-width: 40px;
   height: 32px;
 }
 
@@ -6275,14 +6276,14 @@ tfoot .table-control-btn {
 }
 
 .dashboard-school-notes {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
   border-top: 1px solid var(--border);
-  padding-top: 8px;
+  flex-direction: column;
+  flex: 1;
+  min-height: 80px;
   margin-top: 4px;
+  padding-top: 8px;
   padding-right: 0;
+  display: flex;
 }
 
 .dashboard-school-notes-header {

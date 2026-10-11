@@ -375,6 +375,11 @@ async def set_vault_secret_tool(params: BaseModel, context: ToolContext) -> Tool
 
     values = SetVaultSecretParams.model_validate(params)
     try:
+        # The vault has no mkdir -p and no folder-creation tool is exposed, so the
+        # write has to create its own folder. Without this, an agent writing to a
+        # new path gets an opaque HTTP 404 ("Folder ... not found") and no way to
+        # fix it — Infisical rejects the write before it ever sees the key.
+        await infisical.ensure_folder(values.path)
         summary = await infisical.set_secret(
             values.key,
             values.value,

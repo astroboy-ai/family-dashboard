@@ -70,10 +70,21 @@ kept, so it cannot be recovered later. Revoke by deleting the row.
 | --- | --- |
 | `notes.read` | Search and read family-visible notes |
 | `notes.write` | Create notes, append blocks, upload media |
+| `secrets.read` | List and read secrets in the household vault |
+| `secrets.write` | Create and update secrets in the household vault |
 
 A token without `notes.write` can still see the write tools listed, but calling
 one returns `permission_denied` and the attempt is recorded in `agent_tool_calls`.
 Publishing a tool is not the same as granting it.
+
+**`secrets.read` / `secrets.write` are not the same as `notes.read.secrets`.**
+The latter gates the *password blocks inside notes*; the former gates the *vault
+itself*. A token that may read a note's password block is not automatically
+allowed to enumerate the whole vault. Ask for the scope you actually need.
+
+**There is no delete tool for the vault.** An agent may add and update secrets
+but never remove one — revocation is a human action in the vault UI. Do not look
+for a workaround; if a secret must go, ask 子樂.
 
 ## Available Tools
 
@@ -134,6 +145,57 @@ attempt is recorded in the audit log either way.
     `checkbox`, `table`, `password`, `location`, `drawing`, `reminder`
   - Attach an uploaded file by passing its `asset_id` as `media_asset_id`.
 
+### The vault (requires `secrets.read` / `secrets.write`)
+
+The household vault is an Infisical instance. It holds two kinds of thing:
+
+1. **Secrets the family filed here directly** — API keys, logins, tokens.
+2. **The values behind `{{secret:…}}` placeholders in notes** (see below).
+
+| Tool | Scope | Does |
+| --- | --- | --- |
+| `list_vault_folders` | `secrets.read` | Folder paths, root first |
+| `list_vault_secrets` | `secrets.read` | Keys/comments/updated-at in one folder — **never values** |
+| `get_vault_secret` | `secrets.read` | One value |
+| `set_vault_secret` | `secrets.write` | Create or update one key |
+
+There is deliberately **no delete tool**. An agent may add and update; only a
+human removes a secret.
+
+#### `{{secret:…}}` — placeholders in notes
+
+A note can hold a **Smart Text** block: free-form text where the sensitive parts
+have been replaced by placeholders. This is what the family uses instead of
+keeping passwords in plain note text.
+
+```
+Orange system:
+manager
+{{secret:sn-orange-password-7f3a91}}
+```
+
+**The placeholder is not the password.** It is a pointer. The real value lives in
+the vault, and the note itself contains no secret at all — this is why the note
+is safe to search, embed and read.
+
+Rules for handling one:
+
+- **Never treat the placeholder as the value.** If you need to *use* a credential
+  — log in, call an API — resolve it with `get_vault_secret` first.
+- **Never write a resolved value back into a note.** That defeats the whole
+  design and puts the secret in the embedding index. When writing a note that
+  needs a secret, either reuse the existing placeholder or call
+  `set_vault_secret` and insert a fresh `{{secret:<key>}}`.
+- **Preserve placeholders you are not touching.** Copy the block text verbatim.
+- **Do not guess the value from the key name.** `sn-orange-password-7f3a91` tells
+  you it is Orange's password, not what the password is.
+- **A note's password block is different.** A block of type `password` stores a
+  `vault_key` reference and the API resolves it for you when your token carries
+  `notes.read.secrets`. You do not need to call `get_vault_secret` for those.
+
+The key format is `sn-<label-slug>-<6hex>` for Smart Text and `pw-<block_id>` for
+password blocks. Both live under `/notes/<note_id>`.
+
 ### Calendar (Coming Soon)
 
 - **list_events** — List calendar events
@@ -149,6 +211,9 @@ Agents are assigned scopes that determine what they can do:
 |-------|-------------|
 | `notes.read` | Read notes and search |
 | `notes.write` | Create notes, upload files, append blocks |
+| `notes.read.secrets` | Read a note's `password` block values |
+| `secrets.read` | List and read the household vault |
+| `secrets.write` | Create and update vault secrets (never delete) |
 | `calendar.read` | Read calendar events |
 | `calendar.write` | Create and modify calendar events |
 
@@ -188,6 +253,8 @@ and require the `notes.write` scope — see "How write access works" above.
 - `permission_denied` — Token lacks required scope
 - `unauthenticated` — Token invalid or expired
 - `not_found` — Resource does not exist
+- `vault_error` — The vault refused the call (bad path, unknown key, or the
+  vault itself is unreachable). The message says which; do not retry blindly.
 
 ### Best Practices
 

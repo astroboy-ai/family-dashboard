@@ -112,8 +112,39 @@ def _jsonable(value: Any) -> Any:
 
 
 def _redact_params(params: dict[str, Any]) -> dict[str, Any]:
-    secret_keys = {"password", "pin", "token", "secret", "authorization"}
+    """Redact any parameter whose *name* marks it as sensitive.
+
+    Matching is by substring, not equality. The original exact-match version
+    redacted ``password`` but let ``secret_value``, ``api_key``, ``new_password``
+    and ``access_token`` through in plaintext — and the audit row is a database
+    row like any other, so a value recorded here is a leaked secret.
+
+    A parameter whose name contains any of these fragments is replaced wholesale,
+    which also covers a nested dict that happens to be passed as a single
+    argument.
+    """
+
+    secret_fragments = (
+        "password",
+        "passwd",
+        "secret",
+        "token",
+        "api_key",
+        "apikey",
+        "credential",
+        "private_key",
+        "passphrase",
+        "authorization",
+        "pin",
+        "cvv",
+        "value",  # a bare `value` on a secret-bearing tool is a secret
+    )
+
+    def is_sensitive(key: str) -> bool:
+        lowered = key.casefold()
+        return any(fragment in lowered for fragment in secret_fragments)
+
     return {
-        key: "[redacted]" if key.casefold() in secret_keys else _jsonable(value)
+        key: "[redacted]" if is_sensitive(key) else _jsonable(value)
         for key, value in params.items()
     }

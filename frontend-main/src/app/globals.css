@@ -841,15 +841,19 @@ kbd {
 }
 
 .main-content {
+  display: flex;
   min-width: 0;
   min-height: 0;
   flex: 1;
-  /* Must scroll, not clip. Pages that lay themselves out as normal document
+  /* Column, so a full-height child can claim exactly this box: the dashboard
+     sets `flex: 1` and expects to fill it. Without the flex context that rule
+     was inert and the dashboard sized to its content (691px in a 652px box),
+     silently clipped by the old `overflow: hidden`.
+     Must scroll, not clip. Pages that lay themselves out as normal document
      flow (notes list, note detail) are taller than the viewport, and
      `overflow: hidden` made everything below the fold unreachable on desktop —
-     no scrollbar, no way to get there. The dashboard is unaffected: it sizes
-     itself to exactly this box (`flex: 1; overflow: hidden`), so it never
-     overflows and no scrollbar appears. */
+     no scrollbar, no way to get there. */
+  flex-direction: column;
   overflow-x: hidden;
   overflow-y: auto;
 }

@@ -57,7 +57,14 @@ class ExpiringItemsParams(BaseModel):
     permissions=("notes.read",),
 )
 async def search_notes_tool(params: BaseModel, context: ToolContext) -> ToolResult:
-    values = SearchNotesParams.model_validate(params)
+    # Convert to dict first — model_validate on a BaseModel instance
+    # ignores extra=forbid in Pydantic v2, so unknown params like 'tag'
+    # would silently pass through. Explicitly reject unknown keys.
+    raw = params.model_dump() if hasattr(params, "model_dump") else dict(params)
+    unknown = set(raw) - set(SearchNotesParams.model_fields)
+    if unknown:
+        raise ValueError(f"Unknown parameter(s): {', '.join(sorted(unknown))}")
+    values = SearchNotesParams.model_validate(raw)
     result = await search_notes(
         session=context.session,
         actor=context.actor,

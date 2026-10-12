@@ -247,6 +247,15 @@ check("two named tags give two distinct labels", twoNamed.length === 2, String(t
 check("no finding leaks the marker into its label", twoNamed.every((f) => !f.label.includes("[[")), JSON.stringify(twoNamed.map((f) => f.label)));
 check("the marker itself is not detected as a secret", !twoNamed.some((f) => f.value.includes("[[")), JSON.stringify(twoNamed.map((f) => f.value)));
 
+// A tagged line must not hide the values below it: masking blanks the whole
+// marker line, and if blankness were judged on the masked copy the stacked block
+// would end there and everything under it would be invisible.
+const belowTag = detectSecrets(
+  "Orange system:\nmanager\n[[secret:Orange password]]HGC@2020[[/secret]]\nkinrtic: POST\ndueit73947wuweddnxcc8f938493GhsaggA\nERP_DEMO",
+);
+check("a value below a tagged line is still found", belowTag.length === 2, JSON.stringify(belowTag.map((f) => f.value)));
+check("the value below the tag is the token", belowTag.some((f) => f.value === "dueit73947wuweddnxcc8f938493GhsaggA"), JSON.stringify(belowTag.map((f) => f.value)));
+
 console.log("\n== finding carries its value (for the review list) ==");
 const withValue = detectSecrets("password: hunter2xyz")[0];
 check("value present", withValue.value === "hunter2xyz", withValue.value);

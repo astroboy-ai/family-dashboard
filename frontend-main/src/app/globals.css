@@ -844,7 +844,14 @@ kbd {
   min-width: 0;
   min-height: 0;
   flex: 1;
-  overflow: hidden;
+  /* Must scroll, not clip. Pages that lay themselves out as normal document
+     flow (notes list, note detail) are taller than the viewport, and
+     `overflow: hidden` made everything below the fold unreachable on desktop —
+     no scrollbar, no way to get there. The dashboard is unaffected: it sizes
+     itself to exactly this box (`flex: 1; overflow: hidden`), so it never
+     overflows and no scrollbar appears. */
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .page-wrap {

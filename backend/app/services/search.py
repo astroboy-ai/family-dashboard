@@ -181,7 +181,7 @@ async def search_notes(
         notes = list(result.scalars().all())
 
     items = [
-        _note_response(note, await _load_blocks(session, note.id), await _load_tags(session, note.id))
+        await _note_response(note, await _load_blocks(session, note.id), await _load_tags(session, note.id))
         for note in notes
     ]
     return {"items": items, "limit": limit, "offset": filters.get("offset", 0)}

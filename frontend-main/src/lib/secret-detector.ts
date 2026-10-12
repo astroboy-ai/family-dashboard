@@ -358,6 +358,64 @@ const MAGIC_TAG_OPEN = "[[secret]]";
 const MAGIC_TAG_CLOSE = "[[/secret]]";
 
 /**
+ * A magic tag may carry its own name: `[[secret:Orange ERP password]]…[[/secret]]`.
+ *
+ * Without one the label comes from the line or the heading above — fine for a
+ * single secret, ambiguous when a heading covers several, where every finding
+ * would otherwise be named "Orange system".
+ */
+const MAGIC_TAG_OPEN_LABELLED = /\[\[secret:([^\]]*)\]\]/g;
+
+/** Every magic-tag region as `[start, end)` in `text`, in order. */
+function magicTagSpans(text: string): Array<[number, number]> {
+  const spans: Array<[number, number]> = [];
+  const labelled = new RegExp(MAGIC_TAG_OPEN_LABELLED.source, "g");
+  let cursor = 0;
+
+  while (cursor < text.length) {
+    const plain = text.indexOf(MAGIC_TAG_OPEN, cursor);
+    labelled.lastIndex = cursor;
+    const named = labelled.exec(text);
+
+    let start: number;
+    if (named && (plain === -1 || named.index < plain)) {
+      start = named.index;
+    } else if (plain !== -1) {
+      start = plain;
+    } else {
+      break;
+    }
+
+    const close = text.indexOf(MAGIC_TAG_CLOSE, start);
+    if (close === -1) break;
+
+    const end = close + MAGIC_TAG_CLOSE.length;
+    spans.push([start, end]);
+    cursor = end;
+  }
+
+  return spans;
+}
+
+/**
+ * Blank out every magic-tag region, preserving offsets.
+ *
+ * The marker is syntax, not content. Left visible, the `secret:` inside
+ * `[[secret:Kurintic API key]]` reads to the context rules as a `secret: value`
+ * assignment and produces a finding named `[[secret`.
+ *
+ * Spaces rather than deletion so every other finding keeps its span in the
+ * original string, which the review list and the replacement step both index.
+ */
+export function maskMagicSpans(text: string): string {
+  const masked = text.split("");
+  for (const [start, end] of magicTagSpans(text)) {
+    for (let i = start; i < end; i += 1) masked[i] = " ";
+  }
+  return masked.join("");
+}
+
+/**
  * Pull out everything the user wrapped in magic tags.
  *
  * The returned spans point at the *value only*, not the markers — so the
@@ -398,39 +456,41 @@ function nearestHeading(text: string, start: number): string | null {
  */
 function detectManualTags(text: string): Finding[] {
   const findings: Finding[] = [];
-  let cursor = 0;
+  const spans = magicTagSpans(text);
+  const labelled = new RegExp(MAGIC_TAG_OPEN_LABELLED.source, "g");
 
-  while (cursor < text.length) {
-    const open = text.indexOf(MAGIC_TAG_OPEN, cursor);
-    if (open === -1) break;
-    const close = text.indexOf(MAGIC_TAG_CLOSE, open + MAGIC_TAG_OPEN.length);
-    if (close === -1) break;
+  for (const [open, end] of spans) {
+    labelled.lastIndex = open;
+    const named = labelled.exec(text);
+    const name = named && named.index === open ? named[1].trim() : "";
 
-    const start = open + MAGIC_TAG_OPEN.length;
+    const valueStart = name ? named!.index + named![0].length : open + MAGIC_TAG_OPEN.length;
+    const close = end - MAGIC_TAG_CLOSE.length;
+    const start = valueStart;
     const value = text.slice(start, close);
-    cursor = close + MAGIC_TAG_CLOSE.length;
 
     if (!value.trim()) continue;
 
-    // The label comes from the line the marker sits on, with the marker itself
-    // removed — otherwise `login: [[secret]]x[[/secret]]` is named
-    // "login: [[secret]]" instead of "login". When the marker is alone on its
-    // line, fall back to the heading above it: `Orange system:` on one line,
-    // values below, is how a credential block is actually written.
-    const rawLabel = deriveLabel(text, start, "marked by hand");
-    const stripped = rawLabel
-      .replace(MAGIC_TAG_OPEN, "")
-      .replace(MAGIC_TAG_CLOSE, "")
-      .replace(/[:=\s]+$/, "")
-      .trim();
-    const label = stripped || nearestHeading(text, start) || "marked by hand";
+    // An explicit name wins. Otherwise take the line the marker sits on, with
+    // the marker itself removed — `login: [[secret]]x[[/secret]]` is named
+    // "login", not "login: [[secret]]". When the marker is alone on its line,
+    // fall back to the heading above it: `Orange system:` on one line, values
+    // below, is how a credential block is actually written.
+    let label = name;
+    if (!label) {
+      const rawLabel = deriveLabel(text, start, "marked by hand");
+      label = rawLabel
+        .replace(/\[\[\/?secret:?[^\]]*\]\]/g, "")
+        .replace(/[:=\s]+$/, "")
+        .trim();
+      if (!label) label = nearestHeading(text, start) || "marked by hand";
+    }
 
     findings.push({
       id: findingId(start, close, "manual"),
       start,
       end: close,
       value,
-      // The heading above the marker names it, same as any other finding.
       label,
       type: "manual",
       // The user asserted this is a secret, so it outranks any guess.
@@ -453,6 +513,8 @@ function detectManualTags(text: string): Finding[] {
  * becomes just `{{secret:k}}` — the marker has done its job once the value is in
  * the vault, and leaving it in the note would be noise.
  *
+ * Handles both forms: `[[secret]]` and the self-naming `[[secret:name]]`.
+ *
  * No offset remapping is needed: detection runs on the original text and
  * `resolveOverlaps` keeps the manual finding (confidence 1) over anything it
  * overlaps.
@@ -462,19 +524,28 @@ export function stripMagicTags(text: string): string {
   let removed = 0;
 
   while (removed < 500) {
-    const open = result.indexOf(MAGIC_TAG_OPEN);
-    if (open === -1) break;
-    const close = result.indexOf(MAGIC_TAG_CLOSE, open + MAGIC_TAG_OPEN.length);
-    if (close === -1) break;
-    result =
-      result.slice(0, open) + result.slice(open + MAGIC_TAG_OPEN.length, close) +
-      result.slice(close + MAGIC_TAG_CLOSE.length);
+    const spans = magicTagSpans(result);
+    if (spans.length === 0) break;
+    const [start, end] = spans[0];
+    const close = end - MAGIC_TAG_CLOSE.length;
+    // A named opener (`[[secret:name]]`) is longer than the plain one; the
+    // opener length is whichever the span actually starts with.
+    const openLen = result.startsWith(MAGIC_TAG_OPEN, start)
+      ? MAGIC_TAG_OPEN.length
+      : (new RegExp(`^${MAGIC_TAG_OPEN_LABELLED.source}`).exec(result.slice(start))?.[0].length ??
+        MAGIC_TAG_OPEN.length);
+    result = result.slice(0, start) + result.slice(start + openLen, close) + result.slice(end);
     removed += 1;
   }
 
   // An unclosed marker is a typo, not content — drop it so it cannot sit in the
   // note forever looking meaningful.
-  return result.split(MAGIC_TAG_OPEN).join("").split(MAGIC_TAG_CLOSE).join("");
+  return result
+    .replace(new RegExp(MAGIC_TAG_OPEN_LABELLED.source, "g"), "")
+    .split(MAGIC_TAG_OPEN)
+    .join("")
+    .split(MAGIC_TAG_CLOSE)
+    .join("");
 }
 
 /**
@@ -569,11 +640,16 @@ function findingId(start: number, end: number, type: string): string {
  *
  * Pure and synchronous: same input, same output, no side effects. The caller
  * decides what to do with the result.
+ *
+ * The rule passes run over the text with magic-tag regions blanked out. The
+ * markers are syntax the user added, not content to be scanned, and leaving them
+ * in makes `[[secret:Name]]` look like a `secret: value` assignment.
  */
 export function detectSecrets(text: string): Finding[] {
   if (!text.trim()) return [];
 
   const candidates: Finding[] = [];
+  const scannable = maskMagicSpans(text);
 
   for (const rule of ALL_RULES) {
     // A `g` regex carries `lastIndex` between calls; reset so a second scan of
@@ -581,7 +657,7 @@ export function detectSecrets(text: string): Finding[] {
     rule.regex.lastIndex = 0;
 
     let match: RegExpExecArray | null;
-    while ((match = rule.regex.exec(text)) !== null) {
+    while ((match = rule.regex.exec(scannable)) !== null) {
       const raw = match[rule.valueGroup];
       if (!raw) continue;
 
@@ -620,7 +696,11 @@ export function detectSecrets(text: string): Finding[] {
     }
   }
 
-  return resolveOverlaps([...candidates, ...detectStackedValues(text), ...detectManualTags(text)]);
+  return resolveOverlaps([
+    ...candidates,
+    ...detectStackedValues(scannable),
+    ...detectManualTags(text),
+  ]);
 }
 
 /**

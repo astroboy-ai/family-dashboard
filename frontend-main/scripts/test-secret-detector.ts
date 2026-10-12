@@ -229,6 +229,24 @@ check("magic tag under a heading takes the heading as label", underHeading.label
 const afterBlank = detectSecrets("Section:\n\n[[secret]]hunter2[[/secret]]")[0];
 check("blank line stops the heading search", afterBlank.label === "marked by hand", afterBlank.label);
 
+// A tag may name itself — the fix for one heading covering several secrets,
+// where every finding would otherwise be labelled "Orange system".
+const named = detectSecrets("[[secret:Orange ERP password]]HGC@2020[[/secret]]")[0];
+check("self-naming tag uses its own name", named.label === "Orange ERP password", named.label);
+check("self-naming tag value excludes the name", named.value === "HGC@2020", named.value);
+check("self-naming tag is stripped", stripMagicTags("[[secret:name]]val[[/secret]]") === "val", stripMagicTags("[[secret:name]]val[[/secret]]"));
+check("mixed tag forms all strip", stripMagicTags("a [[secret:x]]1[[/secret]] b [[secret]]2[[/secret]] c") === "a 1 b 2 c", stripMagicTags("a [[secret:x]]1[[/secret]] b [[secret]]2[[/secret]] c"));
+check("strip keeps a placeholder inside", stripMagicTags("[[secret:x]]{{secret:k}}[[/secret]]") === "{{secret:k}}");
+
+// The marker is syntax, not content: left visible, the `secret:` inside a named
+// tag reads to the context rules as a `secret: value` assignment.
+const twoNamed = detectSecrets(
+  "Orange system:\n[[secret:Orange password]]HGC@2020[[/secret]]\n[[secret:Kurintic key]]dueit73947wuweddnxcc8f938493GhsaggA[[/secret]]",
+);
+check("two named tags give two distinct labels", twoNamed.length === 2, String(twoNamed.length));
+check("no finding leaks the marker into its label", twoNamed.every((f) => !f.label.includes("[[")), JSON.stringify(twoNamed.map((f) => f.label)));
+check("the marker itself is not detected as a secret", !twoNamed.some((f) => f.value.includes("[[")), JSON.stringify(twoNamed.map((f) => f.value)));
+
 console.log("\n== finding carries its value (for the review list) ==");
 const withValue = detectSecrets("password: hunter2xyz")[0];
 check("value present", withValue.value === "hunter2xyz", withValue.value);

@@ -254,16 +254,23 @@ passwords, API keys, URLs, notes — and you turn it into a note.
 
 ### Step 1 — mark the secrets, then preview
 
-Wrap every secret you identified in magic tags, in place:
+Wrap every secret you identified in magic tags, in place. **Name the tag** when a
+heading covers several secrets — otherwise they all take the heading's name and
+become indistinguishable:
 
 ```
 Orange system:
 manager
-[[secret]]HGC@2020[[/secret]]
+[[secret:Orange ERP manager password]]HGC@2020[[/secret]]
 kinrtic: POST
+[[secret:Kurintic API key]]dueit73947wuweddnxcc8f938493GhsaggA[[/secret]]
 ERP_DEMO
 https://ERPPordK10.hkg.com.hk
 ```
+
+Both forms work. `[[secret]]…[[/secret]]` takes its name from the heading above
+or the text before it; `[[secret:Name]]…[[/secret]]` names itself. Use the named
+form whenever more than one secret sits under the same heading.
 
 Then call **`preview_smart_text`** with that text. It runs the same detector the
 browser uses and reports:
@@ -300,9 +307,9 @@ text needs no in-place annotation.
 - Good: `Orange ERP manager password`, `Kurintic API key`, `Router admin login`
 - Bad: `HGC@2020`, `password: HGC@2020`
 
-If you tag inline, the heading above the marker becomes the label — `manager
-login:` gives you "manager login". Check the returned mapping and rename if it
-came out poorly.
+If you tag inline without a name, the heading above the marker becomes the label —
+`manager login:` gives you "manager login". Check the returned mapping and rename
+if it came out poorly.
 
 ### Which of the two tools?
 

@@ -267,6 +267,12 @@ DATE_OR_TIME = re.compile(
 MAGIC_OPEN = "[[secret]]"
 MAGIC_CLOSE = "[[/secret]]"
 
+# A magic tag may carry its own name: `[[secret:Orange ERP password]]…[[/secret]]`.
+# Without one, the label comes from the line or the heading above — which is fine
+# for a single secret but ambiguous when a heading covers several, where every
+# finding would otherwise be named "Orange system".
+MAGIC_OPEN_LABELLED = re.compile(r"\[\[secret:([^\]]*)\]\]")
+
 SMART_TEXT_PLACEHOLDER = re.compile(r"\{\{secret:[^}]+\}\}")
 
 PLACEHOLDER_PATTERNS: list[re.Pattern] = [
@@ -454,6 +460,43 @@ def _nearest_heading(text: str, start: int) -> str | None:
     return None
 
 
+def mask_magic_spans(text: str) -> str:
+    """Blank out every magic-tag region, preserving offsets.
+
+    The marker is syntax, not content. Left visible, the `secret:` inside
+    ``[[secret:Kurintic API key]]`` reads to the context rules as a
+    `secret: value` assignment and produces a finding named `[[secret`.
+
+    Spaces rather than deletion so every other finding keeps its span in the
+    original string, which is what the review list and the replacement step
+    both index into.
+    """
+    masked = list(text)
+    cursor = 0
+
+    while cursor < len(text):
+        plain = text.find(MAGIC_OPEN, cursor)
+        named = MAGIC_OPEN_LABELLED.search(text, cursor)
+
+        if named is not None and (plain == -1 or named.start() < plain):
+            start = named.start()
+        elif plain != -1:
+            start = plain
+        else:
+            break
+
+        close_at = text.find(MAGIC_CLOSE, start)
+        if close_at == -1:
+            break
+
+        end = close_at + len(MAGIC_CLOSE)
+        for i in range(start, end):
+            masked[i] = " "
+        cursor = end
+
+    return "".join(masked)
+
+
 def _detect_manual_tags(text: str) -> list[Finding]:
     """Pull out everything wrapped in ``[[secret]]…[[/secret]]``.
 
@@ -462,36 +505,55 @@ def _detect_manual_tags(text: str) -> list[Finding]:
     marks it in place — the marker is plain text, so nothing new has to be
     stored, and the same detect → approve → protect flow does the rest.
 
+    A tag may name itself — ``[[secret:Orange ERP password]]…[[/secret]]``. That
+    matters when one heading covers several secrets: without a name every finding
+    under `Orange system:` would be labelled "Orange system", and the review list
+    would show two indistinguishable rows.
+
     Nested markers are not supported; the first closing tag ends the span.
     """
     findings: list[Finding] = []
     cursor = 0
 
     while cursor < len(text):
-        open_at = text.find(MAGIC_OPEN, cursor)
-        if open_at == -1:
+        # The two openers are genuinely distinct: `[[secret]]` closes its
+        # brackets, `[[secret:name]]` has a colon. Take whichever comes first.
+        plain = text.find(MAGIC_OPEN, cursor)
+        named = MAGIC_OPEN_LABELLED.search(text, cursor)
+
+        if named is not None and (plain == -1 or named.start() < plain):
+            name = named.group(1).strip()
+            value_start = named.end()
+        elif plain != -1:
+            name = ""
+            value_start = plain + len(MAGIC_OPEN)
+        else:
             break
-        close_at = text.find(MAGIC_CLOSE, open_at + len(MAGIC_OPEN))
+
+        close_at = text.find(MAGIC_CLOSE, value_start)
         if close_at == -1:
             break
 
-        start = open_at + len(MAGIC_OPEN)
+        start = value_start
         value = text[start:close_at]
         cursor = close_at + len(MAGIC_CLOSE)
 
         if not value.strip():
             continue
 
-        # The label comes from the line the marker sits on, with the marker
-        # itself removed — otherwise `login: [[secret]]x[[/secret]]` is named
-        # "login: [[secret]]" instead of "login". When the marker is alone on its
-        # line, fall back to the heading above it: `Orange system:` on one line,
-        # values below, is how a credential block is actually written.
-        raw_label = _derive_label(text, start, "marked by hand")
-        label = raw_label.replace(MAGIC_OPEN, "").replace(MAGIC_CLOSE, "")
-        label = re.sub(r"[:=\s]+$", "", label).strip()
-        if not label:
-            label = _nearest_heading(text, start) or "marked by hand"
+        # An explicit name wins. Otherwise take the line the marker sits on, with
+        # the marker itself removed — `login: [[secret]]x[[/secret]]` is named
+        # "login", not "login: [[secret]]". When the marker is alone on its line,
+        # fall back to the heading above it: `Orange system:` on one line, values
+        # below, is how a credential block is actually written.
+        if name:
+            label = name
+        else:
+            raw_label = _derive_label(text, start, "marked by hand")
+            label = re.sub(r"\[\[/?secret:?[^\]]*\]\]", "", raw_label)
+            label = re.sub(r"[:=\s]+$", "", label).strip()
+            if not label:
+                label = _nearest_heading(text, start) or "marked by hand"
 
         findings.append(
             Finding(
@@ -519,22 +581,32 @@ def strip_magic_tags(text: str) -> str:
     Called after placeholders are applied, so
     ``[[secret]]{{secret:k}}[[/secret]]`` becomes just ``{{secret:k}}`` — the
     marker has done its job once the value is in the vault.
+
+    Handles both forms: ``[[secret]]`` and the self-naming ``[[secret:name]]``.
     """
     result = text
     for _ in range(500):  # runaway guard
-        open_at = result.find(MAGIC_OPEN)
-        if open_at == -1:
+        # `[[secret]]` includes the closing brackets, so it is not a substring of
+        # `[[secret:name]]` — the two openers are genuinely distinct.
+        plain = result.find(MAGIC_OPEN)
+        named = MAGIC_OPEN_LABELLED.search(result)
+
+        if named is not None and (plain == -1 or named.start() < plain):
+            open_at, open_end = named.start(), named.end()
+        elif plain != -1:
+            open_at, open_end = plain, plain + len(MAGIC_OPEN)
+        else:
             break
-        close_at = result.find(MAGIC_CLOSE, open_at + len(MAGIC_OPEN))
+
+        close_at = result.find(MAGIC_CLOSE, open_end)
         if close_at == -1:
             break
-        result = (
-            result[:open_at]
-            + result[open_at + len(MAGIC_OPEN) : close_at]
-            + result[close_at + len(MAGIC_CLOSE) :]
-        )
+
+        result = result[:open_at] + result[open_end:close_at] + result[close_at + len(MAGIC_CLOSE) :]
+
     # An unclosed marker is a typo, not content — drop it so it cannot sit in the
     # note looking meaningful.
+    result = MAGIC_OPEN_LABELLED.sub("", result)
     return result.replace(MAGIC_OPEN, "").replace(MAGIC_CLOSE, "")
 
 
@@ -568,14 +640,19 @@ def detect_secrets(text: str) -> list[Finding]:
     """Scan ``text`` and return the findings a caller should be asked about.
 
     Pure and synchronous: same input, same output, no side effects.
+
+    The rule passes run over the text with magic-tag regions blanked out. The
+    markers are syntax the author added, not content to be scanned, and leaving
+    them in makes `[[secret:Name]]` look like a `secret: value` assignment.
     """
     if not text.strip():
         return []
 
     candidates: list[Finding] = []
+    scannable = mask_magic_spans(text)
 
     for rule in ALL_RULES:
-        for match in rule.pattern.finditer(text):
+        for match in rule.pattern.finditer(scannable):
             raw = match.group(rule.value_group) if rule.value_group else match.group(0)
             if not raw:
                 continue
@@ -603,6 +680,8 @@ def detect_secrets(text: str) -> list[Finding]:
                     start=start,
                     end=end,
                     value=raw,
+                    # The label comes from the original text, not the masked copy,
+                    # so a marker on the line does not blank the author's words.
                     label=_derive_label(text, start, rule.type.replace("_", " ")),
                     type=rule.type,
                     severity=rule.severity,
@@ -615,7 +694,13 @@ def detect_secrets(text: str) -> list[Finding]:
                 )
             )
 
-    return resolve_overlaps([*candidates, *_detect_stacked_values(text), *_detect_manual_tags(text)])
+    return resolve_overlaps(
+        [
+            *candidates,
+            *_detect_stacked_values(scannable),
+            *_detect_manual_tags(text),
+        ]
+    )
 
 
 RULE_REASONS: dict[str, str] = {

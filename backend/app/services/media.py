@@ -327,6 +327,7 @@ async def store_agent_upload(
         # upload would. Skip for non-images, which the worker ignores anyway.
         if asset.kind == "image":
             session.add(JobOutbox(topic="media.enrich", payload={"asset_id": str(asset.id)}))
+            session.add(JobOutbox(topic="media.thumbnail", payload={"asset_id": str(asset.id)}))
 
     await session.commit()
     return asset

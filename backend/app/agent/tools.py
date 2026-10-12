@@ -512,7 +512,7 @@ async def update_note_tool(params: BaseModel, context: ToolContext) -> ToolResul
     from app.services.notes import update_note
 
     values = UpdateNoteParams.model_validate(params)
-    payload = NotePatchRequest(**values.model_dump(exclude_unset=True, exclude={"note_id"}))
+    payload = NotePatchRequest(**{k: v for k, v in values.model_dump(exclude_unset=True, exclude={"note_id"}).items() if v is not None})
     try:
         note = await update_note(
             session=context.session,
@@ -542,7 +542,7 @@ async def update_block_tool(params: BaseModel, context: ToolContext) -> ToolResu
     from app.services.notes import update_block
 
     values = UpdateBlockParams.model_validate(params)
-    payload = NoteBlockPatchRequest(**values.model_dump(exclude_unset=True, exclude={"block_id"}))
+    payload = NoteBlockPatchRequest(**{k: v for k, v in values.model_dump(exclude_unset=True, exclude={"block_id"}).items() if v is not None})
     try:
         block = await update_block(
             session=context.session,
@@ -941,11 +941,14 @@ async def append_block_tool(params: BaseModel, context: ToolContext) -> ToolResu
     from app.schemas.notes import NoteBlockInput
 
     values = AppendBlockParams.model_validate(params)
+    data = dict(values.data) if values.data else {}
+    if values.media_asset_id:
+        data["media_asset_id"] = str(values.media_asset_id)
     payload = NoteBlockInput(
         type=values.type,
         text_content=values.text_content,
         media_asset_id=values.media_asset_id,
-        data=values.data,
+        data=data,
         caption=values.caption,
         expires_at=values.expires_at,
         importance=values.importance,

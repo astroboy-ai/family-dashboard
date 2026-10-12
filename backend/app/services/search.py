@@ -82,11 +82,14 @@ def build_search_statement(
         matching_notes = (
             select(note_tags.c.note_id)
             .join(Tag, Tag.id == note_tags.c.tag_id)
-            .where(Tag.household_id == actor.household_id, Tag.slug.in_(tags))
+            .where(
+                Tag.household_id == actor.household_id,
+                or_(Tag.slug.in_(tags), Tag.name.in_(tags)),
+            )
             .group_by(note_tags.c.note_id)
         )
         if tag_mode == "all":
-            matching_notes = matching_notes.having(func.count(func.distinct(Tag.slug)) == len(set(tags)))
+            matching_notes = matching_notes.having(func.count(func.distinct(Tag.id)) == len(set(tags)))
         statement = statement.where(Note.id.in_(matching_notes))
     if media_types:
         statement = statement.where(
@@ -149,6 +152,7 @@ async def search_notes(
                             dim=embed_result.dim,
                             mode="hybrid",
                             limit=limit,
+                            semantic_max_distance=1.0,
                         )
                         # Fetch the notes from hybrid search results
                         note_ids = [item["note_id"] for item in search_result["items"]]

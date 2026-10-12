@@ -19,6 +19,8 @@ from app.services.search import search_notes
 
 
 class SearchNotesParams(BaseModel):
+    model_config = {"extra": "forbid"}
+
     query: str = Field(default="", max_length=500)
     types: list[str] | None = None
     tags: list[str] | None = None

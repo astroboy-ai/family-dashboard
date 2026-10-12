@@ -121,6 +121,7 @@ def semantic_statement(
     statuses: list[str] | None = None,
     visibility: list[str] | None = None,
     member_ids: list[uuid.UUID] | None = None,
+    max_distance: float | None = None,
 ) -> Select[tuple[uuid.UUID, float]]:
     """Notes whose nearest embedding is closest to *query_vector*.
 
@@ -131,6 +132,11 @@ def semantic_statement(
     The cast in ``ORDER BY`` matches the partial expression HNSW index
     ``((embedding::vector(N)) vector_cosine_ops) WHERE dim = N AND is_active``,
     so the planner can use the index rather than scanning every row.
+
+    When *max_distance* is given, notes whose nearest chunk is further away
+    (cosine distance above the threshold) are excluded — without this the
+    channel returns every note with an embedding regardless of relevance, and
+    the RRF fusion lets those irrelevant rows crowd out the keyword channel.
     """
 
     # pgvector's `<=>` returns a float, but SQLAlchemy infers the *left*
@@ -154,8 +160,10 @@ def semantic_statement(
             Embedding.owner_type == "note",
         )
         .group_by(Embedding.owner_id)
-        .subquery()
     )
+    if max_distance is not None:
+        best_per_note = best_per_note.having(func.min(cast_distance) <= max_distance)
+    best_per_note = best_per_note.subquery()
 
     statement = (
         select(Note.id, best_per_note.c.distance)
@@ -192,9 +200,15 @@ async def hybrid_search(
     mode: str = "hybrid",
     limit: int = 50,
     channel_limit: int = DEFAULT_CHANNEL_LIMIT,
+    semantic_max_distance: float | None = None,
     **filters: object,
 ) -> dict[str, object]:
-    """Run the requested channel(s) and return fused note ids with evidence."""
+    """Run the requested channel(s) and return fused note ids with evidence.
+
+    *semantic_max_distance* is the cosine-distance ceiling for the semantic
+    channel.  Without it the channel returns every note that has an embedding
+    regardless of relevance, and those irrelevant rows flood the RRF fusion.
+    """
 
     if mode not in {"keyword", "semantic", "hybrid"}:
         raise ValueError(f"unsupported search mode: {mode}")
@@ -216,6 +230,7 @@ async def hybrid_search(
             query_vector=query_vector,
             dim=dim,
             limit=channel_limit,
+            max_distance=semantic_max_distance,
             **filters,  # type: ignore[arg-type]
         )
         rows = (await session.execute(statement)).all()

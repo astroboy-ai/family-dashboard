@@ -57,7 +57,10 @@ class ExpiringItemsParams(BaseModel):
     permissions=("notes.read",),
 )
 async def search_notes_tool(params: BaseModel, context: ToolContext) -> ToolResult:
-    values = SearchNotesParams.model_validate(params)
+    # Convert to dict first — model_validate on a BaseModel instance
+    # ignores extra=forbid in Pydantic v2
+    raw = params.model_dump() if hasattr(params, "model_dump") else dict(params)
+    values = SearchNotesParams.model_validate(raw)
     result = await search_notes(
         session=context.session,
         actor=context.actor,

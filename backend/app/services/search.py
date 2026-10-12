@@ -152,7 +152,7 @@ async def search_notes(
                             dim=embed_result.dim,
                             mode="hybrid",
                             limit=limit,
-                            semantic_max_distance=1.0,
+                            semantic_max_distance=0.5,
                         )
                         # Fetch the notes from hybrid search results
                         note_ids = [item["note_id"] for item in search_result["items"]]

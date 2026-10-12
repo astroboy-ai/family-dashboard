@@ -293,34 +293,42 @@ function classifyStackedValue(value: string): { type: string; severity: Severity
  * user's own heading ("Orange system") is a better name than anything derived
  * from the value.
  */
-function detectStackedValues(text: string): Finding[] {
-  const lines = text.split("\n");
+function detectStackedValues(text: string, scannable?: string): Finding[] {
+  const originalLines = text.split("\n");
+  const scanLines = (scannable ?? text).split("\n");
   const lineStarts: number[] = [];
   let offset = 0;
-  for (const line of lines) {
+  for (const line of originalLines) {
     lineStarts.push(offset);
     offset += line.length + 1;
   }
 
   const findings: Finding[] = [];
 
-  for (let i = 0; i < lines.length; i += 1) {
-    const header = BARE_LABEL.exec(lines[i]);
+  for (let i = 0; i < originalLines.length; i += 1) {
+    const header = BARE_LABEL.exec(originalLines[i]);
     if (!header) continue;
     const label = header[1].trim();
     if (!label) continue;
 
-    for (let j = i + 1; j < lines.length; j += 1) {
-      const raw = lines[j];
+    for (let j = i + 1; j < originalLines.length; j += 1) {
+      const rawOriginal = originalLines[j];
+      // Blankness and section breaks are judged on the real text: a line holding
+      // only a magic tag is blank in `scannable` but is not a blank line in the
+      // note, and treating it as one would hide every value below it.
+      if (!rawOriginal.trim()) break; // a blank line ends the block
+      if (BARE_LABEL.test(rawOriginal)) break; // the next section starts
+
+      const raw = scanLines[j] ?? rawOriginal;
       const value = raw.trim();
-      if (!value) break; // a blank line ends the block
-      if (BARE_LABEL.test(raw)) break; // the next section starts
+      if (!value) continue; // this line held only a marker
 
       const classified = classifyStackedValue(value);
       if (!classified) continue;
 
-      // Offset of the value within its own line, so the span points at the
-      // value and not at the leading whitespace.
+      // Offset of the value within its own line, so the span points at the value
+      // and not at the leading whitespace. Masking preserves length, so the
+      // offset is valid in the original too.
       const start = lineStarts[j] + raw.indexOf(value);
       const end = start + value.length;
 
@@ -698,7 +706,7 @@ export function detectSecrets(text: string): Finding[] {
 
   return resolveOverlaps([
     ...candidates,
-    ...detectStackedValues(scannable),
+    ...detectStackedValues(text, scannable),
     ...detectManualTags(text),
   ]);
 }

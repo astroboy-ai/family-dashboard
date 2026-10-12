@@ -372,7 +372,7 @@ def _derive_label(source: str, start: int, fallback: str) -> str:
     return cleaned if len(cleaned) <= 60 else fallback
 
 
-def _detect_stacked_values(text: str) -> list[Finding]:
+def _detect_stacked_values(text: str, scannable: str | None = None) -> list[Finding]:
     """Find secrets written as a labelled block, one value per line.
 
     ```
@@ -384,17 +384,24 @@ def _detect_stacked_values(text: str) -> list[Finding]:
     Everything from the line after the label to the next blank line or the next
     bare label is a candidate. The label names the findings, because the author's
     own heading is a better name than anything derived from the value.
+
+    ``scannable`` is the same text with magic-tag regions blanked. Values are
+    read from it — a marker is syntax, not content. Line boundaries come from
+    ``text``, because a fully-blanked line *looks* blank and would otherwise end
+    the block early, hiding every value below a tagged one.
     """
-    lines = text.split("\n")
+    original_lines = text.split("\n")
+    scan_lines = (scannable if scannable is not None else text).split("\n")
+
     line_starts: list[int] = []
     offset = 0
-    for line in lines:
+    for line in original_lines:
         line_starts.append(offset)
         offset += len(line) + 1
 
     findings: list[Finding] = []
 
-    for i, line in enumerate(lines):
+    for i, line in enumerate(original_lines):
         header = BARE_LABEL.match(line)
         if not header:
             continue
@@ -402,19 +409,27 @@ def _detect_stacked_values(text: str) -> list[Finding]:
         if not label:
             continue
 
-        for j in range(i + 1, len(lines)):
-            raw = lines[j]
+        for j in range(i + 1, len(original_lines)):
+            raw_original = original_lines[j]
+            # Blankness and section breaks are judged on the real text: a line
+            # holding only a magic tag is blank in `scannable` but is not a blank
+            # line in the note.
+            if not raw_original.strip():
+                break  # a blank line ends the block
+            if BARE_LABEL.match(raw_original):
+                break  # the next section starts
+
+            raw = scan_lines[j] if j < len(scan_lines) else raw_original
             value = raw.strip()
             if not value:
-                break  # a blank line ends the block
-            if BARE_LABEL.match(raw):
-                break  # the next section starts
+                continue  # this line held only a marker
 
             classified = classify_stacked_value(value)
             if not classified:
                 continue
 
-            # Point the span at the value, not at the leading whitespace.
+            # Point the span at the value, not at the leading whitespace. Masking
+            # preserves length, so the offset is valid in the original too.
             start = line_starts[j] + raw.index(value)
             end = start + len(value)
 
@@ -697,7 +712,7 @@ def detect_secrets(text: str) -> list[Finding]:
     return resolve_overlaps(
         [
             *candidates,
-            *_detect_stacked_values(scannable),
+            *_detect_stacked_values(text, scannable),
             *_detect_manual_tags(text),
         ]
     )

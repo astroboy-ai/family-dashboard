@@ -41,7 +41,7 @@
  * The parent decides which to render; this module holds no `editing` state.
  */
 
-import { Check, Eye, EyeOff, LoaderCircle, Lock, Pencil, Plus, Save, ShieldAlert, Sparkles, Wand2, X } from "lucide-react";
+import { Check, Copy, Eye, EyeOff, LoaderCircle, Lock, Pencil, Plus, Save, ShieldAlert, Sparkles, Wand2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
   applyPlaceholders,
@@ -211,6 +211,21 @@ function SecretChip({
           <Eye size={11} />
         )}
       </button>
+      {shown && value && (
+        <button
+          type="button"
+          className="smart-text-chip-copy"
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(value);
+            } catch { /* clipboard blocked */ }
+          }}
+          aria-label="Copy secret"
+          title="Copy"
+        >
+          <Copy size={11} />
+        </button>
+      )}
     </span>
   );
 }
@@ -510,11 +525,12 @@ export function SmartTextEditor({
                   {editingId === finding.id ? (
                     <div className="smart-text-finding-edit">
                       <input
-                        className="smart-text-finding-labelinput"
+                        className="smart-text-finding-label-input"
                         value={finding.editLabel}
                         onChange={(event) =>
                           editField(finding.id, { editLabel: event.target.value })
                         }
+                        onFocus={(event) => event.target.select()}
                         placeholder="Name for this secret"
                         autoFocus
                       />

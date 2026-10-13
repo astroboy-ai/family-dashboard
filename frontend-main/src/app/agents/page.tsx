@@ -21,6 +21,7 @@ import {
   type AgentToken,
   type AgentTokenCreated,
 } from "@/lib/api";
+import { confirmDialog } from "@/components/confirm-dialog";
 
 /** Expiry choices, in days. `null` means the token never expires. */
 const EXPIRY_OPTIONS: { label: string; days: number | null }[] = [
@@ -192,6 +193,12 @@ export default function AgentsPage() {
   }
 
   async function revoke(token: AgentToken) {
+    const confirmed = await confirmDialog({
+      title: `Revoke ${token.label}?`,
+      message: "This stops the token from working immediately. It cannot be restored.",
+      confirmLabel: "Revoke token",
+    });
+    if (!confirmed) return;
     setError("");
     setNotice("");
     setRevokingId(token.id);

@@ -322,12 +322,18 @@ async def store_agent_upload(
     )
     session.add(asset)
 
+    # Thumbnail generation is always needed — the frontend renders every
+    # image block with /thumbnail, and an agent-supplied description has no
+    # bearing on whether a thumbnail should exist. Previously this was nested
+    # under `if not description`, so every agent upload with a description
+    # skipped thumbnail generation entirely and the <img> 404'd.
+    if asset.kind == "image":
+        session.add(JobOutbox(topic="media.thumbnail", payload={"asset_id": str(asset.id)}))
+
     if not description:
         # No description: let the local vision worker do it, same as a browser
         # upload would. Skip for non-images, which the worker ignores anyway.
-        if asset.kind == "image":
-            session.add(JobOutbox(topic="media.enrich", payload={"asset_id": str(asset.id)}))
-            session.add(JobOutbox(topic="media.thumbnail", payload={"asset_id": str(asset.id)}))
+        session.add(JobOutbox(topic="media.enrich", payload={"asset_id": str(asset.id)}))
 
     await session.commit()
     return asset

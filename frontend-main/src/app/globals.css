@@ -1417,6 +1417,126 @@ h2 {
   font-style: italic;
 }
 
+/* ── StatusDropdown ─────────────────────────────────────────────── */
+.status-dropdown {
+  position: relative;
+}
+.status-dropdown-button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 42px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: capitalize;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+  white-space: nowrap;
+}
+.status-dropdown-button:hover {
+  border-color: var(--accent-border);
+}
+.status-dropdown-button-open {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.status-dropdown-summary {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.status-dropdown-chevron {
+  transition: transform 150ms ease;
+  flex-shrink: 0;
+}
+.status-dropdown-chevron-open {
+  transform: rotate(180deg);
+}
+.status-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 170px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+  z-index: 50;
+  padding: 4px 0;
+  overflow: hidden;
+}
+.status-dropdown-actions {
+  display: flex;
+  gap: 4px;
+  padding: 4px 6px;
+}
+.status-dropdown-action {
+  flex: 1;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: border-color 100ms ease, color 100ms ease;
+}
+.status-dropdown-action:hover {
+  border-color: var(--accent-border);
+  color: var(--foreground);
+}
+.status-dropdown-divider {
+  height: 1px;
+  margin: 2px 0;
+  background: var(--line);
+}
+.status-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 12px;
+  border: none;
+  background: none;
+  color: var(--foreground);
+  font-size: 13px;
+  text-transform: capitalize;
+  cursor: pointer;
+  transition: background 100ms ease;
+  text-align: left;
+}
+.status-dropdown-item:hover {
+  background: var(--hover);
+}
+.status-dropdown-checkbox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--line);
+  border-radius: 4px;
+  flex-shrink: 0;
+  transition: border-color 100ms ease, background 100ms ease;
+}
+.status-dropdown-checkbox-on {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--surface);
+}
+.status-dropdown-item-label {
+  flex: 1;
+}
+
 .toolbar-link {
   min-height: 40px;
   padding: 0 8px;
@@ -2807,7 +2927,7 @@ color: var(--gold-on-strong);
     flex: 1;
   }
 
-  .status-chips {
+  .status-dropdown {
     flex-basis: 100%;
   }
 

@@ -364,6 +364,10 @@ export default function NoteDetailPage() {
           const input = document.createElement("input");
           input.type = "file";
           input.multiple = true;
+          // Any document the family might want to keep: PDFs, spreadsheets,
+          // Word files, plain text, archives. Images have their own button.
+          input.accept =
+            ".pdf,.xls,.xlsx,.csv,.doc,.docx,.ppt,.pptx,.txt,.md,.rtf,.odt,.ods,.odp,.zip,.json,.xml,.html,.epub";
           input.onchange = async () => {
             const files = Array.from(input.files ?? []);
             if (files.length === 0) return;
@@ -374,7 +378,9 @@ export default function NoteDetailPage() {
                 const block = await createBlock(note.id, {
                   type: "file",
                   text_content: file.name,
-                  data: { media_asset_id: assetId },
+                  // Carry the size and MIME through so the block can show a
+                  // useful subtitle instead of just the filename.
+                  data: { media_asset_id: assetId, size_bytes: file.size, mime: file.type },
                 });
                 adoptNewBlock(block);
               } catch (reason) {
@@ -534,6 +540,12 @@ export default function NoteDetailPage() {
 
   async function removeTag(tagSlug: string) {
     if (!note) return;
+    const confirmed = await confirmDialog({
+      title: `Remove #${tagSlug}?`,
+      message: "The tag is taken off this note. Other notes keep it.",
+      confirmLabel: "Remove tag",
+    });
+    if (!confirmed) return;
     try {
       const tags = await removeTagFromNote(note.id, tagSlug);
       setNote((current) => current ? { ...current, tags } : current);
@@ -559,7 +571,26 @@ export default function NoteDetailPage() {
         <p className="page-subtitle">Updated {new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(note.updated_at))}</p>
       </section>
       <div className="note-tag-row">
-        {note.tags.map((tag) => <button type="button" className="tag-chip tag-chip-button" key={tag.id} onClick={() => void removeTag(tag.slug)}>#{tag.slug}</button>)}
+        {note.tags.map((tag) => (
+          <span className="tag-chip tag-chip-button" key={tag.id}>
+            <Link
+              className="tag-chip-link"
+              href={`/search?tag=${encodeURIComponent(tag.slug)}`}
+              title={`Find every note tagged #${tag.slug}`}
+            >
+              #{tag.slug}
+            </Link>
+            <button
+              type="button"
+              className="tag-chip-remove"
+              onClick={() => void removeTag(tag.slug)}
+              aria-label={`Remove tag ${tag.slug}`}
+              title={`Remove #${tag.slug}`}
+            >
+              <X size={11} strokeWidth={2.5} />
+            </button>
+          </span>
+        ))}
         <div className="tag-entry compact-tag-entry">
           <input value={tagInput} onChange={(event) => setTagInput(event.target.value)} placeholder="Add tag" aria-label="Add a tag" />
           <button type="button" className="primary-button" onClick={() => void addTag()} disabled={!tagInput.trim()}>Add</button>
@@ -710,16 +741,7 @@ export default function NoteDetailPage() {
             ) : block.type === "image" ? (
               <ImageBlockView block={block} onAnalyse={() => void analyseImage(block)} onRemove={() => void removeBlock(block.id)} onOpenGallery={() => openGallery(index)} onUpdateData={(data) => void updateBlockData(block.id, data)} />
             ) : block.type === "file" ? (
-              <div className="block-media block-file">
-                <a
-                  href={`/api/media/${encodeURIComponent(String(block.data?.media_asset_id ?? ""))}/download`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block-file-link"
-                >
-                  📎 {block.text_content ?? "Download file"}
-                </a>
-              </div>
+              <FileBlockView block={block} />
             ) : block.type === "audio" ? (
               <div className="block-media block-audio">
                 <audio
@@ -1244,6 +1266,47 @@ function TextOverlayView({
           aria-label="Text editor"
         />
       </div>
+    </div>
+  );
+}
+
+/**
+ * File block: any non-image, non-media attachment — PDF, spreadsheet, document.
+ *
+ * The backend stores any MIME type as kind "file"; this view only has to make
+ * the download obvious and show enough metadata to tell two files apart. The
+ * extension badge is derived from the filename rather than the MIME, because
+ * that is what the user recognises.
+ */
+function FileBlockView({ block }: { block: NoteBlock }) {
+  const assetId = String(block.data?.media_asset_id ?? "");
+  const name = block.text_content || "Download file";
+  const dot = name.lastIndexOf(".");
+  const ext = dot > 0 ? name.slice(dot + 1).toUpperCase().slice(0, 5) : "FILE";
+  const bytes = Number(block.data?.size_bytes ?? 0);
+  const size = bytes > 0
+    ? bytes >= 1_048_576
+      ? `${(bytes / 1_048_576).toFixed(1)} MB`
+      : `${Math.max(1, Math.round(bytes / 1024))} KB`
+    : "";
+
+  return (
+    <div className="block-media block-file">
+      <a
+        href={`/api/media/${encodeURIComponent(assetId)}/download`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="block-file-link"
+        title={`Download ${name}`}
+      >
+        <span className="block-file-badge">{ext}</span>
+        <span className="block-file-meta">
+          <span className="block-file-name">{name}</span>
+          <span className="block-file-sub">
+            {size ? `${size} · ` : ""}Click to download
+          </span>
+        </span>
+      </a>
     </div>
   );
 }

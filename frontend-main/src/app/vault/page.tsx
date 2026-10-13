@@ -2,6 +2,7 @@
 
 import { Eye, EyeOff, KeyRound, LoaderCircle, Lock, Plus, Save, ShieldCheck, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { confirmDialog } from "@/components/confirm-dialog";
 import {
   deleteVaultSecret,
   getActor,
@@ -268,7 +269,12 @@ export default function VaultPage() {
   }
 
   async function removeSecret(secret: VaultSecret) {
-    if (!window.confirm(`Delete ${secret.key}? This cannot be undone.`)) return;
+    const confirmed = await confirmDialog({
+      title: `Delete ${secret.key}?`,
+      message: "This removes the secret from your household vault. It cannot be undone.",
+      confirmLabel: "Delete secret",
+    });
+    if (!confirmed) return;
     setDeletingKey(secret.key);
     setSecretsError("");
     try {

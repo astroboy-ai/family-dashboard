@@ -31,6 +31,7 @@ from app.schemas.agent_token import (
     AgentTokenCreateRequest,
     AgentTokenCreatedResponse,
     AgentTokenResponse,
+    AgentTokenUpdateRequest,
 )
 from app.services.agent_tokens import generate_token, hash_token
 
@@ -143,6 +144,50 @@ async def create_agent_token(
         **_describe(record, now=datetime.now(UTC)).model_dump(),
         token=token,
     )
+
+
+@router.put("/{token_id}")
+async def update_agent_token(
+    token_id: uuid.UUID,
+    payload: AgentTokenUpdateRequest,
+    actor: Annotated[Actor, Depends(get_current_actor)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> AgentTokenResponse:
+    """Update a token's label, scopes, or expiry. Only supplied fields change.
+
+    Revoked tokens cannot be updated — revoke first, then re-mint.
+    """
+
+    require_admin(actor)
+
+    record = (
+        await session.execute(
+            select(DeviceToken).where(
+                DeviceToken.id == token_id,
+                DeviceToken.household_id == actor.household_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if record is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Token not found")
+
+    if record.revoked_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Revoked tokens cannot be updated. Revoke is permanent.",
+        )
+
+    if payload.label is not None:
+        record.label = payload.label
+    if payload.scopes is not None:
+        record.scopes = payload.scopes
+    if payload.expires_in_days is not None:
+        record.expires_at = datetime.now(UTC) + timedelta(days=payload.expires_in_days)
+
+    await session.commit()
+    await session.refresh(record)
+
+    return _describe(record, now=datetime.now(UTC))
 
 
 @router.delete("/{token_id}")

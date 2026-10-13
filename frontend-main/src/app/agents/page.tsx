@@ -5,10 +5,12 @@ import {
   Copy,
   KeyRound,
   LoaderCircle,
+  Pencil,
   Plus,
   ShieldAlert,
   Trash2,
   TriangleAlert,
+  X,
 } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
@@ -17,6 +19,7 @@ import {
   getAgentTokenScopes,
   listAgentTokens,
   revokeAgentToken,
+  updateAgentToken,
   type Actor,
   type AgentToken,
   type AgentTokenCreated,
@@ -108,6 +111,13 @@ export default function AgentsPage() {
   const [copied, setCopied] = useState(false);
 
   const [revokingId, setRevokingId] = useState<string | null>(null);
+
+  // Inline edit: the token being edited, its draft fields, and the in-flight flag.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editLabel, setEditLabel] = useState("");
+  const [editScopes, setEditScopes] = useState<string[]>([]);
+  const [editExpiry, setEditExpiry] = useState<number | null>(365);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const load = useCallback(async () => {
     const [tokenList, scopeMap] = await Promise.all([
@@ -211,6 +221,61 @@ export default function AgentsPage() {
       setError(reason instanceof Error ? reason.message : "Unable to revoke the token.");
     } finally {
       setRevokingId(null);
+    }
+  }
+
+  /** Open the inline editor for a token, seeding the draft from its current values. */
+  function startEdit(token: AgentToken) {
+    setError("");
+    setNotice("");
+    setEditingId(token.id);
+    setEditLabel(token.label);
+    setEditScopes([...token.scopes]);
+    // The stored expiry is an absolute date; the editor works in days. Show the
+    // remaining whole days, floored at 1 so the select always has a valid option.
+    if (token.expires_at) {
+      const days = Math.max(1, Math.ceil((new Date(token.expires_at).getTime() - Date.now()) / 86_400_000));
+      setEditExpiry(days);
+    } else {
+      setEditExpiry(null);
+    }
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+  }
+
+  function toggleEditScope(scope: string) {
+    setEditScopes((current) =>
+      current.includes(scope) ? current.filter((s) => s !== scope) : [...current, scope],
+    );
+  }
+
+  async function saveEdit(token: AgentToken) {
+    if (!editLabel.trim()) {
+      setError("Give the token a label so you can tell it apart later.");
+      return;
+    }
+    if (editScopes.length === 0) {
+      setError("Pick at least one scope.");
+      return;
+    }
+    setError("");
+    setNotice("");
+    setSavingEdit(true);
+    try {
+      const updated = await updateAgentToken(token.id, {
+        label: editLabel.trim(),
+        scopes: editScopes,
+        expires_in_days: editExpiry,
+      });
+      setNotice(`Updated “${updated.label}”. Changes apply to the next call.`);
+      setEditingId(null);
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to update the token.");
+    } finally {
+      setSavingEdit(false);
     }
   }
 
@@ -372,39 +437,146 @@ export default function AgentsPage() {
               <tbody>
                 {tokens.map((token) => {
                   const status = statusOf(token);
+                  const isEditing = editingId === token.id;
                   return (
                     <tr key={token.id} className={token.is_active ? "" : "token-inactive"}>
-                      <td>{token.label}</td>
-                      <td className="token-scopes">
-                        {token.scopes.map((scope) => (
-                          <span key={scope} className="scope-chip">
-                            {scope}
-                          </span>
-                        ))}
-                      </td>
-                      <td>{formatMoment(token.created_at)}</td>
-                      <td>{formatMoment(token.last_seen_at)}</td>
-                      <td>{token.expires_at ? formatMoment(token.expires_at) : "Never"}</td>
-                      <td>
-                        <span className={`status-pill status-${status.tone}`}>{status.label}</span>
-                      </td>
-                      <td>
-                        {token.is_active ? (
-                          <button
-                            type="button"
-                            className="icon-button danger"
-                            title={`Revoke ${token.label}`}
-                            disabled={revokingId === token.id}
-                            onClick={() => void revoke(token)}
-                          >
-                            {revokingId === token.id ? (
-                              <LoaderCircle size={14} className="spin" />
-                            ) : (
-                              <Trash2 size={14} />
-                            )}
-                          </button>
-                        ) : null}
-                      </td>
+                      {isEditing ? (
+                        <>
+                          <td>
+                            <input
+                              type="text"
+                              className="token-edit-input"
+                              value={editLabel}
+                              onChange={(event) => setEditLabel(event.target.value)}
+                              onFocus={(event) => event.target.select()}
+                              maxLength={120}
+                              aria-label="Token label"
+                            />
+                          </td>
+                          <td className="token-scopes">
+                            <div className="token-edit-scopes">
+                              {Object.keys(scopes).map((scope) => (
+                                <label key={scope} className="scope-option compact">
+                                  <input
+                                    type="checkbox"
+                                    checked={editScopes.includes(scope)}
+                                    onChange={() => toggleEditScope(scope)}
+                                  />
+                                  <span>
+                                    <code>{scope}</code>
+                                  </span>
+                                </label>
+                              ))}
+                            </div>
+                          </td>
+                          <td>{formatMoment(token.created_at)}</td>
+                          <td>{formatMoment(token.last_seen_at)}</td>
+                          <td>
+                            <select
+                              className="token-edit-select"
+                              value={editExpiry === null ? "never" : String(editExpiry)}
+                              onChange={(event) =>
+                                setEditExpiry(event.target.value === "never" ? null : Number(event.target.value))
+                              }
+                              aria-label="Token expiry"
+                            >
+                              {EXPIRY_OPTIONS.map((option) => (
+                                <option
+                                  key={option.label}
+                                  value={option.days === null ? "never" : String(option.days)}
+                                >
+                                  {option.label}
+                                </option>
+                              ))}
+                              {/* The stored expiry rarely lands exactly on a preset
+                                  (it counts down from the original mint date), so
+                                  keep the current value selectable rather than
+                                  silently snapping it to a preset. */}
+                              {editExpiry !== null &&
+                                !EXPIRY_OPTIONS.some((option) => option.days === editExpiry) && (
+                                  <option value={String(editExpiry)}>
+                                    {editExpiry} days (current)
+                                  </option>
+                                )}
+                            </select>
+                          </td>
+                          <td>
+                            <span className={`status-pill status-${status.tone}`}>{status.label}</span>
+                          </td>
+                          <td>
+                            <div className="token-row-actions">
+                              <button
+                                type="button"
+                                className="icon-button"
+                                title="Save changes"
+                                disabled={savingEdit}
+                                onClick={() => void saveEdit(token)}
+                              >
+                                {savingEdit ? (
+                                  <LoaderCircle size={14} className="spin" />
+                                ) : (
+                                  <Check size={14} />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                className="icon-button"
+                                title="Cancel"
+                                disabled={savingEdit}
+                                onClick={cancelEdit}
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                          </td>
+                        </>
+                      ) : (
+                        <>
+                          <td>{token.label}</td>
+                          <td className="token-scopes">
+                            {token.scopes.map((scope) => (
+                              <span key={scope} className="scope-chip">
+                                {scope}
+                              </span>
+                            ))}
+                          </td>
+                          <td>{formatMoment(token.created_at)}</td>
+                          <td>{formatMoment(token.last_seen_at)}</td>
+                          <td>{token.expires_at ? formatMoment(token.expires_at) : "Never"}</td>
+                          <td>
+                            <span className={`status-pill status-${status.tone}`}>{status.label}</span>
+                          </td>
+                          <td>
+                            <div className="token-row-actions">
+                              {token.is_active ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="icon-button"
+                                    title={`Edit ${token.label}`}
+                                    onClick={() => startEdit(token)}
+                                  >
+                                    <Pencil size={14} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="icon-button danger"
+                                    title={`Revoke ${token.label}`}
+                                    disabled={revokingId === token.id}
+                                    onClick={() => void revoke(token)}
+                                  >
+                                    {revokingId === token.id ? (
+                                      <LoaderCircle size={14} className="spin" />
+                                    ) : (
+                                      <Trash2 size={14} />
+                                    )}
+                                  </button>
+                                </>
+                              ) : null}
+                            </div>
+                          </td>
+                        </>
+                      )}
                     </tr>
                   );
                 })}

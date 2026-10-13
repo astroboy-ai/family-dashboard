@@ -1152,6 +1152,12 @@ export type AgentTokenCreateInput = {
   member_id?: string | null;
 };
 
+export type AgentTokenUpdateInput = {
+  label?: string;
+  scopes?: string[];
+  expires_in_days?: number | null;
+};
+
 export function getAgentTokenScopes(): Promise<Record<string, string>> {
   return apiRequest<Record<string, string>>("/admin/agent-tokens/scopes");
 }
@@ -1172,6 +1178,16 @@ export function revokeAgentToken(tokenId: string): Promise<{ id: string; revoked
     `/admin/agent-tokens/${encodeURIComponent(tokenId)}`,
     { method: "DELETE" },
   );
+}
+
+export function updateAgentToken(
+  tokenId: string,
+  input: AgentTokenUpdateInput,
+): Promise<AgentToken> {
+  return apiRequest<AgentToken>(`/admin/agent-tokens/${encodeURIComponent(tokenId)}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
 }
 
 // ── Notifications ────────────────────────────────────────────────────────────

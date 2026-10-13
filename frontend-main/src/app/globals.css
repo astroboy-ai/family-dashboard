@@ -2147,6 +2147,39 @@ h2 {
   cursor: pointer;
 }
 
+/* The tag label is a link to the search page; the ✗ beside it removes the tag
+   from this note. Two separate targets so neither action is a surprise. */
+.tag-chip-link {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.tag-chip-link:hover {
+  text-decoration: underline;
+}
+
+.tag-chip-remove {
+  display: inline-grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  margin-left: 1px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 120ms ease, color 120ms ease, background 120ms ease;
+}
+
+.tag-chip-remove:hover {
+  opacity: 1;
+  color: var(--coral);
+  background: var(--coral-soft);
+}
+
 .tag-entry {
   display: flex;
   gap: 8px;
@@ -3258,6 +3291,42 @@ color: var(--gold-on-strong);
   text-decoration: none;
   font-size: 14px;
   transition: background 0.15s, border-color 0.15s;
+}
+
+/* Extension badge + two-line label, so a PDF reads differently from a
+   spreadsheet at a glance instead of both being a generic paperclip. */
+.block-file-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 44px;
+  height: 30px;
+  padding: 0 7px;
+  border-radius: 5px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  flex-shrink: 0;
+}
+
+.block-file-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.block-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 320px;
+}
+
+.block-file-sub {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .block-file-link:hover {
@@ -5823,6 +5892,57 @@ tfoot .table-control-btn {
 .icon-button.danger:hover {
   color: var(--coral);
   border-color: var(--coral);
+}
+
+/* ── Agent token inline edit ──────────────────────────────────────────────── */
+
+.token-row-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.token-edit-input {
+  width: 100%;
+  min-width: 120px;
+  padding: 5px 8px;
+  border: 1px solid var(--accent-border);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: 13px;
+}
+
+.token-edit-select {
+  padding: 5px 8px;
+  border: 1px solid var(--accent-border);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: 12px;
+}
+
+.token-edit-scopes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* A tighter variant of .scope-option for use inside a table cell, where the
+   full-size padding would make every row tall. */
+.scope-option.compact {
+  gap: 5px;
+  padding: 1px 0;
+  font-size: 11px;
+}
+
+.scope-option.compact code {
+  font-size: 11px;
+}
+
+.scope-option.compact em {
+  display: none;
 }
 
 /* ── Archify: imported artifacts ───────────────────────────────────────────────

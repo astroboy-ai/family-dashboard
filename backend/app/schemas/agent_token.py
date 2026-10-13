@@ -52,6 +52,34 @@ class AgentTokenCreateRequest(BaseModel):
         return list(dict.fromkeys(value))
 
 
+class AgentTokenUpdateRequest(BaseModel):
+    """Partial update to a token's mutable fields. Only supplied fields change."""
+
+    label: str | None = Field(default=None, min_length=1, max_length=120)
+    scopes: list[str] | None = Field(default=None, min_length=1)
+    expires_in_days: int | None = Field(default=None, ge=1, le=3650)
+
+    @field_validator("label")
+    @classmethod
+    def strip_label(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("Label cannot be blank")
+        return cleaned
+
+    @field_validator("scopes")
+    @classmethod
+    def known_scopes_only(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        unknown = sorted(set(value) - set(KNOWN_SCOPES))
+        if unknown:
+            raise ValueError(f"Unknown scope(s): {', '.join(unknown)}")
+        return list(dict.fromkeys(value))
+
+
 class AgentTokenResponse(BaseModel):
     """A token as listed. Never includes the plaintext or its hash."""
 

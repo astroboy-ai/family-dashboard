@@ -1380,6 +1380,43 @@ h2 {
   cursor: pointer;
 }
 
+.status-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-chip {
+  height: 42px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: capitalize;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+}
+
+.status-chip:hover {
+  border-color: var(--accent-border);
+  color: var(--foreground);
+}
+
+.status-chip-on {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.status-chip-all {
+  border-style: dashed;
+  font-style: italic;
+}
+
 .toolbar-link {
   min-height: 40px;
   padding: 0 8px;
@@ -2768,6 +2805,10 @@ color: var(--gold-on-strong);
 
   .select-field {
     flex: 1;
+  }
+
+  .status-chips {
+    flex-basis: 100%;
   }
 
   .list-results {

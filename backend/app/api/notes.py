@@ -58,6 +58,7 @@ async def get_notes(
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     status_filter: str | None = Query(default=None, alias="status"),
+    statuses: Annotated[list[str] | None, Query()] = None,
     note_type: str | None = Query(default=None, alias="type"),
     tag: str | None = None,
 ) -> NoteListResponse:
@@ -67,6 +68,7 @@ async def get_notes(
         limit=limit,
         offset=offset,
         status=status_filter,
+        statuses=statuses,
         note_type=note_type,
         tag=tag,
     )

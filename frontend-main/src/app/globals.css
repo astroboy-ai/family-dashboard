@@ -7957,6 +7957,21 @@ tfoot .table-control-btn {
   opacity: 1;
 }
 
+.smart-text-chip-copy {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 1px;
+  opacity: 0.75;
+}
+
+.smart-text-chip-copy:hover {
+  opacity: 1;
+}
+
 .smart-text-footer {
   display: flex;
   align-items: center;
@@ -8120,7 +8135,7 @@ tfoot .table-control-btn {
 .smart-text-finding-nameline svg { opacity: 0; transition: opacity 0.15s; }
 .smart-text-finding-nameline:hover svg { opacity: 0.6; }
 .smart-text-finding-edit { display: flex; gap: 6px; align-items: center; margin: 4px 0; }
-.smart-text-finding-labelinput {
+.smart-text-finding-label-input {
   flex: 1; padding: 4px 8px; font-size: 13px;
   border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--foreground);
 }

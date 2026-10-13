@@ -384,6 +384,7 @@ async def list_notes(
     limit: int = 50,
     offset: int = 0,
     status: str | None = None,
+    statuses: list[str] | None = None,
     note_type: str | None = None,
     tag: str | None = None,
 ) -> NoteListResponse:
@@ -392,7 +393,9 @@ async def list_notes(
         Note.deleted_at.is_(None),
         note_access_clause(actor),
     )
-    if status is not None:
+    if statuses:
+        statement = statement.where(Note.status.in_(statuses))
+    elif status is not None:
         statement = statement.where(Note.status == status)
     if note_type is not None:
         statement = statement.where(Note.type == note_type)

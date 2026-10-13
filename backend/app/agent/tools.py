@@ -24,6 +24,7 @@ class SearchNotesParams(BaseModel):
     query: str = Field(default="", max_length=500)
     types: list[str] | None = None
     tags: list[str] | None = None
+    tag: list[str] | None = None  # singular alias for tags
     statuses: list[str] | None = None
     limit: int = Field(default=10, ge=1, le=50)
 
@@ -57,14 +58,13 @@ class ExpiringItemsParams(BaseModel):
     permissions=("notes.read",),
 )
 async def search_notes_tool(params: BaseModel, context: ToolContext) -> ToolResult:
-    # Convert to dict first — model_validate on a BaseModel instance
-    # ignores extra=forbid in Pydantic v2, so unknown params like 'tag'
-    # would silently pass through. Explicitly reject unknown keys.
     raw = params.model_dump() if hasattr(params, "model_dump") else dict(params)
-    unknown = set(raw) - set(SearchNotesParams.model_fields)
-    if unknown:
-        raise ValueError(f"Unknown parameter(s): {', '.join(sorted(unknown))}")
     values = SearchNotesParams.model_validate(raw)
+    # Merge singular 'tag' alias into 'tags'
+    if values.tag and not values.tags:
+        values.tags = values.tag
+    elif values.tag and values.tags:
+        values.tags = list(set(values.tags + values.tag))
     result = await search_notes(
         session=context.session,
         actor=context.actor,

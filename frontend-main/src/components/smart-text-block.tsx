@@ -41,7 +41,7 @@
  * The parent decides which to render; this module holds no `editing` state.
  */
 
-import { Check, Copy, Eye, EyeOff, LoaderCircle, Lock, Pencil, Plus, Save, ShieldAlert, Sparkles, Wand2, X } from "lucide-react";
+import { Check, Copy, Eye, EyeOff, Link2, LoaderCircle, Lock, Pencil, Plus, Save, ShieldAlert, Sparkles, Wand2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
   applyPlaceholders,
@@ -51,6 +51,8 @@ import {
   secretKeyFor,
   segmentText,
   stripMagicTags,
+  URL_MAGIC_OPEN,
+  URL_MAGIC_CLOSE,
   type Finding,
 } from "@/lib/secret-detector";
 import { revealVaultSecret, writeVaultSecretsBatch, type NoteBlock } from "@/lib/api";
@@ -145,6 +147,16 @@ export function SmartTextReadView({
             <span key={index} className="smart-text-run">
               {segment.value}
             </span>
+          ) : segment.kind === "url" ? (
+            <a
+              key={index}
+              className="smart-text-link"
+              href={segment.href}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {segment.raw}
+            </a>
           ) : (
             <SecretChip
               key={index}
@@ -327,6 +339,48 @@ export function SmartTextEditor({
     });
   }
 
+  /** Wrap the textarea's current selection in URL magic tags. */
+  function markUrl() {
+    const area = document.getElementById(`smart-text-${block.id}`) as HTMLTextAreaElement | null;
+    if (!area) return;
+    const { selectionStart, selectionEnd, value } = area;
+    if (selectionStart === selectionEnd) {
+      setError("Select the URL you want to make clickable, then press Link.");
+      return;
+    }
+    setError("");
+    const selected = value.slice(selectionStart, selectionEnd);
+    const next =
+      value.slice(0, selectionStart) +
+      URL_MAGIC_OPEN + selected + URL_MAGIC_CLOSE +
+      value.slice(selectionEnd);
+    setDraft(next);
+    setScanned(false);
+    setFindings([]);
+    requestAnimationFrame(() => {
+      const pos = selectionStart + URL_MAGIC_OPEN.length + selected.length + URL_MAGIC_CLOSE.length;
+      area.focus();
+      area.setSelectionRange(pos, pos);
+    });
+  }
+
+  /** Insert empty URL magic tags at the caret. */
+  function insertUrlMarkers() {
+    const area = document.getElementById(`smart-text-${block.id}`) as HTMLTextAreaElement | null;
+    const at = area ? area.selectionStart : draft.length;
+    const next = draft.slice(0, at) + URL_MAGIC_OPEN + URL_MAGIC_CLOSE + draft.slice(at);
+    setDraft(next);
+    setScanned(false);
+    setFindings([]);
+    requestAnimationFrame(() => {
+      const pos = at + URL_MAGIC_OPEN.length;
+      if (area) {
+        area.focus();
+        area.setSelectionRange(pos, pos);
+      }
+    });
+  }
+
   /** Insert empty magic tags at the caret, ready to type a value into. */
   function insertMarkers() {
     const area = document.getElementById(`smart-text-${block.id}`) as HTMLTextAreaElement | null;
@@ -475,6 +529,26 @@ export function SmartTextEditor({
         <button
           type="button"
           className="smart-text-secondary"
+          onClick={() => void markUrl()}
+          disabled={saving}
+          title="Wrap the selected text in URL markers so it is always a link"
+        >
+          <Link2 size={13} />
+          Mark as URL
+        </button>
+        <button
+          type="button"
+          className="smart-text-secondary"
+          onClick={() => void insertUrlMarkers()}
+          disabled={saving}
+          title={`Insert ${URL_MAGIC_OPEN}${URL_MAGIC_CLOSE} at the cursor`}
+        >
+          <Plus size={13} />
+          Insert URL markers
+        </button>
+        <button
+          type="button"
+          className="smart-text-secondary"
           onClick={() => void savePlain()}
           disabled={saving}
         >
@@ -489,7 +563,9 @@ export function SmartTextEditor({
       <p className="smart-text-note smart-text-taghelp">
         <Sparkles size={11} /> Something not detected? Select it and press{" "}
         <strong>Mark selection</strong>, or type <code>{MAGIC_OPEN}</code> before it and{" "}
-        <code>{MAGIC_CLOSE}</code> after, then Scan again.
+        <code>{MAGIC_CLOSE}</code> after, then Scan again. To make a URL clickable, select
+        it and press <strong>Mark as URL</strong>, or wrap it in{" "}
+        <code>{URL_MAGIC_OPEN}https://example.com{URL_MAGIC_CLOSE}</code>.
       </p>
 
       {findings.length > 0 && (

@@ -154,6 +154,7 @@ export function SmartTextReadView({
               href={segment.href}
               target="_blank"
               rel="noopener noreferrer"
+              referrerPolicy="no-referrer"
             >
               {segment.raw}
             </a>

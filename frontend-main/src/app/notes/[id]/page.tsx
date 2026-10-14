@@ -1,10 +1,10 @@
 "use client";
 
-import { ArrowLeft, Check, Copy, Eye, EyeOff, Expand, GripVertical, LoaderCircle, Lock, LockOpen, Maximize, Minimize, Minus, Plus, Save, SquarePen, Trash2, Type, Unlock, X } from "lucide-react";
+import { ArrowLeft, Check, Copy, Eye, EyeOff, Expand, GripVertical, LoaderCircle, Lock, LockOpen, Maximize, Minimize, Minus, Plus, Save, Sparkles, SquarePen, Trash2, Type, Unlock, X } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { addTagToNote, ApiError, createBlock, createDrawingBlock, createTextBlock, deleteBlock, enqueueMediaEnrich, getNote, patchBlock, patchNote, patchTextBlock, removeTagFromNote, reorderBlocks, uploadFile, type Note, type NoteBlock } from "@/lib/api";
+import { addTagToNote, ApiError, createBlock, createDrawingBlock, createTextBlock, decideTagProposal, deleteBlock, enqueueMediaEnrich, getNote, listTagProposals, patchBlock, patchNote, patchTextBlock, removeTagFromNote, reorderBlocks, uploadFile, type Note, type NoteBlock } from "@/lib/api";
 import { usePanelStore } from "@/lib/panel-store";
 import { BlockMenu } from "@/components/block-menu";
 import { confirmDialog } from "@/components/confirm-dialog";
@@ -20,6 +20,11 @@ export default function NoteDetailPage() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [tagInput, setTagInput] = useState("");
+  // AI tag suggestions are applied straight to the note — no panel, no
+  // per-tag confirmation. These drive the button's busy state and the
+  // one-line result under the tag row.
+  const [aiTagBusy, setAiTagBusy] = useState(false);
+  const [aiTagStatus, setAiTagStatus] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   // Row height is a reading preference, shared by every text block in the app,
@@ -538,6 +543,44 @@ export default function NoteDetailPage() {
     }
   }
 
+  /**
+   * Ask for AI tag suggestions and apply every one, without a panel.
+   *
+   * The review panel asked accept/reject per proposal, which put a modal
+   * between the user and a one-click action. The suggestions are a guess the
+   * user prunes anyway, so apply them and let the tag row be the review UI —
+   * every chip there already has a remove button.
+   */
+  async function applyAiTags() {
+    if (!note) return;
+    setAiTagBusy(true);
+    setAiTagStatus("");
+    setError("");
+    try {
+      const proposals = await listTagProposals({ noteId: note.id });
+      if (proposals.length === 0) {
+        setAiTagStatus("No AI suggestions for this note.");
+        return;
+      }
+      // allSettled, not all: one duplicate tag failing should not sink the rest.
+      const results = await Promise.allSettled(
+        proposals.map((proposal) => decideTagProposal(proposal.id, true)),
+      );
+      const applied = results.filter((result) => result.status === "fulfilled").length;
+      const updated = await getNote(note.id);
+      setNote(updated);
+      setAiTagStatus(
+        applied === 0
+          ? "Couldn’t apply the AI suggestions."
+          : `Added ${applied} tag${applied === 1 ? "" : "s"}. Remove any you don’t want.`,
+      );
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Couldn’t reach the AI tag service.");
+    } finally {
+      setAiTagBusy(false);
+    }
+  }
+
   async function removeTag(tagSlug: string) {
     if (!note) return;
     const confirmed = await confirmDialog({
@@ -594,8 +637,18 @@ export default function NoteDetailPage() {
         <div className="tag-entry compact-tag-entry">
           <input value={tagInput} onChange={(event) => setTagInput(event.target.value)} placeholder="Add tag" aria-label="Add a tag" />
           <button type="button" className="primary-button" onClick={() => void addTag()} disabled={!tagInput.trim()}>Add</button>
-          <button type="button" className="secondary-button" onClick={() => openPanel("hermes", note.id)}>AI review</button>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => void applyAiTags()}
+            disabled={aiTagBusy}
+            title="Ask the AI for tags and add every suggestion"
+          >
+            {aiTagBusy ? <LoaderCircle className="spin" size={13} /> : <Sparkles size={13} />}
+            {aiTagBusy ? "Reviewing…" : "AI review"}
+          </button>
         </div>
+        {aiTagStatus && <p className="tag-status" role="status">{aiTagStatus}</p>}
       </div>
       {note.summary && <p className="note-summary">{note.summary}</p>}
       <section className="block-stack">

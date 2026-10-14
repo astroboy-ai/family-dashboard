@@ -5,6 +5,7 @@ import {
   ChevronDown,
   Command,
   Home,
+  LayoutGrid,
   Maximize,
   Menu,
   Minimize,
@@ -19,6 +20,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { CommandPalette } from "@/components/command-palette";
 import { PanelHost } from "@/components/panel-host";
+import { UtilitiesDrawer } from "@/components/utilities-drawer";
 import { SessionExpiredNotice } from "@/components/session-expired-notice";
 import { SessionExpiredError, getActor, getMyPreferences, signOut, updateMyPreferences, listNotifications, getUnreadCount, markAllNotificationsRead, type Actor, type Notification } from "@/lib/api";
 import { navigation } from "@/lib/navigation";
@@ -47,6 +49,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [actor, setActor] = useState<Actor | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [utilitiesOpen, setUtilitiesOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [dateOpen, setDateOpen] = useState(false);
   const [now, setNow] = useState(new Date());
@@ -174,7 +177,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         const key = event.key.toLowerCase();
         if (key === "c") void startNewNote();
         if (key === "w") open("whiteboard");
-        if (key === "h") open("hermes");
         if (event.key === "Escape") {
           if (paletteOpen) setPaletteOpen(false);
           else closeTop();
@@ -331,6 +333,14 @@ export function AppShell({ children }: { children: ReactNode }) {
               <kbd><Command size={11} /> K</kbd>
             </button>
             <button
+              className="icon-button tools-button"
+              onClick={() => setUtilitiesOpen(true)}
+              aria-label="Utilities"
+              title="Utilities"
+            >
+              <LayoutGrid size={19} />
+            </button>
+            <button
               className="icon-button fullscreen-button"
               onClick={() => void toggleFullscreen()}
               aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
@@ -394,6 +404,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </nav>
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      <UtilitiesDrawer open={utilitiesOpen} onClose={() => setUtilitiesOpen(false)} />
       <SessionExpiredNotice />
     </div>
   );

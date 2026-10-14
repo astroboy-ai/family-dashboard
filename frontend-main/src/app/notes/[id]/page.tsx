@@ -967,6 +967,7 @@ export default function NoteDetailPage() {
                 >
                   <Expand size={14} />
                 </button>
+                <CopyTextButton block={block} />
                 <div className="text-rows-toggle">
                   {[3, 10, 20].map((n) => (
                     <button
@@ -1180,6 +1181,37 @@ function TextBlockView({
         placeholder="Write a note…"
       />
     </div>
+  );
+}
+
+/**
+ * Copy a text block's content without opening the full screen view.
+ *
+ * The full screen overlay has its own copy button, but reaching it costs a
+ * click and a modal; copying a short block is a one-click job that should not
+ * need either.
+ */
+function CopyTextButton({ block }: { block: NoteBlock }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(block.text_content ?? "");
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch { /* clipboard unavailable */ }
+  }
+
+  return (
+    <button
+      type="button"
+      className="icon-button small-icon"
+      onClick={() => void copy()}
+      aria-label={copied ? "Copied" : "Copy text"}
+      title={copied ? "Copied" : "Copy text"}
+    >
+      {copied ? <Check size={14} /> : <Copy size={14} />}
+    </button>
   );
 }
 

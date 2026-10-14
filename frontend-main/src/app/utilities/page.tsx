@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Braces, Code2, FileText, Hash, QrCode, ScanLine, Search } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Braces, Code2, FileText, Hash, LayoutGrid, QrCode, ScanLine, Search, X } from "lucide-react";
 
 type Utility = {
   id: string;
@@ -9,6 +9,13 @@ type Utility = {
   description: string;
   icon: React.ComponentType<{ size?: number | string; className?: string }>;
   group: string;
+  /**
+   * For tools that genuinely need a keyboard, a big canvas, or a file picker
+   * worth more screen than a phone has. Everything is responsive by default —
+   * set this only when the tool cannot work at all on a narrow screen, because
+   * it hides the tool rather than degrading it.
+   */
+  desktopOnly?: boolean;
 };
 
 const utilities: Utility[] = [
@@ -20,9 +27,24 @@ const utilities: Utility[] = [
   { id: "qr-generator", label: "QR Generator", description: "Generate QR codes and barcodes", icon: QrCode, group: "Tools" },
 ];
 
+/** True while the viewport is phone-width. Drives the desktop-only gating. */
+function useIsNarrow() {
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 760px)");
+    const update = () => setNarrow(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  return narrow;
+}
+
 export default function UtilitiesPage() {
   const [query, setQuery] = useState("");
   const [activeUtility, setActiveUtility] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const narrow = useIsNarrow();
 
   const filtered = utilities.filter(
     (u) =>
@@ -31,47 +53,56 @@ export default function UtilitiesPage() {
   );
 
   const active = utilities.find((u) => u.id === activeUtility);
+  const activeBlocked = Boolean(active?.desktopOnly && narrow);
+
+  // Esc closes the picker, the usual expectation for a panel that covers the page.
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setMenuOpen(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [menuOpen]);
+
+  function pick(utility: Utility) {
+    if (utility.desktopOnly && narrow) return;
+    setActiveUtility(utility.id);
+    setMenuOpen(false);
+  }
 
   return (
     <div className="page-wrap utilities-page">
-      <aside className="utilities-sidebar">
-        <div className="utilities-sidebar-header">
+      {/*
+        The picker is a panel rather than a fixed column: on a phone a permanent
+        sidebar left the tool itself a sliver of the screen, and the tools are
+        the point. The whole body is the tool; the list slides in over it.
+      */}
+      <header className="utilities-topbar">
+        <div className="utilities-topbar-copy">
           <p className="eyebrow">UTILITIES</p>
-          <h1>Utilities</h1>
+          <h1>{active ? active.label : "Utilities"}</h1>
         </div>
-        <label className="search-field utilities-search">
-          <Search size={16} />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search utilities…"
-            aria-label="Search utilities"
-          />
-        </label>
-        <nav className="utilities-nav">
-          {filtered.map((u) => {
-            const Icon = u.icon;
-            return (
-              <button
-                key={u.id}
-                className={`utilities-nav-item${activeUtility === u.id ? " active" : ""}`}
-                onClick={() => setActiveUtility(u.id)}
-              >
-                <span className="utilities-nav-icon"><Icon size={18} /></span>
-                <span className="utilities-nav-text">
-                  <span className="utilities-nav-label">{u.label}</span>
-                  <span className="utilities-nav-desc">{u.description}</span>
-                </span>
-              </button>
-            );
-          })}
-        </nav>
-      </aside>
+        <button
+          type="button"
+          className="utilities-menu-button"
+          onClick={() => setMenuOpen(true)}
+          aria-expanded={menuOpen}
+          aria-label="Choose a utility"
+        >
+          <LayoutGrid size={16} />
+          <span>Tools</span>
+        </button>
+      </header>
 
       <main className="utilities-content">
         {!active ? (
           <div className="utilities-empty">
-            <p>Select a utility from the sidebar to get started.</p>
+            <p>Pick a utility from the Tools menu to get started.</p>
+          </div>
+        ) : activeBlocked ? (
+          <div className="utilities-empty">
+            <p>{active.label} needs a wider screen — open this page on a laptop or tablet.</p>
           </div>
         ) : (
           <>
@@ -84,6 +115,58 @@ export default function UtilitiesPage() {
           </>
         )}
       </main>
+
+      {menuOpen && (
+        <>
+          <button
+            type="button"
+            className="utilities-panel-scrim"
+            aria-label="Close the utility menu"
+            onClick={() => setMenuOpen(false)}
+          />
+          <aside className="utilities-panel" role="dialog" aria-modal="true" aria-label="Utilities">
+            <div className="utilities-panel-head">
+              <strong>Utilities</strong>
+              <button type="button" className="icon-button" onClick={() => setMenuOpen(false)} aria-label="Close">
+                <X size={18} />
+              </button>
+            </div>
+            <label className="search-field utilities-search">
+              <Search size={16} />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search utilities…"
+                aria-label="Search utilities"
+              />
+            </label>
+            <nav className="utilities-nav">
+              {filtered.map((u) => {
+                const Icon = u.icon;
+                const blocked = Boolean(u.desktopOnly && narrow);
+                return (
+                  <button
+                    key={u.id}
+                    className={`utilities-nav-item${activeUtility === u.id ? " active" : ""}${blocked ? " blocked" : ""}`}
+                    onClick={() => pick(u)}
+                    disabled={blocked}
+                    title={blocked ? "Desktop only" : undefined}
+                  >
+                    <span className="utilities-nav-icon"><Icon size={18} /></span>
+                    <span className="utilities-nav-text">
+                      <span className="utilities-nav-label">
+                        {u.label}
+                        {blocked && <em className="utilities-nav-badge">desktop</em>}
+                      </span>
+                      <span className="utilities-nav-desc">{u.description}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </nav>
+          </aside>
+        </>
+      )}
     </div>
   );
 }

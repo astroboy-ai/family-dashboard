@@ -471,11 +471,12 @@ function WhiteboardPanel({
 
 function TagReviewPanel({ noteId, close }: { noteId?: string; close: () => void }) {
   const [note, setNote] = useState<Note | null>(null);
-  const [proposals, setProposals] = useState<TagProposal[]>([]);
   const [loadingProposals, setLoadingProposals] = useState(false);
   const [saving, setSaving] = useState(false);
   const [tagInput, setTagInput] = useState("");
   const [error, setError] = useState("");
+  // How many suggestions the panel applied on open, so the message can say so.
+  const [autoApplied, setAutoApplied] = useState<number | null>(null);
 
   useEffect(() => {
     if (!noteId) return;
@@ -486,12 +487,42 @@ function TagReviewPanel({ noteId, close }: { noteId?: string; close: () => void 
     return () => { active = false; };
   }, [noteId]);
 
+  /**
+   * Load the suggestions and apply every one of them.
+   *
+   * The panel used to ask for a decision per proposal, which made the common
+   * case — "the AI's guesses look right, I only want to drop one" — cost a
+   * click per tag. Applying them all and pruning afterwards is one click
+   * instead of N, and the tag row above already has a remove button on each
+   * chip.
+   */
   useEffect(() => {
     if (!noteId) return;
     let active = true;
     setLoadingProposals(true);
+    setAutoApplied(null);
     listTagProposals({ noteId })
-      .then((value) => active && setProposals(value))
+      .then(async (value) => {
+        if (!active) return;
+        if (value.length === 0) {
+          setAutoApplied(0);
+          return;
+        }
+        setSaving(true);
+        try {
+          const results = await Promise.allSettled(
+            value.map((proposal) => decideTagProposal(proposal.id, true)),
+          );
+          if (!active) return;
+          setAutoApplied(results.filter((result) => result.status === "fulfilled").length);
+          const updated = await getNote(noteId);
+          if (active) setNote(updated);
+        } catch (reason) {
+          if (active) setError(reason instanceof Error ? reason.message : "Unable to apply the tag suggestions.");
+        } finally {
+          if (active) setSaving(false);
+        }
+      })
       .catch((reason: unknown) => active && setError(reason instanceof Error ? reason.message : "Unable to load tag proposals."))
       .finally(() => active && setLoadingProposals(false));
     return () => { active = false; };
@@ -520,23 +551,6 @@ function TagReviewPanel({ noteId, close }: { noteId?: string; close: () => void 
       setNote((current) => (current ? { ...current, tags } : current));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to remove the tag.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function reviewProposal(proposalId: string, accepted: boolean) {
-    setSaving(true);
-    setError("");
-    try {
-      await decideTagProposal(proposalId, accepted);
-      setProposals((current) => current.filter((proposal) => proposal.id !== proposalId));
-      if (accepted && noteId) {
-        const updated = await getNote(noteId);
-        setNote(updated);
-      }
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to update this proposal.");
     } finally {
       setSaving(false);
     }
@@ -577,19 +591,14 @@ function TagReviewPanel({ noteId, close }: { noteId?: string; close: () => void 
 
             <div className="suggestion-list">
               {loadingProposals ? (
-                <p className="inline-helper">Loading proposals…</p>
-              ) : proposals.length === 0 ? (
-                <p className="inline-helper">No pending proposals for this note.</p>
+                <p className="inline-helper">Applying AI suggestions…</p>
+              ) : autoApplied === null ? null : autoApplied === 0 ? (
+                <p className="inline-helper">No AI suggestions for this note.</p>
               ) : (
-                proposals.map((proposal) => (
-                  <article key={proposal.id} className="tag-proposal-item">
-                    <div className="tag-proposal-copy"><Sparkles size={14} /><strong>#{proposal.proposed_slug}</strong><small>{Math.round(proposal.confidence * 100)}% · {proposal.model}</small></div>
-                    {typeof proposal.evidence?.reason === "string" && (
-                      <p className="tag-proposal-reason">{String(proposal.evidence.reason)}</p>
-                    )}
-                    <div className="inline-actions"><button type="button" className="secondary-button" onClick={() => void reviewProposal(proposal.id, false)} disabled={saving}>Reject</button><button type="button" className="primary-button" onClick={() => void reviewProposal(proposal.id, true)} disabled={saving}>Accept</button></div>
-                  </article>
-                ))
+                <p className="inline-helper">
+                  Added {autoApplied} suggested tag{autoApplied === 1 ? "" : "s"}.
+                  Remove any you do not want from the row above.
+                </p>
               )}
             </div>
           </>

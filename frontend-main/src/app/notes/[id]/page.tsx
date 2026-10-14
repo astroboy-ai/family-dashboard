@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Check, Copy, Eye, EyeOff, Expand, GripVertical, LoaderCircle, Lock, LockOpen, Maximize, Minimize, Minus, Plus, Save, Sparkles, SquarePen, Trash2, Type, Unlock, X } from "lucide-react";
+import { ArrowLeft, Check, ChevronDown, ChevronUp, Copy, Eye, EyeOff, Expand, GripVertical, LoaderCircle, Lock, LockOpen, Maximize, Minimize, Minus, Plus, Save, Sparkles, SquarePen, Trash2, Type, Unlock, X } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -25,6 +25,9 @@ export default function NoteDetailPage() {
   // one-line result under the tag row.
   const [aiTagBusy, setAiTagBusy] = useState(false);
   const [aiTagStatus, setAiTagStatus] = useState("");
+  // The tag row can get long with AI suggestions, so it starts collapsed and
+  // the toggle is the only thing showing until the user asks for the tags.
+  const [tagsExpanded, setTagsExpanded] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   // Row height is a reading preference, shared by every text block in the app,
@@ -613,7 +616,19 @@ export default function NoteDetailPage() {
         <p className="eyebrow">{note.type.replaceAll("_", " ")} · {note.status}</p>
         <p className="page-subtitle">Updated {new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(note.updated_at))}</p>
       </section>
-      <div className="note-tag-row">
+      <div className="note-tag-section">
+        <button
+          type="button"
+          className="note-tag-toggle"
+          onClick={() => setTagsExpanded((value) => !value)}
+          aria-expanded={tagsExpanded}
+          aria-controls="note-tag-row"
+        >
+          <span className="note-tag-count">Tags ({note.tags.length})</span>
+          {tagsExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        </button>
+        {tagsExpanded && (
+          <div className="note-tag-row" id="note-tag-row">
         {note.tags.map((tag) => (
           <span className="tag-chip tag-chip-button" key={tag.id}>
             <Link
@@ -649,6 +664,8 @@ export default function NoteDetailPage() {
           </button>
         </div>
         {aiTagStatus && <p className="tag-status" role="status">{aiTagStatus}</p>}
+          </div>
+        )}
       </div>
       {note.summary && <p className="note-summary">{note.summary}</p>}
       <section className="block-stack">

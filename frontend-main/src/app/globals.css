@@ -1685,6 +1685,13 @@ h2 {
   font-size: 11px;
 }
 
+/* One-line result of the AI tag review, sitting under the tag row. */
+.tag-status {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .note-summary {
   max-width: 780px;
   color: var(--muted);
@@ -8590,4 +8597,213 @@ tfoot .table-control-btn {
   margin: 0;
   font-size: 12px;
   color: #226b43;
+}
+
+/* ── Global utilities drawer ──────────────────────────────────────
+   Reached from the top nav Tools button on every page, so no tool has a
+   route of its own. Groups collapse; search filters label + description.
+   Once a tool is open the panel belongs to it (tool keeps its header). */
+
+.utilities-drawer-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  border: 0;
+  padding: 0;
+  background: rgba(0, 0, 0, 0.35);
+  cursor: default;
+  animation: utilities-drawer-fade 140ms ease;
+}
+
+@keyframes utilities-drawer-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.utilities-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 61;
+  width: min(460px, 94vw);
+  display: flex;
+  flex-direction: column;
+  padding: 14px 14px 0;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: -10px 0 28px rgba(0, 0, 0, 0.14);
+  overflow: hidden;
+  animation: utilities-drawer-in 180ms ease;
+}
+
+@keyframes utilities-drawer-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.utilities-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.utilities-drawer-head strong {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.utilities-drawer-search {
+  flex-shrink: 0;
+  margin-top: 12px;
+}
+
+.utilities-drawer-groups {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0 -14px;
+  padding: 4px 14px 14px;
+}
+
+.utilities-drawer-group + .utilities-drawer-group {
+  margin-top: 4px;
+}
+
+.utilities-drawer-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 0;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.utilities-drawer-group-head > span:first-child {
+  flex: 1;
+  text-align: left;
+}
+
+.utilities-drawer-group-count {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--foreground);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.utilities-chevron-closed {
+  transform: rotate(-90deg);
+}
+
+.utilities-drawer-items {
+  display: grid;
+  gap: 2px;
+  padding-bottom: 6px;
+}
+
+.utilities-drawer-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--foreground);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.utilities-drawer-item:hover {
+  background: var(--muted);
+}
+
+.utilities-drawer-item.blocked {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.utilities-drawer-item.blocked:hover {
+  background: transparent;
+}
+
+.utilities-drawer-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 7px;
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+.utilities-drawer-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.utilities-drawer-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.utilities-drawer-desc {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.utilities-drawer-badge {
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--muted);
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 760px) {
+  .utilities-drawer {
+    width: 100vw;
+    border-left: 0;
+  }
+
+  .utilities-drawer-head strong {
+    font-size: 14px;
+  }
+
+  .utilities-drawer-item {
+    padding: 8px 9px;
+  }
+
+  .utilities-drawer-icon {
+    width: 28px;
+    height: 28px;
+  }
+
+  .utilities-drawer-label {
+    font-size: 12px;
+  }
 }

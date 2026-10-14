@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Braces, Code2, FileText, Hash, LayoutGrid, QrCode, ScanLine, Search, X } from "lucide-react";
+"use client";
 
-type Utility = {
+import { useEffect, useState } from "react";
+import { Braces, Code2, FileText, Hash, QrCode, ScanLine, X } from "lucide-react";
+
+export type Utility = {
   id: string;
   label: string;
   description: string;
@@ -18,7 +20,7 @@ type Utility = {
   desktopOnly?: boolean;
 };
 
-const utilities: Utility[] = [
+export const utilities: Utility[] = [
   { id: "json", label: "JSON Viewer", description: "Validate, beautify, minify, tree view", icon: Braces, group: "Developer" },
   { id: "markdown", label: "Markdown Viewer", description: "Render Markdown with formatting", icon: FileText, group: "Developer" },
   { id: "code", label: "Code Highlighter", description: "Syntax highlight for code files", icon: Code2, group: "Developer" },
@@ -28,7 +30,7 @@ const utilities: Utility[] = [
 ];
 
 /** True while the viewport is phone-width. Drives the desktop-only gating. */
-function useIsNarrow() {
+export function useIsNarrow() {
   const [narrow, setNarrow] = useState(false);
   useEffect(() => {
     const query = window.matchMedia("(max-width: 760px)");
@@ -38,137 +40,6 @@ function useIsNarrow() {
     return () => query.removeEventListener("change", update);
   }, []);
   return narrow;
-}
-
-export default function UtilitiesPage() {
-  const [query, setQuery] = useState("");
-  const [activeUtility, setActiveUtility] = useState<string | null>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const narrow = useIsNarrow();
-
-  const filtered = utilities.filter(
-    (u) =>
-      u.label.toLowerCase().includes(query.toLowerCase()) ||
-      u.description.toLowerCase().includes(query.toLowerCase()),
-  );
-
-  const active = utilities.find((u) => u.id === activeUtility);
-  const activeBlocked = Boolean(active?.desktopOnly && narrow);
-
-  // Esc closes the picker, the usual expectation for a panel that covers the page.
-  useEffect(() => {
-    if (!menuOpen) return;
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setMenuOpen(false);
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [menuOpen]);
-
-  function pick(utility: Utility) {
-    if (utility.desktopOnly && narrow) return;
-    setActiveUtility(utility.id);
-    setMenuOpen(false);
-  }
-
-  return (
-    <div className="page-wrap utilities-page">
-      {/*
-        The picker is a panel rather than a fixed column: on a phone a permanent
-        sidebar left the tool itself a sliver of the screen, and the tools are
-        the point. The whole body is the tool; the list slides in over it.
-      */}
-      <header className="utilities-topbar">
-        <div className="utilities-topbar-copy">
-          <p className="eyebrow">UTILITIES</p>
-          <h1>{active ? active.label : "Utilities"}</h1>
-        </div>
-        <button
-          type="button"
-          className="utilities-menu-button"
-          onClick={() => setMenuOpen(true)}
-          aria-expanded={menuOpen}
-          aria-label="Choose a utility"
-        >
-          <LayoutGrid size={16} />
-          <span>Tools</span>
-        </button>
-      </header>
-
-      <main className="utilities-content">
-        {!active ? (
-          <div className="utilities-empty">
-            <p>Pick a utility from the Tools menu to get started.</p>
-          </div>
-        ) : activeBlocked ? (
-          <div className="utilities-empty">
-            <p>{active.label} needs a wider screen — open this page on a laptop or tablet.</p>
-          </div>
-        ) : (
-          <>
-            {active.id === "json" && <JsonValidator onClose={() => setActiveUtility(null)} />}
-            {active.id === "markdown" && <MarkdownViewer onClose={() => setActiveUtility(null)} />}
-            {active.id === "code" && <CodeHighlighter onClose={() => setActiveUtility(null)} />}
-            {active.id === "hash" && <HashTool onClose={() => setActiveUtility(null)} />}
-            {active.id === "qr-scanner" && <QRScanner onClose={() => setActiveUtility(null)} />}
-            {active.id === "qr-generator" && <QRGenerator onClose={() => setActiveUtility(null)} />}
-          </>
-        )}
-      </main>
-
-      {menuOpen && (
-        <>
-          <button
-            type="button"
-            className="utilities-panel-scrim"
-            aria-label="Close the utility menu"
-            onClick={() => setMenuOpen(false)}
-          />
-          <aside className="utilities-panel" role="dialog" aria-modal="true" aria-label="Utilities">
-            <div className="utilities-panel-head">
-              <strong>Utilities</strong>
-              <button type="button" className="icon-button" onClick={() => setMenuOpen(false)} aria-label="Close">
-                <X size={18} />
-              </button>
-            </div>
-            <label className="search-field utilities-search">
-              <Search size={16} />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search utilities…"
-                aria-label="Search utilities"
-              />
-            </label>
-            <nav className="utilities-nav">
-              {filtered.map((u) => {
-                const Icon = u.icon;
-                const blocked = Boolean(u.desktopOnly && narrow);
-                return (
-                  <button
-                    key={u.id}
-                    className={`utilities-nav-item${activeUtility === u.id ? " active" : ""}${blocked ? " blocked" : ""}`}
-                    onClick={() => pick(u)}
-                    disabled={blocked}
-                    title={blocked ? "Desktop only" : undefined}
-                  >
-                    <span className="utilities-nav-icon"><Icon size={18} /></span>
-                    <span className="utilities-nav-text">
-                      <span className="utilities-nav-label">
-                        {u.label}
-                        {blocked && <em className="utilities-nav-badge">desktop</em>}
-                      </span>
-                      <span className="utilities-nav-desc">{u.description}</span>
-                    </span>
-                  </button>
-                );
-              })}
-            </nav>
-          </aside>
-        </>
-      )}
-    </div>
-  );
 }
 
 function JsonValidator({ onClose }: { onClose: () => void }) {
@@ -852,4 +723,24 @@ function QRGenerator({ onClose }: { onClose: () => void }) {
       </div>
     </div>
   );
+}
+
+
+/**
+ * Render one tool by id.
+ *
+ * Each tool keeps its own header and close button, and that button is what
+ * closes the drawer — so once a tool is open the drawer has no header of its
+ * own and the tool owns the full panel.
+ */
+export function UtilityBody({ id, onClose }: { id: string; onClose: () => void }) {
+  switch (id) {
+    case "json": return <JsonValidator onClose={onClose} />;
+    case "markdown": return <MarkdownViewer onClose={onClose} />;
+    case "code": return <CodeHighlighter onClose={onClose} />;
+    case "hash": return <HashTool onClose={onClose} />;
+    case "qr-scanner": return <QRScanner onClose={onClose} />;
+    case "qr-generator": return <QRGenerator onClose={onClose} />;
+    default: return null;
+  }
 }

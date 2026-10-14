@@ -7695,27 +7695,102 @@ tfoot .table-control-btn {
 /* === Utilities page (sidebar + content layout) === */
 .utilities-page {
   display: flex;
+  flex-direction: column;
   height: calc(100vh - 60px);
   overflow: hidden;
 }
 
-.utilities-sidebar {
-  width: 260px;
-  flex-shrink: 0;
-  border-right: 1px solid var(--border);
+.utilities-topbar {
   display: flex;
-  flex-direction: column;
-  padding: 16px 12px;
-  overflow-y: auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
   background: var(--surface);
 }
 
-.utilities-sidebar-header {
-  margin-bottom: 16px;
+.utilities-topbar-copy {
+  min-width: 0;
 }
 
-.utilities-sidebar-header h1 {
-  font-size: 20px;
+.utilities-topbar-copy h1 {
+  font-size: 18px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.utilities-menu-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.utilities-menu-button:hover {
+  background: var(--muted);
+}
+
+/* ── Utilities picker (slide-in panel from the right) ───────────── */
+.utilities-panel-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  border: 0;
+  background: rgba(0, 0, 0, 0.35);
+  cursor: default;
+  animation: utilities-fade 140ms ease;
+}
+
+@keyframes utilities-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.utilities-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(320px, 88vw);
+  padding: 16px 14px;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.12);
+  overflow-y: auto;
+  animation: utilities-slide-in 180ms ease;
+}
+
+@keyframes utilities-slide-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.utilities-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.utilities-panel-head strong {
+  font-size: 15px;
   font-weight: 700;
 }
 
@@ -7771,6 +7846,35 @@ tfoot .table-control-btn {
   background: rgba(255, 255, 255, 0.2);
 }
 
+/* Desktop-only tools, shown but not selectable on a phone. */
+.utilities-nav-item.blocked {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.utilities-nav-item.blocked:hover {
+  background: transparent;
+}
+
+.utilities-nav-badge {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--foreground);
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.utilities-nav-item.active .utilities-nav-badge {
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+
 .utilities-nav-text {
   display: flex;
   flex-direction: column;
@@ -7807,6 +7911,67 @@ tfoot .table-control-btn {
   height: 100%;
   color: var(--muted);
   font-size: 15px;
+  text-align: center;
+  padding: 0 16px;
+}
+
+/* ── Utilities on a phone ───────────────────────────────────────── */
+@media (max-width: 760px) {
+  .utilities-page {
+    height: auto;
+    min-height: calc(100vh - 60px);
+  }
+
+  .utilities-topbar {
+    padding: 10px 14px;
+  }
+
+  .utilities-topbar-copy h1 {
+    font-size: 16px;
+  }
+
+  .utilities-menu-button {
+    padding: 7px 12px;
+    font-size: 12px;
+  }
+
+  .utilities-content {
+    padding: 14px;
+  }
+
+  /* Smaller controls throughout the tools themselves. */
+  .utility-panel-header h2 {
+    font-size: 15px;
+  }
+
+  .utility-panel .primary-button,
+  .utility-panel .secondary-button,
+  .utility-action-row button {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
+  .utility-action-row {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .utility-textarea {
+    font-size: 13px;
+  }
+
+  .json-viewer-tab {
+    padding: 4px 9px;
+    font-size: 10px;
+  }
+
+  .markdown-viewer {
+    padding: 12px;
+  }
+
+  .code-highlighter {
+    font-size: 11px;
+  }
 }
 
 /* QR Scanner */

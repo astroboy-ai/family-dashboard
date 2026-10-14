@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "test-build",
+    "incremental": false,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "module": "esnext",
+    "target": "ES2022",
+    "plugins": []
+  },
+  "include": ["src/**/*.test.ts"],
+  "exclude": ["node_modules", "scripts", ".next", "test-build"]
+}

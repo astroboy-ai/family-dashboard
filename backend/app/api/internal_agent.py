@@ -22,6 +22,7 @@ from app.agent.executor import execute_tool
 from app.agent.instructions import load_agent_instructions
 from app.agent.registry import ToolContext, ToolResult, registry
 from app.agent import tools as registered_tools
+from app.agent import tools_archify as _tools_archify  # noqa: F401  registers archify tools
 from app.api.deps import Actor
 from app.core.db import get_session
 from app.models import Household

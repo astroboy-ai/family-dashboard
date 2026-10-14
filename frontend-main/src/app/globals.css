@@ -8836,3 +8836,101 @@ tfoot .table-control-btn {
     font-size: 12px;
   }
 }
+
+/* ── Archify viewer ─────────────────────────────────────────────── */
+
+.archify-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.archify-search {
+  flex: 1;
+  margin-top: 0;
+}
+
+.archify-list {
+  display: grid;
+  gap: 4px;
+}
+
+.archify-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.archify-item-main {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--foreground);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.archify-item-main:hover {
+  background: var(--muted);
+}
+
+.archify-item-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.archify-item-meta {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.archify-item-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.archify-tag {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--foreground);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.archify-item-delete {
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.archify-item:hover .archify-item-delete {
+  opacity: 1;
+}
+
+.archify-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.archify-viewer {
+  width: 100%;
+  height: calc(100vh - 220px);
+  min-height: 320px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}

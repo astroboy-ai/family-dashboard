@@ -1340,10 +1340,9 @@ h2 {
 .select-field {
   display: flex;
   min-width: 0;
-  height: 42px;
   align-items: center;
   gap: 9px;
-  padding: 0 12px;
+  padding: 8px 12px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--surface);
@@ -1630,6 +1629,36 @@ h2 {
 .note-title-input:focus-visible {
   outline: 0;
   box-shadow: 0 2px var(--accent);
+}
+
+/* The tag row starts collapsed — AI suggestions can make it long, and the
+   count on the toggle is enough until the user asks for the chips. */
+.note-tag-section {
+  display: grid;
+  gap: 2px;
+}
+
+.note-tag-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.note-tag-toggle:hover {
+  color: var(--foreground);
+}
+
+.note-tag-count {
+  flex: 1;
 }
 
 .note-tag-row {

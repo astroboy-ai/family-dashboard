@@ -378,37 +378,43 @@ const MAGIC_TAG_OPEN_LABELLED = /\[\[secret:([^\]]*)\]\]/g;
 function magicTagSpans(text: string): Array<[number, number]> {
   const spans: Array<[number, number]> = [];
   const labelled = new RegExp(MAGIC_TAG_OPEN_LABELLED.source, "g");
-  const urlLabelled = new RegExp(URL_MAGIC_LABELLED.source, "g");
   let cursor = 0;
 
   while (cursor < text.length) {
     const plain = text.indexOf(MAGIC_TAG_OPEN, cursor);
-    const url = text.indexOf(URL_MAGIC_OPEN, cursor);
     labelled.lastIndex = cursor;
-    urlLabelled.lastIndex = cursor;
     const named = labelled.exec(text);
-    const urlNamed = urlLabelled.exec(text);
 
-    const candidates: number[] = [];
-    if (plain !== -1) candidates.push(plain);
-    if (url !== -1) candidates.push(url);
-    if (named) candidates.push(named.index);
-    if (urlNamed) candidates.push(urlNamed.index);
-    if (candidates.length === 0) break;
+    let start: number;
+    if (named && (plain === -1 || named.index <= plain)) {
+      start = named.index;
+    } else if (plain !== -1) {
+      start = plain;
+    } else {
+      break;
+    }
 
-    const start = Math.min(...candidates);
-    const isUrl = start === url || (urlNamed && start === urlNamed.index);
-    const close = isUrl
-      ? text.indexOf(URL_MAGIC_CLOSE, start)
-      : text.indexOf(MAGIC_TAG_CLOSE, start);
+    const close = text.indexOf(MAGIC_TAG_CLOSE, start);
     if (close === -1) break;
 
-    const end = close + (isUrl ? URL_MAGIC_CLOSE : MAGIC_TAG_CLOSE).length;
+    const end = close + MAGIC_TAG_CLOSE.length;
     spans.push([start, end]);
     cursor = end;
   }
 
   return spans;
+}
+
+/**
+ * Every URL magic-tag region as `[start, end)` in `text`, in order.
+ *
+ * Kept separate from `magicTagSpans` on purpose: that function feeds the
+ * secret extraction and removal paths, where a URL tag is not a secret and
+ * must not be treated as one. This one exists so `maskMagicSpans` can still
+ * blank URL syntax out of the scannable text.
+ */
+function urlTagSpans(text: string): Array<[number, number]> {
+  return urlMagicSpans(text).map(([start, end]) => [start, end] as [number, number]);
 }
 
 /**
@@ -423,7 +429,8 @@ function magicTagSpans(text: string): Array<[number, number]> {
  */
 export function maskMagicSpans(text: string): string {
   const masked = text.split("");
-  for (const [start, end] of magicTagSpans(text)) {
+  const spans = [...magicTagSpans(text), ...urlTagSpans(text)];
+  for (const [start, end] of spans) {
     for (let i = start; i < end; i += 1) masked[i] = " ";
   }
   return masked.join("");
@@ -553,14 +560,19 @@ export function stripMagicTags(text: string): string {
   }
 
   // An unclosed marker is a typo, not content — drop it so it cannot sit in the
-  // note forever looking meaningful. URL tags are stripped the same way.
+  // note forever looking meaningful.
+  //
+  // A complete URL tag becomes the text the reader actually sees: the label
+  // when one was given, otherwise the address itself. Saving must not silently
+  // drop a link the user deliberately wrote.
   return result
     .replace(new RegExp(MAGIC_TAG_OPEN_LABELLED.source, "g"), "")
     .split(MAGIC_TAG_OPEN)
     .join("")
     .split(MAGIC_TAG_CLOSE)
     .join("")
-    .replace(new RegExp(URL_MAGIC_LABELLED.source, "g"), "")
+    .replace(new RegExp(URL_MAGIC_LABELLED.source, "g"), "$1")
+    .replace(new RegExp(URL_MAGIC_PLAIN.source, "g"), "$1")
     .split(URL_MAGIC_OPEN)
     .join("")
     .split(URL_MAGIC_CLOSE)
@@ -871,6 +883,29 @@ function urlMagicHref(body: string): string | null {
   return null;
 }
 
+/**
+ * Trim characters off the end of an auto-detected URL that are almost always
+ * sentence punctuation rather than part of the address.
+ *
+ * `See https://example.com/page.` should link the address and leave the full
+ * stop as text. Closing brackets are handled separately because they are
+ * legitimate inside a URL (`.../wiki/Foo_(bar)`) — only an *unbalanced* one is
+ * treated as punctuation, which is what catches `[docs](https://example.com)`.
+ */
+function trimUrlTail(url: string): string {
+  let trimmed = url;
+  while (/[.,;:!?'"]$/.test(trimmed)) {
+    trimmed = trimmed.slice(0, -1);
+  }
+  while (trimmed.endsWith(")")) {
+    const opens = (trimmed.match(/\(/g) ?? []).length;
+    const closes = (trimmed.match(/\)/g) ?? []).length;
+    if (closes <= opens) break;
+    trimmed = trimmed.slice(0, -1);
+  }
+  return trimmed;
+}
+
 /** Every URL magic tag as `[start, end, href, label?]` in `text`, in order. */
 function urlMagicSpans(text: string): Array<[number, number, string, string | null]> {
   const spans: Array<[number, number, string, string | null]> = [];
@@ -886,7 +921,7 @@ function urlMagicSpans(text: string): Array<[number, number, string, string | nu
     let href: string | null = null;
     let label: string | null = null;
 
-    if (named && (plain === -1 || named.index < plain)) {
+    if (named && (plain === -1 || named.index <= plain)) {
       // `[[url:Label|URL]]` — label is optional
       start = named.index;
       label = named[1]?.trim() || null;
@@ -948,10 +983,14 @@ export function segmentText(text: string): Segment[] {
   // Auto-detected URLs, but never inside a magic tag or a placeholder.
   const occupied = magicSpans.map(([s, e]) => [s, e] as [number, number]);
   while ((match = urlPattern.exec(text)) !== null) {
+    const raw = trimUrlTail(match[0]);
+    if (!raw) continue;
     const start = match.index;
-    const end = start + match[0].length;
+    const end = start + raw.length;
     if (occupied.some(([s, e]) => start < e && s < end)) continue;
-    spans.push({ start, end, kind: "url", href: match[0], raw: match[0] });
+    const href = urlMagicHref(raw);
+    if (!href) continue;
+    spans.push({ start, end, kind: "url", href, raw });
   }
 
   spans.sort((a, b) => a.start - b.start);

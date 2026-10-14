@@ -1,3 +1,4 @@
+from app.models.archify import ArchifyDiagram, archify_diagram_tags
 from app.models.audit import AgentToolCall, AuditLog
 from app.models.base import Base
 from app.models.dashboard import Dashboard

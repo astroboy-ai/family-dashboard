@@ -3,7 +3,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Braces, Code2, FileText, Hash, QrCode, ScanLine, X } from "lucide-react";
+import { ArrowLeft, Braces, Code2, FileText, Hash, Network, Plus, QrCode, ScanLine, Search, Trash2, X } from "lucide-react";
 
 export type Utility = {
   id: string;
@@ -25,6 +25,7 @@ export const utilities: Utility[] = [
   { id: "markdown", label: "Markdown Viewer", description: "Render Markdown with formatting", icon: FileText, group: "Developer" },
   { id: "code", label: "Code Highlighter", description: "Syntax highlight for code files", icon: Code2, group: "Developer" },
   { id: "hash", label: "Hash Tool", description: "MD5, SHA1, SHA256, etc.", icon: Hash, group: "Developer" },
+  { id: "archify", label: "Archify Viewer", description: "Store and view Archify interactive HTML diagrams.", icon: Network, group: "Developer" },
   { id: "qr-scanner", label: "QR Scanner", description: "Scan QR codes with camera", icon: ScanLine, group: "Tools" },
   { id: "qr-generator", label: "QR Generator", description: "Generate QR codes and barcodes", icon: QrCode, group: "Tools" },
 ];
@@ -741,6 +742,261 @@ export function UtilityBody({ id, onClose }: { id: string; onClose: () => void }
     case "hash": return <HashTool onClose={onClose} />;
     case "qr-scanner": return <QRScanner onClose={onClose} />;
     case "qr-generator": return <QRGenerator onClose={onClose} />;
+    case "archify": return <ArchifyViewer onClose={onClose} />;
     default: return null;
   }
+}
+
+
+// ── Archify Viewer ────────────────────────────────────────────────
+//
+// Standalone Archify HTML diagrams, stored verbatim and rendered in a
+// sandboxed iframe. Agents file these with create_archify_diagram after
+// running Archify's finalize step; the viewer never serves them as a route.
+
+type ArchifyDiagramSummary = {
+  id: string;
+  title: string | null;
+  type: string | null;
+  created_at: string;
+  updated_at: string;
+  tags: { slug: string; name: string }[];
+};
+
+type ArchifyDiagramDetail = ArchifyDiagramSummary & {
+  html: string | null;
+  created_by: string | null;
+};
+
+export function ArchifyViewer({ onClose }: { onClose: () => void }) {
+  const [view, setView] = useState<"list" | "detail" | "create">("list");
+  const [diagrams, setDiagrams] = useState<ArchifyDiagramSummary[]>([]);
+  const [active, setActive] = useState<ArchifyDiagramDetail | null>(null);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [form, setForm] = useState({ title: "", type: "architecture", html: "" });
+  const [saving, setSaving] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    setError("");
+    try {
+      const q = search.trim();
+      const res = await fetch(`/api/archify${q ? `?search=${encodeURIComponent(q)}` : ""}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setDiagrams(data.diagrams ?? []);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to load diagrams");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void load();
+  }, [search]);
+
+  async function openDetail(id: string) {
+    setError("");
+    try {
+      const res = await fetch(`/api/archify/${id}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setActive(data);
+      setView("detail");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to load diagram");
+    }
+  }
+
+  async function createDiagram() {
+    setSaving(true);
+    setError("");
+    try {
+      const res = await fetch("/api/archify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setForm({ title: "", type: "architecture", html: "" });
+      setView("list");
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to create diagram");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteDiagram(id: string) {
+    if (!window.confirm("Delete this diagram? This cannot be undone.")) return;
+    setError("");
+    try {
+      const res = await fetch(`/api/archify/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (active?.id === id) {
+        setActive(null);
+        setView("list");
+      }
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to delete diagram");
+    }
+  }
+
+  if (view === "create") {
+    return (
+      <div className="utility-panel">
+        <div className="utility-panel-header">
+          <h2>New diagram</h2>
+          <button className="icon-button" onClick={() => setView("list")} aria-label="Back to diagrams">
+            <ArrowLeft size={16} />
+          </button>
+        </div>
+        <div className="utility-panel-body">
+          <label className="utility-field">
+            <span>Title</span>
+            <input
+              value={form.title}
+              onChange={(event) => setForm({ ...form, title: event.target.value })}
+              placeholder="My architecture"
+            />
+          </label>
+          <label className="utility-field">
+            <span>Type</span>
+            <select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value })}>
+              <option value="architecture">Architecture</option>
+              <option value="workflow">Workflow</option>
+              <option value="sequence">Sequence</option>
+              <option value="dataflow">Dataflow</option>
+              <option value="lifecycle">Lifecycle</option>
+              <option value="erd">ERD</option>
+              <option value="class">Class</option>
+              <option value="tree">Tree</option>
+              <option value="timeline">Timeline</option>
+              <option value="waterfall">Waterfall</option>
+            </select>
+          </label>
+          <label className="utility-field">
+            <span>HTML</span>
+            <textarea
+              value={form.html}
+              onChange={(event) => setForm({ ...form, html: event.target.value })}
+              placeholder="Paste the standalone HTML from Archify's finalize step…"
+              rows={14}
+            />
+          </label>
+          {error && <p className="inline-error" role="alert">{error}</p>}
+          <div className="utility-action-row">
+            <button
+              className="primary-button"
+              onClick={() => void createDiagram()}
+              disabled={saving || !form.html.trim()}
+            >
+              {saving ? "Saving…" : "Save diagram"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "detail" && active) {
+    return (
+      <div className="utility-panel">
+        <div className="utility-panel-header">
+          <h2>{active.title ?? "Untitled diagram"}</h2>
+          <button
+            className="icon-button"
+            onClick={() => {
+              setActive(null);
+              setView("list");
+            }}
+            aria-label="Back to diagrams"
+          >
+            <ArrowLeft size={16} />
+          </button>
+        </div>
+        <div className="utility-panel-body">
+          <div className="archify-meta">
+            <span>{active.type ?? "diagram"}</span>
+            <span>Updated {new Date(active.updated_at).toLocaleDateString()}</span>
+          </div>
+          {active.html && (
+            <iframe
+              srcDoc={active.html}
+              sandbox="allow-scripts"
+              className="archify-viewer"
+              title={active.title ?? "Archify diagram"}
+            />
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="utility-panel">
+      <div className="utility-panel-header">
+        <h2>Archify diagrams</h2>
+        <button className="icon-button" onClick={onClose} aria-label="Close">
+          <X size={16} />
+        </button>
+      </div>
+      <div className="utility-panel-body">
+        <div className="archify-toolbar">
+          <label className="search-field archify-search">
+            <Search size={14} />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search diagrams…"
+              aria-label="Search diagrams"
+            />
+          </label>
+          <button className="primary-button" onClick={() => setView("create")}>
+            <Plus size={14} /> New
+          </button>
+        </div>
+        {loading ? (
+          <p className="inline-helper">Loading…</p>
+        ) : error ? (
+          <p className="inline-error" role="alert">{error}</p>
+        ) : diagrams.length === 0 ? (
+          <p className="inline-helper">No diagrams yet. Create one by pasting Archify HTML.</p>
+        ) : (
+          <div className="archify-list">
+            {diagrams.map((diagram) => (
+              <div key={diagram.id} className="archify-item">
+                <button className="archify-item-main" onClick={() => void openDetail(diagram.id)}>
+                  <span className="archify-item-title">{diagram.title ?? "Untitled"}</span>
+                  <span className="archify-item-meta">
+                    {diagram.type ?? "diagram"} · {new Date(diagram.updated_at).toLocaleDateString()}
+                  </span>
+                  {diagram.tags.length > 0 && (
+                    <span className="archify-item-tags">
+                      {diagram.tags.map((tag) => (
+                        <span key={tag.slug} className="archify-tag">#{tag.slug}</span>
+                      ))}
+                    </span>
+                  )}
+                </button>
+                <button
+                  className="icon-button archify-item-delete"
+                  onClick={() => void deleteDiagram(diagram.id)}
+                  aria-label={`Delete ${diagram.title ?? "diagram"}`}
+                  title="Delete diagram"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }

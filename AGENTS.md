@@ -238,6 +238,32 @@ first, and be sure the id is the one you mean.
   learn a member's id, and `create_note` needs it to file a note against a
   particular person.
 
+### Archify diagrams
+
+Standalone Archify interactive HTML diagrams, stored as household artifacts. Agents generate these with the Archify skill (`bin/archify.mjs finalize`) and file them here. The HTML is stored verbatim and rendered in a sandboxed iframe by the frontend viewer — never served as a route.
+
+- **list_archify_diagrams** — List diagrams (id, title, type, timestamps). Supports keyword search via `search`.
+- **get_archify_diagram** — Get one diagram including its full standalone HTML.
+- **create_archify_diagram** — Store a diagram. Pass the standalone HTML from Archify's `finalize` step.
+- **update_archify_diagram** — Update title, type, or HTML. Only the fields you pass change.
+- **delete_archify_diagram** — Delete a diagram. This cannot be undone.
+
+`created_by` is set from the authenticated agent token, never from the tool params, so an agent cannot file a diagram as someone else.
+
+#### Creating a diagram
+
+Run Archify's finalize to produce a standalone HTML file, then call `create_archify_diagram` with the HTML:
+
+```json
+{
+  "title": "Web request flow",
+  "type": "architecture",
+  "html": "<!DOCTYPE html>…</html>"
+}
+```
+
+The HTML is self-contained (inline SVG, dark/light themes). The viewer renders it in a sandboxed iframe with `sandbox="allow-scripts"`.
+
 ### Calendar (Coming Soon)
 
 - **list_events** — List calendar events

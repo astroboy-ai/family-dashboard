@@ -5351,6 +5351,193 @@ tfoot .table-control-btn {
   white-space: pre-wrap;
 }
 
+/* ── JSON Viewer ──────────────────────────────────────────────── */
+.json-viewer {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.json-viewer-toolbar {
+  display: flex;
+  gap: 2px;
+  padding: 6px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-muted);
+}
+
+.json-viewer-tab {
+  padding: 5px 12px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.json-viewer-tab:hover {
+  background: var(--surface);
+  color: var(--foreground);
+}
+
+.json-viewer-tab.active {
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--accent);
+}
+
+.json-tree-node,
+.json-tree-leaf {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.json-tree-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 2px 6px;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.json-tree-toggle:hover {
+  background: var(--surface-muted);
+}
+
+.json-tree-arrow {
+  flex: 0 0 12px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.json-tree-key {
+  color: var(--accent);
+}
+
+.json-tree-preview {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.json-tree-leaf {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+}
+
+.json-tree-value {
+  word-break: break-all;
+}
+
+.json-tree-string { color: #22863a; }
+.json-tree-number { color: #005cc5; }
+.json-tree-boolean { color: #d73a49; }
+.json-tree-null { color: #6f42c1; }
+
+/* ── Markdown Viewer ───────────────────────────────────────────── */
+.markdown-viewer {
+  margin-top: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  line-height: 1.7;
+}
+
+.markdown-viewer h1,
+.markdown-viewer h2,
+.markdown-viewer h3,
+.markdown-viewer h4,
+.markdown-viewer h5,
+.markdown-viewer h6 {
+  margin: 1em 0 0.5em;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.markdown-viewer h1 { font-size: 1.6em; }
+.markdown-viewer h2 { font-size: 1.35em; }
+.markdown-viewer h3 { font-size: 1.15em; }
+.markdown-viewer h4 { font-size: 1em; }
+.markdown-viewer h5 { font-size: 0.9em; }
+.markdown-viewer h6 { font-size: 0.85em; color: var(--muted); }
+
+.markdown-viewer p {
+  margin: 0.6em 0;
+}
+
+.markdown-viewer ul {
+  margin: 0.6em 0;
+  padding-left: 1.5em;
+  list-style: disc;
+}
+
+.markdown-viewer li {
+  margin: 0.25em 0;
+}
+
+.markdown-viewer .inline-code {
+  padding: 2px 5px;
+  border-radius: 3px;
+  background: var(--surface-muted);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.85em;
+}
+
+.markdown-viewer .code-block {
+  margin: 0.8em 0;
+  padding: 12px;
+  border-radius: 6px;
+  background: var(--surface-muted);
+  overflow-x: auto;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* ── Code Highlighter ───────────────────────────────────────────── */
+.code-highlighter {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-x: auto;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.code-highlighter .tok-comment { color: #6a9955; }
+.code-highlighter .tok-string { color: #ce9178; }
+.code-highlighter .tok-keyword { color: #569cd6; }
+.code-highlighter .tok-number { color: #b5cea8; }
+.code-highlighter .tok-literal { color: #569cd6; }
+.code-highlighter .tok-key { color: #9cdcfe; }
+.code-highlighter .tok-tag { color: #569cd6; }
+.code-highlighter .tok-attr { color: #9cdcfe; }
+.code-highlighter .tok-property { color: #9cdcfe; }
+.code-highlighter .tok-selector { color: #d7ba7d; }
+.code-highlighter .tok-unit { color: #b5cea8; }
+.code-highlighter .tok-section { color: #569cd6; }
+.code-highlighter .tok-variable { color: #9cdcfe; }
+
 .utility-action-row {
   display: flex;
   flex-wrap: wrap;

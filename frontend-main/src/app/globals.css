@@ -8334,6 +8334,7 @@ tfoot .table-control-btn {
   justify-content: center;
   width: 100%;
   max-width: 430px;
+  min-height: 260px;
   border-radius: 12px;
   background: var(--surface-muted);
   overflow: hidden;
@@ -8350,11 +8351,11 @@ tfoot .table-control-btn {
 }
 
 .qr-video {
+  display: block;
   width: 100%;
-  height: auto;
-  max-height: 52vmin;
+  height: 100%;
   object-fit: contain;
-  border-radius: 10px;
+  background: #000;
 }
 
 /* Rendered code image (the duplicate / generated code) */

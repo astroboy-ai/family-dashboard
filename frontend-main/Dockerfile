@@ -39,8 +39,9 @@ COPY --from=builder /app/next.config.ts ./next.config.ts
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/src ./src
 
-# Install production dependencies (next start needs node_modules)
-RUN npm install --production
+# Install full dependency tree (next start must transpile next.config.ts,
+# so devDependencies like typescript must also be present at runtime).
+RUN npm ci
 
 # Set ownership
 RUN chown -R nextjs:nodejs /app

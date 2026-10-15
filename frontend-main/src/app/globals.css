@@ -8334,7 +8334,7 @@ tfoot .table-control-btn {
   justify-content: center;
   width: 100%;
   max-width: 430px;
-  min-height: 260px;
+  height: min(48vh, 340px);
   border-radius: 12px;
   background: var(--surface-muted);
   overflow: hidden;

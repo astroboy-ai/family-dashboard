@@ -956,16 +956,16 @@ function QRScanner({ onClose, noteId }: { onClose: () => void; noteId: string | 
         <div className="qr-video-wrap">
           <video ref={videoRef} className="qr-video" playsInline muted />
           <canvas ref={canvasRef} className="qr-canvas" />
-          {!codeImage && !value && (
-            <p className="utility-hint">
-              {status === "starting"
-                ? "Starting the camera…"
-                : status === "scanning"
-                  ? "Scanning… point the camera at a QR code"
-                  : "Point your camera at a QR code, or decode a saved image."}
-            </p>
-          )}
         </div>
+        {!codeImage && !value && (
+          <p className="utility-hint">
+            {status === "starting"
+              ? "Starting the camera…"
+              : status === "scanning"
+                ? "Scanning… point the camera at a QR code"
+                : "Point your camera at a QR code, or decode a saved image."}
+          </p>
+        )}
         <div className="qr-actions">
           {status === "scanning" ? (
             <button className="secondary-button" onClick={stop}>Stop camera</button>

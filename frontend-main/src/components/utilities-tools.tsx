@@ -1,9 +1,9 @@
 "use client";
 
-"use client";
-
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Braces, Code2, FileText, Hash, Network, Plus, QrCode, ScanLine, Search, Trash2, X } from "lucide-react";
+import { usePathname } from "next/navigation";
+import { createBlock, createTextBlock, uploadFile } from "@/lib/api";
+import { ArrowLeft, Braces, Camera, Code2, Download, FileText, Hash, Network, Plus, QrCode, ScanLine, Search, Trash2, X } from "lucide-react";
 import qrcode from "qrcode-generator";
 import jsQR from "jsqr";
 
@@ -34,8 +34,8 @@ export const utilities: Utility[] = [
   { id: "code", label: "Code Highlighter", description: "Syntax highlight for code files", icon: Code2, group: "Developer" },
   { id: "hash", label: "Hash Tool", description: "MD5, SHA1, SHA256, etc.", icon: Hash, group: "Developer" },
   { id: "archify", label: "Archify Viewer", description: "Store and view Archify interactive HTML diagrams.", icon: Network, group: "Developer" },
-  { id: "qr-scanner", label: "QR Scanner", description: "Scan QR codes with camera", icon: ScanLine, group: "Tools" },
-  { id: "qr-generator", label: "QR Generator", description: "Generate scannable QR codes", icon: QrCode, group: "Tools" },
+  { id: "qr-scanner", label: "QR Scanner", description: "Scan QR codes (camera or image)", icon: ScanLine, group: "Tools" },
+  { id: "qr-generator", label: "QR Generator", description: "Generate QR codes & barcodes", icon: QrCode, group: "Tools" },
 ];
 
 /** True while the viewport is phone-width. Drives the desktop-only gating. */
@@ -631,50 +631,265 @@ function highlightCode(code: string, language: string): string {
   return result;
 }
 
-function QRScanner({ onClose }: { onClose: () => void }) {
-  const [result, setResult] = useState("");
-  const [error, setError] = useState("");
-  const [scanning, setScanning] = useState(false);
+/**
+ * ── QR codes & barcodes
+ *
+ * Reader:     jsQR            (QR / Micro QR — camera + image decode)
+ * QR writer:  qrcode-generator  (ISO/IEC 18004, UTF-8 encoder fixed at module load)
+ * Barcodes:   bwip-js           (Code 128, EAN-13/8, UPC-A, Code 39, ITF-14) — lazy
+ *   imported, so the heavier dependency only lands when a barcode is rendered.
+ *
+ * Every writer paints onto an HTMLCanvasElement — the shared primitive that
+ * lets the scanner re-render a scanned value ("duplicate the code") and lets
+ * both tools save the rendered code into a note.
+ */
+
+export type BarcodeFormat = "qr-code" | "code128" | "ean13" | "ean8" | "upca" | "code39" | "itf14";
+
+/** Resolve the note id from the current route, so a code can be filed into it. */
+export function useCurrentNoteId(): string | null {
+  const path = usePathname();
+  const match = path.match(/^\/notes\/([^/]+)$/);
+  return match ? match[1] : null;
+}
+
+/** Paint a QR matrix onto `canvas` with qrcode-generator (UTF-8 safe). */
+function renderQrCode(
+  canvas: HTMLCanvasElement,
+  value: string,
+  opts: { size?: number; ecc?: "L" | "M" | "Q" | "H" } = {},
+): { width: number; height: number } {
+  const qr = qrcode(0, opts.ecc ?? "M");
+  qr.addData(value);
+  qr.make();
+  const count = qr.getModuleCount();
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("2D canvas context unavailable");
+  const margin = 2; // 2-module quiet zone — scanners need the white border
+  const target = opts.size ?? 256;
+  const cell = Math.max(2, Math.floor(target / (count + margin * 2)));
+  const dim = (count + margin * 2) * cell;
+  canvas.width = dim;
+  canvas.height = dim;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, dim, dim);
+  ctx.fillStyle = "#000000";
+  for (let row = 0; row < count; row += 1) {
+    for (let col = 0; col < count; col += 1) {
+      if (qr.isDark(row, col)) {
+        ctx.fillRect((col + margin) * cell, (row + margin) * cell, cell, cell);
+      }
+    }
+  }
+  return { width: dim, height: dim };
+}
+
+const BARCODE_FORMATS: { value: BarcodeFormat; label: string; digits: RegExp | null }[] = [
+  { value: "qr-code", label: "QR Code", digits: null },
+  { value: "code128", label: "Code 128", digits: null },
+  { value: "ean13", label: "EAN-13", digits: /^(\d{12}|\d{13})$/ },
+  { value: "ean8", label: "EAN-8", digits: /^(\d{7}|\d{8})$/ },
+  { value: "upca", label: "UPC-A", digits: /^(\d{11}|\d{12})$/ },
+  { value: "code39", label: "Code 39", digits: null },
+  { value: "itf14", label: "ITF-14", digits: /^(\d{13}|\d{14})$/ },
+];
+
+/** Render a 1D barcode onto `canvas` via the ISO-compliant bwip-js encoder. */
+async function renderBarcode(
+  canvas: HTMLCanvasElement,
+  format: BarcodeFormat,
+  value: string,
+  targetWidth = 480,
+): Promise<void> {
+  // `bwip-js` ships its types only on the `./browser` subpath (the top-level
+  // `.` export has no `types` condition), and its browser bundle is a default
+  // export object. Resolve `./browser` for types, then read `.default ?? mod`
+  // so it works whether the build exposes a default or named exports.
+  const mod = await import("bwip-js/browser");
+  const bwipJs = (mod.default ?? mod) as unknown as {
+    toSVG: (options: Record<string, unknown>) => string;
+    toCanvas: (canvas: HTMLCanvasElement, options: Record<string, unknown>) => HTMLCanvasElement;
+  };
+  const svg = bwipJs.toSVG({ bcid: format, text: value, includetext: true });
+  const m = svg.match(/viewBox="0 0\s+([\d.]+)\s+([\d.]+)"/);
+  const sw = m ? parseFloat(m[1]) : 300;
+  const sh = m ? parseFloat(m[2]) : 150;
+  const targetHeight = Math.round((targetWidth * sh) / sw);
+  // bwip-js emits viewBox but no width/height — inject both for crisp raster.
+  const svgSized = svg.replace(/^<svg /, `<svg width="${targetWidth}" height="${targetHeight}" `);
+  const img = new Image();
+  await new Promise<void>((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error(`Could not render ${format} barcode.`));
+    img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgSized)));
+  });
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("2D canvas context unavailable");
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, targetWidth, targetHeight);
+  ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+}
+
+/** Turn a same-origin PNG data URL into a File the upload endpoint accepts. */
+async function dataUrlToFile(dataUrl: string, name: string): Promise<File> {
+  const blob = await (await fetch(dataUrl)).blob();
+  return new File([blob], name, { type: blob.type || "image/png" });
+}
+
+/** Append the rendered code image (and the source text) to a note. */
+export async function saveCodeToNote(
+  dataUrl: string,
+  noteId: string,
+  caption: string,
+  bodyText?: string,
+): Promise<void> {
+  const file = await dataUrlToFile(dataUrl, `${caption.replace(/[^\w.-]+/g, "_") || "code"}.png`);
+  const assetId = await uploadFile(file);
+  await createBlock(noteId, {
+    type: "image",
+    text_content: caption,
+    data: { media_asset_id: assetId },
+  });
+  if (bodyText) {
+    await createTextBlock(noteId, bodyText);
+  }
+}
+
+type CodeResultProps = {
+  dataUrl: string;
+  value: string;
+  noteId: string | null;
+  caption: string;
+};
+
+/** Shared footer for anything that painted a code: result image + actions. */
+function CodeResult({ dataUrl, value, noteId, caption }: CodeResultProps) {
   const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState<"idle" | "save" | "downloading">("idle");
+  const isUrl = /^https?:\/\//i.test(value);
+
+  async function onCopy() {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    } catch {
+      /* leave the value on screen to select manually */
+    }
+  }
+  function onDownload() {
+    setBusy("downloading");
+    const a = document.createElement("a");
+    a.href = dataUrl;
+    a.download = `${caption.replace(/[^\w.-]+/g, "_") || "code"}.png`;
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setBusy("idle");
+  }
+  async function onSaveToNote() {
+    if (!noteId) return;
+    setBusy("save");
+    try {
+      await saveCodeToNote(dataUrl, noteId, caption, value);
+      setBusy("idle");
+    } catch {
+      setBusy("idle");
+    }
+  }
+
+  return (
+    <div className="qr-result">
+      <img className="qr-code-image" src={dataUrl} alt={caption} />
+      <div className="qr-actions">
+        {value ? (
+          <button className="secondary-button" onClick={() => void onCopy()} disabled={busy === "save"}>
+            {copied ? "Copied" : "Copy value"}
+          </button>
+        ) : null}
+        {isUrl ? (
+          <a className="secondary-button" href={value} target="_blank" rel="noopener noreferrer">
+            Open link
+          </a>
+        ) : null}
+        <button className="secondary-button" onClick={() => void onDownload()} disabled={busy !== "idle"}>
+          <Download size={14} /> {busy === "downloading" ? "Downloading…" : "Download PNG"}
+        </button>
+        {noteId ? (
+          <button className="secondary-button" onClick={() => void onSaveToNote()} disabled={busy !== "idle"}>
+            {busy === "save" ? "Saving…" : "Save to note"}
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function QRScanner({ onClose, noteId }: { onClose: () => void; noteId: string | null }) {
+  const [value, setValue] = useState("");
+  const [codeImage, setCodeImage] = useState("");
+  const [error, setError] = useState("");
+  const [status, setStatus] = useState<"idle" | "starting" | "scanning">("idle");
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const dupCanvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number | null>(null);
 
-  /** Stop the camera and the decode loop. Safe to call when idle. */
   const stop = useCallback(() => {
     if (rafRef.current !== null) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
     }
-    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
-    setScanning(false);
+    setStatus("idle");
   }, []);
 
-  // Releasing the camera on unmount matters: a still-open stream keeps the
-  // browser's camera light on and blocks the next scan.
+  // Release the camera when the tool unmounts.
   useEffect(() => stop, [stop]);
 
-  /** One decode frame. Keeps re-queuing until a code is read or the user stops. */
+  /** Re-encode the scanned value as a fresh QR — this is the "duplicate the code". */
+  function renderDuplicate(scanned: string) {
+    const canvas = dupCanvasRef.current;
+    if (!canvas) return;
+    try {
+      renderQrCode(canvas, scanned, { size: 256 });
+      setCodeImage(canvas.toDataURL("image/png"));
+      setValue(scanned);
+      setError("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't build the duplicate code.");
+    }
+  }
+
+  /** One decode frame. Re-queues until a code is read or the user stops. */
   const tick = useCallback(() => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas) return;
     if (video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth > 0) {
-      const width = video.videoWidth;
-      const height = video.videoHeight;
-      canvas.width = width;
-      canvas.height = height;
-      const context = canvas.getContext("2d", { willReadFrequently: true });
-      if (context) {
-        context.drawImage(video, 0, 0, width, height);
-        const frame = context.getImageData(0, 0, width, height);
-        const code = jsQR(frame.data, width, height, { inversionAttempts: "dontInvert" });
-        if (code?.data) {
-          setResult(code.data);
-          stop();
-          return;
+      const w = video.videoWidth;
+      const h = video.videoHeight;
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      if (ctx) {
+        try {
+          ctx.drawImage(video, 0, 0, w, h);
+          const frame = ctx.getImageData(0, 0, w, h);
+          const code = jsQR(frame.data, w, h, { inversionAttempts: "dontInvert" });
+          if (code?.data) {
+            setCodeImage("");
+            renderDuplicate(code.data);
+            stop();
+            return;
+          }
+        } catch {
+          // Tainted-frame / read-back guard — keep scanning the next frame.
         }
       }
     }
@@ -683,13 +898,13 @@ function QRScanner({ onClose }: { onClose: () => void }) {
 
   async function startScan() {
     setError("");
-    setResult("");
-    setCopied(false);
+    setCodeImage("");
+    setValue("");
     if (!navigator.mediaDevices?.getUserMedia) {
-      setError("This browser can't open the camera. Use “Decode an image” instead.");
+      setError("This browser can't open the camera. Try decoding a saved image instead.");
       return;
     }
-    setScanning(true);
+    setStatus("starting");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
       streamRef.current = stream;
@@ -697,18 +912,19 @@ function QRScanner({ onClose }: { onClose: () => void }) {
       if (!video) return;
       video.srcObject = stream;
       await video.play();
+      setStatus("scanning");
       rafRef.current = requestAnimationFrame(tick);
     } catch (err) {
-      setScanning(false);
-      setError(err instanceof Error ? err.message : "Camera access denied");
+      setStatus("idle");
+      setError(err instanceof Error ? err.message : "Camera access denied. Allow the camera permission and try again.");
     }
   }
 
-  /** Decode a saved photo — the reliable path on devices that block camera. */
+  /** Decode a saved photo — the reliable path on devices that block the camera. */
   async function decodeFile(file: File) {
     setError("");
-    setResult("");
-    setCopied(false);
+    setCodeImage("");
+    setValue("");
     stop();
     try {
       const bitmap = await createImageBitmap(file);
@@ -716,24 +932,15 @@ function QRScanner({ onClose }: { onClose: () => void }) {
       if (!canvas) return;
       canvas.width = bitmap.width;
       canvas.height = bitmap.height;
-      const context = canvas.getContext("2d", { willReadFrequently: true });
-      if (!context) return;
-      context.drawImage(bitmap, 0, 0);
-      const frame = context.getImageData(0, 0, bitmap.width, bitmap.height);
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      if (!ctx) return;
+      ctx.drawImage(bitmap, 0, 0);
+      const frame = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
       const code = jsQR(frame.data, bitmap.width, bitmap.height, { inversionAttempts: "attemptBoth" });
-      if (code?.data) setResult(code.data);
+      if (code?.data) renderDuplicate(code.data);
       else setError("No QR code found in that image.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't read that image.");
-    }
-  }
-
-  async function copyResult() {
-    try {
-      await navigator.clipboard.writeText(result);
-      setCopied(true);
-    } catch {
-      setError("Couldn't copy — select the text and copy it manually.");
     }
   }
 
@@ -741,21 +948,31 @@ function QRScanner({ onClose }: { onClose: () => void }) {
     <div className="utility-panel">
       <div className="utility-panel-header">
         <h2>QR Scanner</h2>
-        <button className="icon-button" onClick={onClose} aria-label="Close">✕</button>
+        <button className="icon-button" onClick={onClose} aria-label="Close">
+          <X size={16} />
+        </button>
       </div>
-      <div className="qr-scanner-body">
+      <div className="utility-panel-body">
         <div className="qr-video-wrap">
           <video ref={videoRef} className="qr-video" playsInline muted />
-          {!scanning && !result && (
-            <p className="utility-hint">Point your camera at a QR code, or decode a saved image.</p>
+          <canvas ref={canvasRef} className="qr-canvas" />
+          {!codeImage && !value && (
+            <p className="utility-hint">
+              {status === "starting"
+                ? "Starting the camera…"
+                : status === "scanning"
+                  ? "Scanning… point the camera at a QR code"
+                  : "Point your camera at a QR code, or decode a saved image."}
+            </p>
           )}
         </div>
-        <canvas ref={canvasRef} style={{ display: "none" }} />
         <div className="qr-actions">
-          {scanning ? (
+          {status === "scanning" ? (
             <button className="secondary-button" onClick={stop}>Stop camera</button>
           ) : (
-            <button className="primary-button" onClick={() => void startScan()}>Start camera</button>
+            <button className="primary-button" onClick={() => void startScan()} disabled={status === "starting"}>
+              {status === "starting" ? "Starting…" : <><Camera size={14} /> Start camera</>}
+            </button>
           )}
           <label className="secondary-button qr-file-button">
             Decode an image
@@ -772,149 +989,131 @@ function QRScanner({ onClose }: { onClose: () => void }) {
           </label>
         </div>
         {error && <p className="utility-error">{error}</p>}
-        {result && (
-          <div className="qr-result">
-            <p className="utility-hint">Scanned result:</p>
-            <p className="utility-result qr-result-text">{result}</p>
-            <div className="qr-actions">
-              <button className="secondary-button" onClick={() => void copyResult()}>
-                {copied ? "Copied" : "Copy"}
-              </button>
-              {/^https?:\/\//i.test(result) && (
-                <a className="secondary-button" href={result} target="_blank" rel="noopener noreferrer">
-                  Open link
-                </a>
-              )}
-            </div>
-          </div>
+        {codeImage && (
+          <>
+            <p className="utility-hint">Scanned value (re-rendered as a fresh QR):</p>
+            <CodeResult dataUrl={codeImage} value={value} noteId={noteId} caption="QR (duplicate)" />
+          </>
+        )}
+        {/* Off-screen canvas for the duplicate render. */}
+        <canvas ref={dupCanvasRef} style={{ display: "none" }} />
+      </div>
+    </div>
+  );
+}
+
+function QRGenerator({ onClose, noteId }: { onClose: () => void; noteId: string | null }) {
+  const [format, setFormat] = useState<BarcodeFormat>("qr-code");
+  const [text, setText] = useState("");
+  const [size, setSize] = useState(320);
+  const [codeImage, setCodeImage] = useState("");
+  const [error, setError] = useState("");
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  async function generate() {
+    const value = text.trim();
+    if (!value) return;
+    setError("");
+    setCodeImage("");
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const fmt = BARCODE_FORMATS.find((f) => f.value === format)!;
+    if (fmt.digits && !fmt.digits.test(value)) {
+      setError(`${fmt.label} expects ${fmt.digits} (digits only).`);
+      return;
+    }
+    try {
+      if (format === "qr-code") {
+        renderQrCode(canvas, value, { size });
+      } else {
+        await renderBarcode(canvas, format, value, size);
+      }
+      setCodeImage(canvas.toDataURL("image/png"));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not encode this value for that format.");
+    }
+  }
+
+  function clear() {
+    setText("");
+    setCodeImage("");
+    setError("");
+  }
+
+  const fmt = BARCODE_FORMATS.find((f) => f.value === format)!;
+
+  return (
+    <div className="utility-panel">
+      <div className="utility-panel-header">
+        <h2>QR &amp; Barcode</h2>
+        <button className="icon-button" onClick={onClose} aria-label="Close">
+          <X size={16} />
+        </button>
+      </div>
+      <div className="utility-panel-body">
+        <label className="qr-field">
+          <span>Format</span>
+          <select value={format} onChange={(e) => setFormat(e.target.value as BarcodeFormat)}>
+            {BARCODE_FORMATS.map((f) => (
+              <option key={f.value} value={f.value}>{f.label}</option>
+            ))}
+          </select>
+        </label>
+        <label className="qr-field">
+          <span>Content</span>
+          <textarea
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value);
+              setCodeImage("");
+            }}
+            placeholder={fmt.digits ? `${fmt.label} — digits only` : "Enter text or a URL to encode…"}
+            rows={4}
+          />
+        </label>
+        <label className="qr-field">
+          <span>Size: {size}px</span>
+          <input
+            type="range"
+            min={format === "qr-code" ? 128 : 240}
+            max={640}
+            step={16}
+            value={size}
+            onChange={(e) => {
+              setSize(Number(e.target.value) || 320);
+              setCodeImage("");
+            }}
+          />
+        </label>
+        <div className="qr-actions">
+          <button className="primary-button" onClick={() => void generate()} disabled={!text.trim()}>
+            Generate
+          </button>
+          <button className="secondary-button" onClick={clear} disabled={!text && !codeImage}>
+            Clear
+          </button>
+        </div>
+        {error && <p className="utility-error">{error}</p>}
+        {/* Kept mounted so the ref is live when generate() first runs. */}
+        <canvas ref={canvasRef} className="qr-result-canvas" style={{ display: "none" }} />
+        {codeImage && (
+          <CodeResult dataUrl={codeImage} value={text} noteId={noteId} caption={`${fmt.label} code`} />
         )}
       </div>
     </div>
   );
 }
 
-function QRGenerator({ onClose }: { onClose: () => void }) {
-  const [text, setText] = useState("");
-  const [size, setSize] = useState(256);
-  const [error, setError] = useState("");
-  const [generated, setGenerated] = useState(false);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  /**
-   * Encode `text` and paint it onto the canvas.
-   *
-   * typeNumber 0 lets the library pick the smallest version that fits; "M" is
-   * the usual error-correction level (recovers ~15% damage). A 2-module quiet
-   * zone is drawn because scanners need the white margin to find the code.
-   */
-  function generate() {
-    const value = text.trim();
-    if (!value) return;
-    setError("");
-    try {
-      const qr = qrcode(0, "M");
-      qr.addData(value);
-      qr.make();
-      const count = qr.getModuleCount();
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const context = canvas.getContext("2d");
-      if (!context) return;
-      const margin = 2;
-      const cell = Math.max(2, Math.floor(size / (count + margin * 2)));
-      const dim = (count + margin * 2) * cell;
-      canvas.width = dim;
-      canvas.height = dim;
-      context.fillStyle = "#ffffff";
-      context.fillRect(0, 0, dim, dim);
-      context.fillStyle = "#000000";
-      for (let row = 0; row < count; row += 1) {
-        for (let col = 0; col < count; col += 1) {
-          if (qr.isDark(row, col)) {
-            context.fillRect((col + margin) * cell, (row + margin) * cell, cell, cell);
-          }
-        }
-      }
-      setGenerated(true);
-    } catch (err) {
-      setGenerated(false);
-      setError(err instanceof Error ? err.message : "Couldn't encode that. Try shorter content.");
-    }
-  }
-
-  function download() {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const link = document.createElement("a");
-    link.download = "qr-code.png";
-    link.href = canvas.toDataURL("image/png");
-    link.click();
-  }
-
-  return (
-    <div className="utility-panel">
-      <div className="utility-panel-header">
-        <h2>QR Generator</h2>
-        <button className="icon-button" onClick={onClose} aria-label="Close">✕</button>
-      </div>
-      <div className="qr-generator-body">
-        <label className="field">
-          <span>Content</span>
-          <textarea
-            value={text}
-            onChange={(e) => {
-              setText(e.target.value);
-              setGenerated(false);
-            }}
-            placeholder="Enter text or URL to encode…"
-            rows={3}
-          />
-        </label>
-        <label className="field">
-          <span>Size (px)</span>
-          <input
-            type="number"
-            min={128}
-            max={1024}
-            step={16}
-            value={size}
-            onChange={(e) => {
-              setSize(Number(e.target.value) || 256);
-              setGenerated(false);
-            }}
-          />
-        </label>
-        <button className="primary-button" onClick={generate} disabled={!text.trim()}>
-          Generate
-        </button>
-        {error && <p className="utility-error">{error}</p>}
-        {/* Kept mounted so the ref is live when generate() first runs. */}
-        <div className="qr-result" style={{ display: generated ? undefined : "none" }}>
-          <p className="utility-hint">Scan with any QR reader:</p>
-          <canvas ref={canvasRef} className="qr-canvas" />
-          <button className="secondary-button" onClick={download}>Download PNG</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-
-/**
- * Render one tool by id.
- *
- * Each tool keeps its own header and close button, and that button is what
- * closes the drawer — so once a tool is open the drawer has no header of its
- * own and the tool owns the full panel.
- */
 export function UtilityBody({ id, onClose }: { id: string; onClose: () => void }) {
+  const noteId = useCurrentNoteId();
   switch (id) {
     case "json": return <JsonValidator onClose={onClose} />;
     case "markdown": return <MarkdownViewer onClose={onClose} />;
     case "code": return <CodeHighlighter onClose={onClose} />;
     case "hash": return <HashTool onClose={onClose} />;
-    case "qr-scanner": return <QRScanner onClose={onClose} />;
-    case "qr-generator": return <QRGenerator onClose={onClose} />;
+    case "qr-scanner": return <QRScanner onClose={onClose} noteId={noteId} />;
+    case "qr-generator": return <QRGenerator onClose={onClose} noteId={noteId} />;
     case "archify": return <ArchifyViewer onClose={onClose} />;
     default: return null;
   }

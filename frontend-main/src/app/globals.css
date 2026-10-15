@@ -7304,7 +7304,9 @@ tfoot .table-control-btn {
 .dashboard-calendar-views {
   display: flex;
   gap: 2px;
-  margin-left: 12px;
+  align-self: center;
+  flex-shrink: 0;
+  margin-bottom: 10px;
   padding: 2px;
   border-radius: 8px;
   background: var(--surface-muted);
@@ -7422,6 +7424,7 @@ tfoot .table-control-btn {
 }
 
 .dashboard-cal-day {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -7458,8 +7461,9 @@ tfoot .table-control-btn {
 }
 
 .dashboard-cal-daynum {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
+  line-height: 1.1;
   color: var(--foreground);
 }
 
@@ -7467,17 +7471,24 @@ tfoot .table-control-btn {
   color: var(--accent);
 }
 
+/* Pinned to the bottom of the day cell so the dots stay visible even when the
+   dashboard compresses the month grid. Previously flex-wrap + overflow:hidden
+   on a ~19px cell clipped them away entirely. */
 .dashboard-cal-event-dots {
+  position: absolute;
+  bottom: 2px;
+  left: 0;
+  right: 0;
   display: flex;
+  justify-content: center;
   gap: 2px;
-  flex-wrap: wrap;
-  margin-top: 2px;
 }
 
 .dashboard-cal-event-dot {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .dashboard-cal-more {
@@ -7643,6 +7654,129 @@ tfoot .table-control-btn {
   gap: 4px;
   font-size: 12px;
   color: var(--muted);
+}
+
+/* ── Dashboard calendar: week / day / agenda views ───────────────── */
+
+.dashboard-cal-week {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.dashboard-cal-week-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  padding: 4px;
+  overflow-y: auto;
+}
+
+.dashboard-cal-week-day {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-height: 68px;
+  padding: 8px 4px 14px;
+  border-radius: 8px;
+  background: var(--surface-muted);
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.dashboard-cal-week-day:hover {
+  background: var(--accent-soft);
+}
+
+.dashboard-cal-week-day.today {
+  border: 1px solid var(--accent);
+}
+
+.dashboard-cal-week-day.selected {
+  background: var(--accent);
+}
+
+.dashboard-cal-week-daynum {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--foreground);
+  text-align: center;
+}
+
+.dashboard-cal-week-count {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.dashboard-cal-week-day.selected .dashboard-cal-week-daynum,
+.dashboard-cal-week-day.selected .dashboard-cal-week-count {
+  color: #fff;
+}
+
+.dashboard-cal-dayview,
+.dashboard-cal-agenda-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+/* Side-by-side agenda pane in the month view — the parent pane scrolls. */
+.dashboard-cal-agenda-side {
+  display: block;
+}
+
+.dashboard-cal-agenda-day {
+  margin-bottom: 10px;
+}
+
+.dashboard-cal-agenda-daydate {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.dashboard-cal-agenda-daycirc {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--surface-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.dashboard-cal-agenda-daylabel {
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.dashboard-cal-agenda-count {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.dashboard-calendar-filters-selectall {
+  border: none;
+  background: transparent;
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
 }
 
 /* === Dashboard Note Component === */

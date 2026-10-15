@@ -32,6 +32,9 @@ RUN addgroup --system --gid 1001 nodejs \
 # Copy built app from builder
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/package.json ./package.json
+# next start transpiles next.config.ts, so the lockfile (reproducible tree) and
+# the devDependencies (typescript) must reach the runner.
+COPY --from=builder /app/package-lock.json ./package-lock.json
 COPY --from=builder /app/next.config.ts ./next.config.ts
 # Static assets. This must be a plain COPY: a COPY cannot be nested inside a RUN,
 # and the previous `RUN mkdir -p public && COPY ...` was invalid — the manifest,
@@ -39,9 +42,10 @@ COPY --from=builder /app/next.config.ts ./next.config.ts
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/src ./src
 
-# Install full dependency tree (next start must transpile next.config.ts,
-# so devDependencies like typescript must also be present at runtime).
-RUN npm ci
+# Install the FULL tree (dev + prod). NODE_ENV=production is set above, so npm
+# would drop devDependencies (incl. typescript) unless --include=dev is passed —
+# without typescript, `next start` crashes loading next.config.ts.
+RUN npm ci --include=dev
 
 # Set ownership
 RUN chown -R nextjs:nodejs /app

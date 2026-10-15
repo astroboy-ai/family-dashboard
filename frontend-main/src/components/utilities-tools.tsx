@@ -2,8 +2,16 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, Braces, Code2, FileText, Hash, Network, Plus, QrCode, ScanLine, Search, Trash2, X } from "lucide-react";
+import qrcode from "qrcode-generator";
+import jsQR from "jsqr";
+
+// qrcode-generator ships a Latin-1 byte encoder, which mangles any non-ASCII
+// text (CJK, emoji, accented names) into bytes no scanner can read back — and
+// its ESM build (the one webpack picks) omits the UTF-8 helper entirely. So we
+// install our own UTF-8 encoder and every generated code round-trips.
+qrcode.stringToBytes = (s: string) => Array.from(new TextEncoder().encode(s));
 
 export type Utility = {
   id: string;
@@ -27,7 +35,7 @@ export const utilities: Utility[] = [
   { id: "hash", label: "Hash Tool", description: "MD5, SHA1, SHA256, etc.", icon: Hash, group: "Developer" },
   { id: "archify", label: "Archify Viewer", description: "Store and view Archify interactive HTML diagrams.", icon: Network, group: "Developer" },
   { id: "qr-scanner", label: "QR Scanner", description: "Scan QR codes with camera", icon: ScanLine, group: "Tools" },
-  { id: "qr-generator", label: "QR Generator", description: "Generate QR codes and barcodes", icon: QrCode, group: "Tools" },
+  { id: "qr-generator", label: "QR Generator", description: "Generate scannable QR codes", icon: QrCode, group: "Tools" },
 ];
 
 /** True while the viewport is phone-width. Drives the desktop-only gating. */
@@ -627,24 +635,105 @@ function QRScanner({ onClose }: { onClose: () => void }) {
   const [result, setResult] = useState("");
   const [error, setError] = useState("");
   const [scanning, setScanning] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const rafRef = useRef<number | null>(null);
+
+  /** Stop the camera and the decode loop. Safe to call when idle. */
+  const stop = useCallback(() => {
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    setScanning(false);
+  }, []);
+
+  // Releasing the camera on unmount matters: a still-open stream keeps the
+  // browser's camera light on and blocks the next scan.
+  useEffect(() => stop, [stop]);
+
+  /** One decode frame. Keeps re-queuing until a code is read or the user stops. */
+  const tick = useCallback(() => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas) return;
+    if (video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth > 0) {
+      const width = video.videoWidth;
+      const height = video.videoHeight;
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      if (context) {
+        context.drawImage(video, 0, 0, width, height);
+        const frame = context.getImageData(0, 0, width, height);
+        const code = jsQR(frame.data, width, height, { inversionAttempts: "dontInvert" });
+        if (code?.data) {
+          setResult(code.data);
+          stop();
+          return;
+        }
+      }
+    }
+    rafRef.current = requestAnimationFrame(tick);
+  }, [stop]);
 
   async function startScan() {
-    setScanning(true);
     setError("");
     setResult("");
+    setCopied(false);
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError("This browser can't open the camera. Use “Decode an image” instead.");
+      return;
+    }
+    setScanning(true);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-      const video = document.createElement("video");
+      streamRef.current = stream;
+      const video = videoRef.current;
+      if (!video) return;
       video.srcObject = stream;
-      video.play();
-      // Note: In production, use a library like html5-qrcode or jsQR
-      // This is a placeholder for the camera stream
-      setError("Camera access granted. QR scanning requires a library like html5-qrcode.");
-      stream.getTracks().forEach((track) => track.stop());
+      await video.play();
+      rafRef.current = requestAnimationFrame(tick);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Camera access denied");
-    } finally {
       setScanning(false);
+      setError(err instanceof Error ? err.message : "Camera access denied");
+    }
+  }
+
+  /** Decode a saved photo — the reliable path on devices that block camera. */
+  async function decodeFile(file: File) {
+    setError("");
+    setResult("");
+    setCopied(false);
+    stop();
+    try {
+      const bitmap = await createImageBitmap(file);
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      if (!context) return;
+      context.drawImage(bitmap, 0, 0);
+      const frame = context.getImageData(0, 0, bitmap.width, bitmap.height);
+      const code = jsQR(frame.data, bitmap.width, bitmap.height, { inversionAttempts: "attemptBoth" });
+      if (code?.data) setResult(code.data);
+      else setError("No QR code found in that image.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't read that image.");
+    }
+  }
+
+  async function copyResult() {
+    try {
+      await navigator.clipboard.writeText(result);
+      setCopied(true);
+    } catch {
+      setError("Couldn't copy — select the text and copy it manually.");
     }
   }
 
@@ -655,12 +744,50 @@ function QRScanner({ onClose }: { onClose: () => void }) {
         <button className="icon-button" onClick={onClose} aria-label="Close">✕</button>
       </div>
       <div className="qr-scanner-body">
-        <p className="utility-hint">Point your camera at a QR code to scan it.</p>
-        <button className="primary-button" onClick={startScan} disabled={scanning}>
-          {scanning ? "Starting camera…" : "Start Camera"}
-        </button>
+        <div className="qr-video-wrap">
+          <video ref={videoRef} className="qr-video" playsInline muted />
+          {!scanning && !result && (
+            <p className="utility-hint">Point your camera at a QR code, or decode a saved image.</p>
+          )}
+        </div>
+        <canvas ref={canvasRef} style={{ display: "none" }} />
+        <div className="qr-actions">
+          {scanning ? (
+            <button className="secondary-button" onClick={stop}>Stop camera</button>
+          ) : (
+            <button className="primary-button" onClick={() => void startScan()}>Start camera</button>
+          )}
+          <label className="secondary-button qr-file-button">
+            Decode an image
+            <input
+              type="file"
+              accept="image/*"
+              hidden
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void decodeFile(file);
+                event.target.value = "";
+              }}
+            />
+          </label>
+        </div>
         {error && <p className="utility-error">{error}</p>}
-        {result && <p className="utility-result">{result}</p>}
+        {result && (
+          <div className="qr-result">
+            <p className="utility-hint">Scanned result:</p>
+            <p className="utility-result qr-result-text">{result}</p>
+            <div className="qr-actions">
+              <button className="secondary-button" onClick={() => void copyResult()}>
+                {copied ? "Copied" : "Copy"}
+              </button>
+              {/^https?:\/\//i.test(result) && (
+                <a className="secondary-button" href={result} target="_blank" rel="noopener noreferrer">
+                  Open link
+                </a>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -668,13 +795,60 @@ function QRScanner({ onClose }: { onClose: () => void }) {
 
 function QRGenerator({ onClose }: { onClose: () => void }) {
   const [text, setText] = useState("");
-  const [format, setFormat] = useState("qr");
   const [size, setSize] = useState(256);
+  const [error, setError] = useState("");
   const [generated, setGenerated] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
+  /**
+   * Encode `text` and paint it onto the canvas.
+   *
+   * typeNumber 0 lets the library pick the smallest version that fits; "M" is
+   * the usual error-correction level (recovers ~15% damage). A 2-module quiet
+   * zone is drawn because scanners need the white margin to find the code.
+   */
   function generate() {
-    if (!text.trim()) return;
-    setGenerated(true);
+    const value = text.trim();
+    if (!value) return;
+    setError("");
+    try {
+      const qr = qrcode(0, "M");
+      qr.addData(value);
+      qr.make();
+      const count = qr.getModuleCount();
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const context = canvas.getContext("2d");
+      if (!context) return;
+      const margin = 2;
+      const cell = Math.max(2, Math.floor(size / (count + margin * 2)));
+      const dim = (count + margin * 2) * cell;
+      canvas.width = dim;
+      canvas.height = dim;
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, dim, dim);
+      context.fillStyle = "#000000";
+      for (let row = 0; row < count; row += 1) {
+        for (let col = 0; col < count; col += 1) {
+          if (qr.isDark(row, col)) {
+            context.fillRect((col + margin) * cell, (row + margin) * cell, cell, cell);
+          }
+        }
+      }
+      setGenerated(true);
+    } catch (err) {
+      setGenerated(false);
+      setError(err instanceof Error ? err.message : "Couldn't encode that. Try shorter content.");
+    }
+  }
+
+  function download() {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const link = document.createElement("a");
+    link.download = "qr-code.png";
+    link.href = canvas.toDataURL("image/png");
+    link.click();
   }
 
   return (
@@ -688,39 +862,38 @@ function QRGenerator({ onClose }: { onClose: () => void }) {
           <span>Content</span>
           <textarea
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => {
+              setText(e.target.value);
+              setGenerated(false);
+            }}
             placeholder="Enter text or URL to encode…"
             rows={3}
           />
         </label>
         <label className="field">
-          <span>Format</span>
-          <select value={format} onChange={(e) => setFormat(e.target.value)}>
-            <option value="qr">QR Code</option>
-            <option value="code128">Code 128</option>
-            <option value="ean13">EAN-13</option>
-            <option value="ean8">EAN-8</option>
-            <option value="upca">UPC-A</option>
-            <option value="code39">Code 39</option>
-            <option value="itf">ITF</option>
-          </select>
-        </label>
-        <label className="field">
           <span>Size (px)</span>
-          <input type="number" min={128} max={1024} value={size} onChange={(e) => setSize(Number(e.target.value))} />
+          <input
+            type="number"
+            min={128}
+            max={1024}
+            step={16}
+            value={size}
+            onChange={(e) => {
+              setSize(Number(e.target.value) || 256);
+              setGenerated(false);
+            }}
+          />
         </label>
         <button className="primary-button" onClick={generate} disabled={!text.trim()}>
           Generate
         </button>
-        {generated && (
-          <div className="qr-result">
-            <p className="utility-hint">Generated {format.toUpperCase()} code:</p>
-            <div className="qr-placeholder" style={{ width: size, height: size }}>
-              <QrCode size={size / 2} />
-              <p>QR Code Preview</p>
-            </div>
-          </div>
-        )}
+        {error && <p className="utility-error">{error}</p>}
+        {/* Kept mounted so the ref is live when generate() first runs. */}
+        <div className="qr-result" style={{ display: generated ? undefined : "none" }}>
+          <p className="utility-hint">Scan with any QR reader:</p>
+          <canvas ref={canvasRef} className="qr-canvas" />
+          <button className="secondary-button" onClick={download}>Download PNG</button>
+        </div>
       </div>
     </div>
   );

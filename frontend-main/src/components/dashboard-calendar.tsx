@@ -508,8 +508,18 @@ export function DashboardCalendar({ calendarId, days = 90 }: DashboardCalendarPr
       )}
 
       {view === "week" && (
-        <div className="dashboard-calendar-body">
-          <WeekStrip events={filteredEvents} selectedDate={selectedDate} onSelectDate={setSelectedDate} calendars={calendars} />
+        <div className="dashboard-calendar-body dashboard-calendar-body-week">
+          <div className="dashboard-calendar-week-strip">
+            <WeekStrip
+              events={filteredEvents}
+              selectedDate={selectedDate}
+              onSelectDate={setSelectedDate}
+              calendars={calendars}
+            />
+          </div>
+          <div className="dashboard-calendar-agenda">
+            <AgendaList events={filteredEvents} selectedDate={selectedDate} calendars={calendars} />
+          </div>
         </div>
       )}
 

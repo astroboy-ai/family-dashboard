@@ -867,6 +867,10 @@ export function deleteBlock(blockId: string): Promise<void> {
   return apiRequest<void>(`/blocks/${encodeURIComponent(blockId)}`, { method: "DELETE" });
 }
 
+export function deleteNote(noteId: string): Promise<void> {
+  return apiRequest<void>(`/notes/${encodeURIComponent(noteId)}`, { method: "DELETE" });
+}
+
 async function sha256Hex(file: File): Promise<string> {
   const buffer = await file.arrayBuffer();
   const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);

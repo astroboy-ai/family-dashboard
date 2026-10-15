@@ -2,9 +2,9 @@
 
 import { ArrowLeft, Check, ChevronDown, ChevronUp, Copy, Eye, EyeOff, Expand, GripVertical, LoaderCircle, Lock, LockOpen, Maximize, Minimize, Minus, Plus, Save, Sparkles, SquarePen, Trash2, Type, Unlock, X } from "lucide-react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { addTagToNote, ApiError, createBlock, createDrawingBlock, createTextBlock, decideTagProposal, deleteBlock, enqueueMediaEnrich, getNote, listTagProposals, patchBlock, patchNote, patchTextBlock, removeTagFromNote, reorderBlocks, uploadFile, type Note, type NoteBlock } from "@/lib/api";
+import { addTagToNote, ApiError, createBlock, createDrawingBlock, createTextBlock, decideTagProposal, deleteBlock, deleteNote, enqueueMediaEnrich, getNote, listTagProposals, patchBlock, patchNote, patchTextBlock, removeTagFromNote, reorderBlocks, uploadFile, type Note, type NoteBlock } from "@/lib/api";
 import { usePanelStore } from "@/lib/panel-store";
 import { BlockMenu } from "@/components/block-menu";
 import { confirmDialog } from "@/components/confirm-dialog";
@@ -59,6 +59,8 @@ export default function NoteDetailPage() {
   // so a block you just made is immediately editable.
   const [unlockedBlocks, setUnlockedBlocks] = useState<Set<string>>(new Set());
   const [galleryIndex, setGalleryIndex] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const router = useRouter();
   const openPanel = usePanelStore((state) => state.open);
 
   /** Open the image gallery at a specific block index. */
@@ -601,13 +603,47 @@ export default function NoteDetailPage() {
     }
   }
 
+  /** Delete the whole note behind an explicit confirmation. */
+  async function removeNote() {
+    if (!note) return;
+    const ok = await confirmDialog({
+      title: "Delete this note?",
+      message: "The note and every block inside it will be permanently removed. This cannot be undone.",
+      confirmLabel: "Delete note",
+    });
+    if (!ok) return;
+    setDeleting(true);
+    setError("");
+    try {
+      await deleteNote(note.id);
+      router.push("/notes");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Couldn't delete the note.");
+      setDeleting(false);
+    }
+  }
+
   if (loading) return <div className="page-wrap"><div className="loading-rows"><i /><i /><i /></div></div>;
   if (error && !note) return <div className="page-wrap"><div className="inline-state" role="alert">{error}<Link href="/notes">Back to notes</Link></div></div>;
   if (!note) return null;
 
   return (
     <div className={`page-wrap note-detail-page ${fullscreen ? "fullscreen" : ""}`}>
-      <div className="detail-back-row"><Link href="/notes"><ArrowLeft size={16} /> Notes</Link><span>{message && <span className="save-state"><Check size={14} /> {message}</span>}</span></div>
+      <div className="detail-back-row">
+        <Link href="/notes"><ArrowLeft size={16} /> Notes</Link>
+        <span className="detail-back-actions">
+          {message && <span className="save-state"><Check size={14} /> {message}</span>}
+          <button
+            className="icon-button danger"
+            onClick={() => void removeNote()}
+            disabled={deleting}
+            aria-label="Delete note"
+            title="Delete note"
+          >
+            {deleting ? <LoaderCircle className="spin" size={16} /> : <Trash2 size={16} />}
+          </button>
+        </span>
+      </div>
       <section className="note-detail-heading">
         <div className="note-title-row">
           <input className="note-title-input" value={note.title ?? ""} onChange={(event) => setNote({ ...note, title: event.target.value })} onBlur={() => void saveTitle()} aria-label="Note title" placeholder="Untitled note" />

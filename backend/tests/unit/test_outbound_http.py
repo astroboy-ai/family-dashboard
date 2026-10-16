@@ -95,7 +95,9 @@ async def test_secret_is_injected_but_never_returned(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(outbound_http, "_perform", fake_perform)
 
     result = await outbound_http.call_with_secret(
-        url="https://api.example.com/v1/me",
+        # A public literal address: validate_target runs for real here, and a
+        # literal needs no DNS, so the test stays hermetic.
+        url="https://93.184.216.34/v1/me",
         secret_key="sn-orange-9f3a91",
         inject_as="bearer",
     )
@@ -133,7 +135,7 @@ async def test_query_injection_puts_the_value_in_the_url(
     monkeypatch.setattr(outbound_http, "_perform", fake_perform)
 
     result = await outbound_http.call_with_secret(
-        url="https://api.example.com/v1/x?a=1",
+        url="https://93.184.216.34/v1/x?a=1",
         secret_key="sn-k",
         inject_as="query",
         name="api_key",
@@ -168,7 +170,7 @@ async def test_basic_auth_redacts_the_value_and_its_encoding(
     monkeypatch.setattr(outbound_http, "_perform", fake_perform)
 
     result = await outbound_http.call_with_secret(
-        url="https://x.example.com/",
+        url="https://93.184.216.34/",
         secret_key="sn-router",
         inject_as="basic_auth",
         username="manager",
@@ -177,6 +179,28 @@ async def test_basic_auth_redacts_the_value_and_its_encoding(
     assert captured["request_headers"]["Authorization"] == f"Basic {encoded}"
     assert encoded not in result["body"]
     assert "[redacted]" in result["body"]
+
+
+async def test_refused_target_is_rejected_before_the_vault_is_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An SSRF attempt must not cost a secret read.
+
+    Ordering, not just outcome: the guard has to run first, so a private target
+    never reaches the vault and never lands in the audit log as a read.
+    """
+
+    async def exploding_get_secret(key: str, path: str = "/") -> str:
+        raise AssertionError("the vault was read for a refused target")
+
+    monkeypatch.setattr(outbound_http.infisical, "get_secret", exploding_get_secret)
+
+    with pytest.raises(OutboundHttpError):
+        await outbound_http.call_with_secret(
+            url="http://169.254.169.254/latest/meta-data/",
+            secret_key="sn-anything",
+            inject_as="bearer",
+        )
 
 
 async def test_incomplete_or_unknown_injection_arguments_are_refused() -> None:

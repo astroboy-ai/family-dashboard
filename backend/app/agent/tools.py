@@ -311,6 +311,26 @@ class SetVaultSecretParams(BaseModel):
     comment: str = Field(default="", max_length=500)
 
 
+class CallApiWithSecretParams(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    # ``key`` and ``path`` name a *pointer*, not a value, so they stay readable
+    # in the audit row — recording which credential was used is the point of the
+    # audit row. Nothing here ever carries the secret itself.
+    key: str = Field(min_length=1, max_length=255)
+    url: str = Field(min_length=1, max_length=2000)
+    method: str = Field(default="GET", max_length=10)
+    path: str = Field(default="/", max_length=500)
+    inject_as: str = Field(default="bearer", max_length=20)
+    name: str | None = Field(default=None, max_length=200)
+    username: str | None = Field(default=None, max_length=200)
+    headers: dict[str, str] | None = None
+    body: str | None = Field(default=None, max_length=256 * 1024)
+    content_type: str = Field(default="application/json", max_length=200)
+    timeout_s: float = Field(default=20.0, ge=1, le=60)
+    max_response_bytes: int = Field(default=200_000, ge=1024, le=1_000_000)
+
+
 @register(
     name="list_vault_secrets",
     description=(
@@ -407,6 +427,64 @@ async def set_vault_secret_tool(params: BaseModel, context: ToolContext) -> Tool
             "updated_at": summary.updated_at,
         },
         meta={"key": summary.key, "path": summary.path},
+    )
+
+
+@register(
+    name="call_api_with_secret",
+    description=(
+        "Call an external HTTP API with a vault secret injected out-of-band: the "
+        "backend adds the value to the request and it is never returned to you. "
+        "Use this instead of get_vault_secret whenever you need a credential in "
+        "order to DO something — call an API, log in, fetch a protected URL. "
+        "get_vault_secret puts the plaintext into your context, and everything in "
+        "your context reaches your model provider; this tool is how a secret is "
+        "used without being exposed. inject_as='bearer' sends 'Authorization: "
+        "Bearer <value>'; 'header' and 'query' require a name; 'basic_auth' "
+        "requires a username. The response status, headers and body come back with "
+        "every occurrence of the secret redacted. Only public http(s) targets are "
+        "reachable — internal addresses are refused."
+    ),
+    category="vault",
+    params=CallApiWithSecretParams,
+    permissions=("secrets.read",),
+)
+async def call_api_with_secret_tool(params: BaseModel, context: ToolContext) -> ToolResult:
+    import httpx
+
+    from app.services import infisical, outbound_http
+
+    values = CallApiWithSecretParams.model_validate(params)
+    try:
+        payload = await outbound_http.call_with_secret(
+            url=values.url,
+            method=values.method,
+            secret_key=values.key,
+            secret_path=values.path,
+            inject_as=values.inject_as,
+            name=values.name,
+            username=values.username,
+            headers=values.headers,
+            body=values.body,
+            content_type=values.content_type,
+            timeout_s=values.timeout_s,
+            max_response_bytes=values.max_response_bytes,
+        )
+    except outbound_http.OutboundHttpError as error:
+        return ToolResult(ok=False, error=str(error), error_code="outbound_refused")
+    except infisical.InfisicalError as error:
+        return ToolResult(ok=False, error=str(error), error_code="vault_error")
+    except httpx.HTTPError:
+        # A bare httpx message quotes the URL, which can carry the secret.
+        return ToolResult(ok=False, error="The request failed.", error_code="outbound_failed")
+    return ToolResult(
+        ok=True,
+        data=payload,
+        meta={
+            "key": values.key,
+            "status_code": payload["status_code"],
+            "injected_as": payload["injected_as"],
+        },
     )
 
 

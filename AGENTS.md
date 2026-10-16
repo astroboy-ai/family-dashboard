@@ -175,11 +175,46 @@ The household vault is an Infisical instance. It holds two kinds of thing:
 | --- | --- | --- |
 | `list_vault_folders` | `secrets.read` | Folder paths, root first |
 | `list_vault_secrets` | `secrets.read` | Keys/comments/updated-at in one folder — **never values** |
-| `get_vault_secret` | `secrets.read` | One value |
+| `get_vault_secret` | `secrets.read` | One value, **into your context** |
+| `call_api_with_secret` | `secrets.read` | Calls an API with a value injected — **the value never comes back** |
 | `set_vault_secret` | `secrets.write` | Create or update one key |
 
 There is deliberately **no delete tool**. An agent may add and update; only a
 human removes a secret.
+
+#### Using a credential without reading it
+
+**Prefer `call_api_with_secret` over `get_vault_secret` whenever you need a
+credential in order to *do* something.** `get_vault_secret` returns the plaintext
+into your context, and everything in your context is sent to your model provider.
+That is the one place a household secret must never go.
+
+`call_api_with_secret` resolves the value inside the backend, adds it to an
+outbound request, and returns only the response — with every occurrence of the
+secret replaced by `[redacted]`. The plaintext never reaches you, and the audit
+row records the *key*, never the value.
+
+```json
+{
+  "url": "https://api.example.com/v1/me",
+  "key": "sn-orange-api-7f3a91",
+  "inject_as": "bearer"
+}
+```
+
+- `inject_as` — `bearer` sends `Authorization: Bearer <value>`; `header` and
+  `query` need a `name`; `basic_auth` needs a `username`.
+- `method`, `headers`, `body`, `content_type`, `timeout_s` — the request itself,
+  when a plain GET is not enough.
+- Only **public** http(s) targets are reachable. Loopback, private ranges, cloud
+  metadata (`169.254.169.254`) and anything that resolves privately are refused,
+  and the check is repeated on every redirect. That guard is not a suggestion —
+  do not look for a way around it.
+
+**Reach for `get_vault_secret` only when you genuinely need to *see* the value**
+— when the human asks you to check or compare it, and you both accept that it
+enters your context. Say so out loud when you do, so it is a decision rather than
+an accident.
 
 #### `{{secret:…}}` — placeholders in notes
 
@@ -200,7 +235,9 @@ is safe to search, embed and read.
 Rules for handling one:
 
 - **Never treat the placeholder as the value.** If you need to *use* a credential
-  — log in, call an API — resolve it with `get_vault_secret` first.
+  — log in, call an API — pass its key to `call_api_with_secret`, which injects
+  the value without it entering your context. `get_vault_secret` returns the
+  plaintext to you; reach for it only when you truly need to see it.
 - **Never write a resolved value back into a note.** That defeats the whole
   design and puts the secret in the embedding index. When writing a note that
   needs a secret, either reuse the existing placeholder or call

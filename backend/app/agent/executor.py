@@ -144,7 +144,20 @@ def _redact_params(params: dict[str, Any]) -> dict[str, Any]:
         lowered = key.casefold()
         return any(fragment in lowered for fragment in secret_fragments)
 
+    def scrub(value: Any) -> Any:
+        # Recurse, because a secret can hide one level down: ``headers`` on an
+        # outbound-call tool, or ``data`` on a block payload. Redacting only the
+        # top-level names let ``{"Authorization": "…"}`` through in plaintext.
+        if isinstance(value, dict):
+            return {
+                str(key): "[redacted]" if is_sensitive(str(key)) else scrub(item)
+                for key, item in value.items()
+            }
+        if isinstance(value, (list, tuple, set)):
+            return [scrub(item) for item in value]
+        return _jsonable(value)
+
     return {
-        key: "[redacted]" if is_sensitive(key) else _jsonable(value)
+        key: "[redacted]" if is_sensitive(key) else scrub(value)
         for key, value in params.items()
     }

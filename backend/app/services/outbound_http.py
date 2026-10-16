@@ -290,9 +290,11 @@ async def call_with_secret(
     if mode == "basic_auth" and not username:
         raise OutboundHttpError("inject_as='basic_auth' needs a 'username'.")
 
-    # Shape-check before touching the vault: a malformed target should not cost
-    # a secret read, and should not be recorded as one either.
-    _check_scheme_and_userinfo(url)
+    # Validate the target BEFORE touching the vault: an SSRF attempt must not
+    # cost a secret read, and must not be recorded as one either. The host is
+    # unaffected by query injection, and every redirect hop is re-validated
+    # inside _perform, so this does not replace the per-hop check.
+    validate_target(url)
 
     value = await infisical.get_secret(secret_key, path=secret_path)
     if not value:

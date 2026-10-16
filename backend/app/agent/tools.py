@@ -1,5 +1,6 @@
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -325,7 +326,10 @@ class CallApiWithSecretParams(BaseModel):
     name: str | None = Field(default=None, max_length=200)
     username: str | None = Field(default=None, max_length=200)
     headers: dict[str, str] | None = None
-    body: str | None = Field(default=None, max_length=256 * 1024)
+    # A JSON body arrives as a dict: the MCP layer parses any JSON-looking string
+    # argument into a real object before validation runs. outbound_http
+    # serialises a non-string back to JSON, so both shapes work.
+    body: str | dict[str, Any] | list[Any] | None = Field(default=None)
     content_type: str = Field(default="application/json", max_length=200)
     timeout_s: float = Field(default=20.0, ge=1, le=60)
     max_response_bytes: int = Field(default=200_000, ge=1024, le=1_000_000)

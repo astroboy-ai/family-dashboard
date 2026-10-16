@@ -205,7 +205,8 @@ row records the *key*, never the value.
 - `inject_as` — `bearer` sends `Authorization: Bearer <value>`; `header` and
   `query` need a `name`; `basic_auth` needs a `username`.
 - `method`, `headers`, `body`, `content_type`, `timeout_s` — the request itself,
-  when a plain GET is not enough.
+  when a plain GET is not enough. Pass `body` as a JSON **object**, not a
+  stringified one.
 - Only **public** http(s) targets are reachable. Loopback, private ranges, cloud
   metadata (`169.254.169.254`) and anything that resolves privately are refused,
   and the check is repeated on every redirect. That guard is not a suggestion —

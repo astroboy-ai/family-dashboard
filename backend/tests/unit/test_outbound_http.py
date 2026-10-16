@@ -181,6 +181,36 @@ async def test_basic_auth_redacts_the_value_and_its_encoding(
     assert "[redacted]" in result["body"]
 
 
+async def test_a_json_object_body_is_serialised(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The MCP layer hands a JSON body over as a dict, not a string.
+
+    Any argument that looks like JSON is parsed into a real object before
+    pydantic validates it, so `body: str` rejected every JSON body outright —
+    which is most API calls. A non-string has to be serialised back.
+    """
+
+    async def fake_get_secret(key: str, path: str = "/") -> str:
+        return "s"
+
+    captured: dict = {}
+
+    async def fake_perform(**kwargs) -> dict:
+        captured.update(kwargs)
+        return {"status_code": 200, "url": "", "headers": {}, "body": "", "truncated": False}
+
+    monkeypatch.setattr(outbound_http.infisical, "get_secret", fake_get_secret)
+    monkeypatch.setattr(outbound_http, "_perform", fake_perform)
+
+    await outbound_http.call_with_secret(
+        url="https://93.184.216.34/",
+        secret_key="sn-k",
+        method="POST",
+        body={"jsonrpc": "2.0", "id": 1},
+    )
+
+    assert captured["payload"] == b'{"jsonrpc": "2.0", "id": 1}'
+
+
 async def test_refused_target_is_rejected_before_the_vault_is_read(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

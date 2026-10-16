@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import base64
 import ipaddress
+import json
 import socket
 from typing import Any
 from urllib.parse import quote, urljoin, urlparse, urlunparse
@@ -260,7 +261,11 @@ async def call_with_secret(
     name: str | None = None,
     username: str | None = None,
     headers: dict[str, str] | None = None,
-    body: str | None = None,
+    # The MCP layer parses an argument that looks like JSON into a real object
+    # before pydantic ever sees it, so a JSON body arrives as a dict and a bare
+    # `str` annotation rejects it outright. Accept both shapes; a non-string is
+    # serialised back to JSON below.
+    body: str | dict[str, Any] | list[Any] | None = None,
     content_type: str = "application/json",
     timeout_s: float = 20.0,
     max_response_bytes: int = 200_000,
@@ -324,7 +329,12 @@ async def call_with_secret(
         request_headers["Authorization"] = f"Basic {encoded}"
         redact_forms.append(encoded)
 
-    payload = body.encode("utf-8") if isinstance(body, str) else None
+    if body is not None and not isinstance(body, str):
+        body = json.dumps(body, ensure_ascii=False)
+    if body is not None and len(body.encode("utf-8")) > 256 * 1024:
+        raise OutboundHttpError("The request body is larger than 256 KiB.")
+
+    payload = body.encode("utf-8") if body is not None else None
     timeout = httpx.Timeout(timeout_s)
 
     try:

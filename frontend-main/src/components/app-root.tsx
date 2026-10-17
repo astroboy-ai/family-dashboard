@@ -7,7 +7,7 @@ import { ConfirmDialogHost } from "@/components/confirm-dialog";
 
 export function AppRoot({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  if (pathname === "/login" || pathname === "/setup") return children;
+  if (pathname === "/login" || pathname === "/setup" || pathname === "/colab-auth") return children;
   return (
     <AppShell>
       {children}
